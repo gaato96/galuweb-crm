@@ -18,7 +18,7 @@ const PAGE_TITLES: Record<string, string> = {
 export default function Header() {
     const pathname = usePathname();
     const baseRoute = "/" + (pathname.split("/")[1] || "");
-    const title = PAGE_TITLES[baseRoute] || "Nexus CRM";
+    const title = PAGE_TITLES[baseRoute] || "Galu CRM";
 
     return (
         <header className="sticky top-0 z-30 h-[65px] flex items-center justify-between px-6 border-b border-border glass">

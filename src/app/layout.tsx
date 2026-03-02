@@ -5,7 +5,7 @@ import Header from "@/components/layout/header";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
-  title: "Nexus CRM — Gestión de Agencia Web",
+  title: "Galu CRM — Gestión de Agencia Web",
   description: "CRM completo para agencias de diseño web. Gestiona clientes, proyectos, cotizaciones y más.",
 };
 

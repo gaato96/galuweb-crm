@@ -80,7 +80,7 @@ export default function PortalClient({ slug }: { slug: string }) {
                         <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/20">
                             <Zap className="w-4 h-4 text-primary" />
                         </div>
-                        <span className="text-sm font-bold gradient-text">Nexus CRM</span>
+                        <span className="text-sm font-bold gradient-text">Galu CRM</span>
                     </div>
                     <span className="text-xs text-muted-foreground">Portal del Cliente</span>
                 </div>
@@ -233,7 +233,7 @@ export default function PortalClient({ slug }: { slug: string }) {
                 <div className="text-center py-8 border-t border-border">
                     <div className="flex items-center justify-center gap-2 mb-2">
                         <Zap className="w-4 h-4 text-primary" />
-                        <span className="text-sm font-bold gradient-text">Nexus CRM</span>
+                        <span className="text-sm font-bold gradient-text">Galu CRM</span>
                     </div>
                     <p className="text-xs text-muted-foreground">Powered by tu Agencia Web</p>
                 </div>

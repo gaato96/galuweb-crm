@@ -48,7 +48,7 @@ export default function Sidebar() {
                 </div>
                 {!collapsed && (
                     <div className="overflow-hidden">
-                        <h1 className="text-lg font-bold gradient-text tracking-tight">Nexus</h1>
+                        <h1 className="text-lg font-bold gradient-text tracking-tight">Galu</h1>
                         <p className="text-[10px] text-muted-foreground -mt-1 tracking-widest uppercase">CRM</p>
                     </div>
                 )}
