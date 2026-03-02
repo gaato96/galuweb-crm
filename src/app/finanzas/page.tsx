@@ -20,41 +20,61 @@ export default function FinanzasPage() {
     const [showNew, setShowNew] = useState(false);
     const [form, setForm] = useState({ monto: 0, tipo: "ingreso" as TipoFinanza, descripcion: "", cuotas_totales: 1, cuota_actual: 1, fecha_cobro: "", proyecto_id: "" });
 
-    const reload = () => setFinanzas(finanzasStore.getAll());
-    useEffect(() => { reload(); setMounted(true); }, []);
+    const [proyectos, setProyectos] = useState<any[]>([]);
 
-    const proyectos = proyectosStore.getAll();
-
-    const handleCreate = () => {
-        if (!form.monto || !form.descripcion.trim()) { toast.error("Completa monto y descripción"); return; }
-        if (form.cuotas_totales > 1) {
-            // Create multiple cuota entries
-            const montoPerCuota = form.monto / form.cuotas_totales;
-            for (let i = 1; i <= form.cuotas_totales; i++) {
-                const fecha = new Date(form.fecha_cobro || Date.now());
-                fecha.setMonth(fecha.getMonth() + (i - 1));
-                finanzasStore.create({
-                    monto: Math.round(montoPerCuota * 100) / 100,
-                    tipo: form.tipo,
-                    descripcion: `${form.descripcion} — Cuota ${i}/${form.cuotas_totales}`,
-                    cuotas_totales: form.cuotas_totales,
-                    cuota_actual: i,
-                    fecha_cobro: fecha.toISOString().split("T")[0],
-                    proyecto_id: form.proyecto_id || null,
-                });
-            }
-            toast.success(`${form.cuotas_totales} cuotas creadas`);
-        } else {
-            finanzasStore.create({
-                ...form,
-                proyecto_id: form.proyecto_id || null,
-                fecha_cobro: form.fecha_cobro || new Date().toISOString().split("T")[0],
-            });
-            toast.success("Registro financiero creado");
+    const reload = async () => {
+        try {
+            const [f, p] = await Promise.all([
+                finanzasStore.getAll(),
+                proyectosStore.getAll()
+            ]);
+            setFinanzas(f);
+            setProyectos(p);
+        } catch (error) {
+            console.error("Error reloading finances/projects:", error);
         }
-        setForm({ monto: 0, tipo: "ingreso", descripcion: "", cuotas_totales: 1, cuota_actual: 1, fecha_cobro: "", proyecto_id: "" });
-        setShowNew(false);
-        reload();
+    };
+    useEffect(() => { reload().then(() => setMounted(true)); }, []);
+
+    // Remove direct call to store in render
+    // const proyectos = proyectosStore.getAll();
+
+    const handleCreate = async () => {
+        if (!form.monto || !form.descripcion.trim()) { toast.error("Completa monto y descripción"); return; }
+        try {
+            if (form.cuotas_totales > 1) {
+                // Create multiple cuota entries
+                const montoPerCuota = form.monto / form.cuotas_totales;
+                const creations = [];
+                for (let i = 1; i <= form.cuotas_totales; i++) {
+                    const fecha = new Date(form.fecha_cobro || Date.now());
+                    fecha.setMonth(fecha.getMonth() + (i - 1));
+                    creations.push(finanzasStore.create({
+                        monto: Math.round(montoPerCuota * 100) / 100,
+                        tipo: form.tipo,
+                        descripcion: `${form.descripcion} — Cuota ${i}/${form.cuotas_totales}`,
+                        cuotas_totales: form.cuotas_totales,
+                        cuota_actual: i,
+                        fecha_cobro: fecha.toISOString().split("T")[0],
+                        proyecto_id: form.proyecto_id || null,
+                    }));
+                }
+                await Promise.all(creations);
+                toast.success(`${form.cuotas_totales} cuotas creadas`);
+            } else {
+                await finanzasStore.create({
+                    ...form,
+                    proyecto_id: form.proyecto_id || null,
+                    fecha_cobro: form.fecha_cobro || new Date().toISOString().split("T")[0],
+                });
+                toast.success("Registro financiero creado");
+            }
+            setForm({ monto: 0, tipo: "ingreso", descripcion: "", cuotas_totales: 1, cuota_actual: 1, fecha_cobro: "", proyecto_id: "" });
+            setShowNew(false);
+            await reload();
+        } catch (error) {
+            toast.error("Error al guardar registro financiero");
+        }
     };
 
     if (!mounted) {

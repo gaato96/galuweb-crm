@@ -15,21 +15,36 @@ export default function PortalClient({ slug }: { slug: string }) {
     const [notFound, setNotFound] = useState(false);
 
     useEffect(() => {
-        const allProyectos = proyectosStore.getAll();
-        const found = allProyectos.find((p) => p.slug_portal === slug);
-        if (!found) {
-            setNotFound(true);
-            setMounted(true);
-            return;
-        }
-        setProyecto(found);
-        setTareas(tareasStore.getByProyecto(found.id));
-        const foundCliente = clientesStore.getById(found.cliente_id);
-        setCliente(foundCliente || null);
-        if (foundCliente) {
-            setCotizaciones(cotizacionesStore.getByCliente(foundCliente.id));
-        }
-        setMounted(true);
+        const load = async () => {
+            try {
+                const allProyectos = await proyectosStore.getAll();
+                const found = allProyectos.find((p) => p.slug_portal === slug);
+                if (!found) {
+                    setNotFound(true);
+                    setMounted(true);
+                    return;
+                }
+                setProyecto(found);
+
+                const [pts, foundCliente] = await Promise.all([
+                    tareasStore.getByProyecto(found.id),
+                    clientesStore.getById(found.cliente_id)
+                ]);
+
+                setTareas(pts);
+                setCliente(foundCliente || null);
+
+                if (foundCliente) {
+                    const quotes = await cotizacionesStore.getByCliente(foundCliente.id);
+                    setCotizaciones(quotes);
+                }
+            } catch (error) {
+                console.error("Error loading portal data:", error);
+            } finally {
+                setMounted(true);
+            }
+        };
+        load();
     }, [slug]);
 
     if (!mounted) {

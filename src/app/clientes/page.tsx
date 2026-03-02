@@ -106,31 +106,36 @@ function NuevoProyectoModal({ open, onClose, cliente }: { open: boolean; onClose
 
     if (!open || !cliente) return null;
 
-    const handleCreate = () => {
+    const handleCreate = async () => {
         if (!nombre.trim()) { toast.error("Nombre de proyecto requerido"); return; }
-        const proyecto = proyectosStore.create({
-            cliente_id: cliente.id,
-            nombre,
-            tipo_proyecto: tipo,
-            figma_url: "",
-            calendly_url: "https://calendly.com/agencia/reunion",
-            slug_portal: slugify(nombre + "-" + Date.now().toString(36)),
-            estado: "activo",
-        });
-        // Auto-create tasks from template
-        const template = PROJECT_TEMPLATES[tipo];
-        tareasStore.createBulk(
-            template.map((t) => ({
-                proyecto_id: proyecto.id,
-                titulo: t.titulo,
-                descripcion: "",
-                prioridad: t.prioridad,
-                estado: "pendiente" as const,
-                categoria: t.categoria,
-            }))
-        );
-        toast.success(`Proyecto "${nombre}" creado con ${template.length} tareas`);
-        onClose();
+        try {
+            const proyecto = await proyectosStore.create({
+                cliente_id: cliente.id,
+                nombre,
+                tipo_proyecto: tipo,
+                figma_url: "",
+                calendly_url: "https://calendly.com/agencia/reunion",
+                slug_portal: slugify(nombre + "-" + Date.now().toString(36)),
+                estado: "activo",
+            });
+            // Auto-create tasks from template
+            const template = PROJECT_TEMPLATES[tipo];
+            await tareasStore.createBulk(
+                template.map((t) => ({
+                    proyecto_id: proyecto.id,
+                    titulo: t.titulo,
+                    descripcion: "",
+                    prioridad: t.prioridad,
+                    estado: "pendiente" as const,
+                    categoria: t.categoria,
+                }))
+            );
+            toast.success(`Proyecto "${nombre}" creado con ${template.length} tareas`);
+            onClose();
+        } catch (error) {
+            toast.error("Error al crear el proyecto");
+            console.error(error);
+        }
     };
 
     const TIPOS = [
@@ -381,22 +386,40 @@ export default function ClientesPage() {
     const [search, setSearch] = useState("");
     const [viewMode, setViewMode] = useState<"pipeline" | "list">("pipeline");
 
-    const reload = () => setClientes(clientesStore.getAll());
-    useEffect(() => { reload(); setMounted(true); }, []);
+    const reload = async () => {
+        try {
+            const data = await clientesStore.getAll();
+            setClientes(data);
+        } catch (error) {
+            console.error("Error reloading clients:", error);
+        }
+    };
+    useEffect(() => {
+        reload().then(() => setMounted(true));
+    }, []);
 
-    const handleCreate = (data: Partial<Cliente>) => {
-        clientesStore.create(data as Omit<Cliente, "id" | "created_at">);
-        reload();
-        toast.success("Contacto agregado");
+    const handleCreate = async (data: Partial<Cliente>) => {
+        try {
+            await clientesStore.create(data as Omit<Cliente, "id" | "created_at">);
+            await reload();
+            toast.success("Contacto agregado");
+        } catch (error) {
+            toast.error("Error al añadir contacto");
+        }
     };
 
-    const handleUpdate = (id: string, data: Partial<Cliente>) => {
-        clientesStore.update(id, data);
-        reload();
-        setSelected(clientesStore.getById(id) || null);
+    const handleUpdate = async (id: string, data: Partial<Cliente>) => {
+        try {
+            await clientesStore.update(id, data);
+            await reload();
+            const updated = await clientesStore.getById(id);
+            setSelected(updated);
+        } catch (error) {
+            toast.error("Error al actualizar");
+        }
     };
 
-    const handleAdvance = (cliente: Cliente) => {
+    const handleAdvance = async (cliente: Cliente) => {
         const NEXT: Partial<Record<EtapaCliente, EtapaCliente>> = {
             contacto: "investigando", investigando: "calificado", calificado: "contactado",
             contactado: "cotizado", cotizado: "cliente_actual", cliente_actual: "cliente_finalizado",
@@ -404,25 +427,35 @@ export default function ClientesPage() {
         const next = NEXT[cliente.etapa];
         if (!next) return;
 
-        if (next === "cliente_actual") {
-            clientesStore.update(cliente.id, { etapa: next });
-            reload();
-            setShowDetail(false);
-            setSelected(clientesStore.getById(cliente.id) || null);
-            setShowProject(true);
-            return;
-        }
+        try {
+            if (next === "cliente_actual") {
+                await clientesStore.update(cliente.id, { etapa: next });
+                await reload();
+                setShowDetail(false);
+                const updated = await clientesStore.getById(cliente.id);
+                setSelected(updated);
+                setShowProject(true);
+                return;
+            }
 
-        clientesStore.update(cliente.id, { etapa: next });
-        reload();
-        setSelected(clientesStore.getById(cliente.id) || null);
-        toast.success(`${cliente.nombre} → ${ETAPA_LABELS[next]}`);
+            await clientesStore.update(cliente.id, { etapa: next });
+            await reload();
+            const updated = await clientesStore.getById(cliente.id);
+            setSelected(updated);
+            toast.success(`${cliente.nombre} → ${ETAPA_LABELS[next]}`);
+        } catch (error) {
+            toast.error("Error al avanzar etapa");
+        }
     };
 
-    const handleDelete = (id: string) => {
-        clientesStore.delete(id);
-        reload();
-        toast.success("Contacto eliminado");
+    const handleDelete = async (id: string) => {
+        try {
+            await clientesStore.delete(id);
+            await reload();
+            toast.success("Contacto eliminado");
+        } catch (error) {
+            toast.error("Error al eliminar");
+        }
     };
 
     const filtered = clientes.filter(

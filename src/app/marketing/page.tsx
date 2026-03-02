@@ -14,28 +14,47 @@ export default function MarketingPage() {
     const [showNew, setShowNew] = useState(false);
     const [form, setForm] = useState({ titulo: "", descripcion: "", prioridad: "media" as Prioridad, categoria: "marketing" as CategoriaTarea });
 
-    const reload = () => setTareas(tareasStore.getMarketing());
-    useEffect(() => { reload(); setMounted(true); }, []);
+    const reload = async () => {
+        try {
+            const data = await tareasStore.getMarketing();
+            setTareas(data);
+        } catch (error) {
+            console.error("Error reloading marketing tasks:", error);
+        }
+    };
+    useEffect(() => { reload().then(() => setMounted(true)); }, []);
 
-    const handleCreate = () => {
+    const handleCreate = async () => {
         if (!form.titulo.trim()) { toast.error("Título requerido"); return; }
-        tareasStore.create({ ...form, proyecto_id: null, estado: "pendiente" });
-        setForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "marketing" });
-        setShowNew(false);
-        reload();
-        toast.success("Tarea de marketing creada");
+        try {
+            await tareasStore.create({ ...form, proyecto_id: null, estado: "pendiente" });
+            setForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "marketing" });
+            setShowNew(false);
+            await reload();
+            toast.success("Tarea de marketing creada");
+        } catch (error) {
+            toast.error("Error al crear tarea");
+        }
     };
 
-    const toggleTarea = (id: string, estado: EstadoTarea) => {
+    const toggleTarea = async (id: string, estado: EstadoTarea) => {
         const next = estado === "completada" ? "pendiente" : estado === "pendiente" ? "en_progreso" : "completada";
-        tareasStore.update(id, { estado: next });
-        reload();
+        try {
+            await tareasStore.update(id, { estado: next });
+            await reload();
+        } catch (error) {
+            toast.error("Error al actualizar tarea");
+        }
     };
 
-    const deleteTarea = (id: string) => {
-        tareasStore.delete(id);
-        reload();
-        toast.success("Tarea eliminada");
+    const deleteTarea = async (id: string) => {
+        try {
+            await tareasStore.delete(id);
+            await reload();
+            toast.success("Tarea eliminada");
+        } catch (error) {
+            toast.error("Error al eliminar tarea");
+        }
     };
 
     if (!mounted) {

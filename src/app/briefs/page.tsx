@@ -17,11 +17,19 @@ export default function BriefsPage() {
     const [clienteId, setClienteId] = useState("");
     const [respuestas, setRespuestas] = useState<BriefRespuesta[]>([]);
 
-    const reload = () => {
-        setBriefs(briefsStore.getAll());
-        setClientes(clientesStore.getAll());
+    const reload = async () => {
+        try {
+            const [b, c] = await Promise.all([
+                briefsStore.getAll(),
+                clientesStore.getAll()
+            ]);
+            setBriefs(b);
+            setClientes(c);
+        } catch (error) {
+            console.error("Error reloading briefs:", error);
+        }
     };
-    useEffect(() => { reload(); setMounted(true); }, []);
+    useEffect(() => { reload().then(() => setMounted(true)); }, []);
 
     const startNew = () => {
         setRespuestas(BRIEF_QUESTIONS.map((q) => ({ pregunta: q, respuesta: "" })));
@@ -37,18 +45,22 @@ export default function BriefsPage() {
         setShowNew(true);
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (!clienteId) { toast.error("Selecciona un cliente"); return; }
-        if (editing) {
-            briefsStore.update(editing.id, { respuestas });
-            toast.success("Brief actualizado");
-        } else {
-            briefsStore.create({ cliente_id: clienteId, respuestas });
-            toast.success("Brief creado");
+        try {
+            if (editing) {
+                await briefsStore.update(editing.id, { respuestas });
+                toast.success("Brief actualizado");
+            } else {
+                await briefsStore.create({ cliente_id: clienteId, respuestas });
+                toast.success("Brief creado");
+            }
+            setShowNew(false);
+            setEditing(null);
+            await reload();
+        } catch (error) {
+            toast.error("Error al guardar brief");
         }
-        setShowNew(false);
-        setEditing(null);
-        reload();
     };
 
     const updateRespuesta = (i: number, value: string) => {

@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 
-const NAV_ITEMS = [
+export const NAV_ITEMS = [
     { label: "Dashboard", href: "/", icon: LayoutDashboard },
     { label: "Clientes", href: "/clientes", icon: Users },
     { label: "Proyectos", href: "/proyectos", icon: FolderKanban },
@@ -37,7 +37,7 @@ export default function Sidebar() {
     return (
         <aside
             className={cn(
-                "fixed left-0 top-0 z-40 h-screen flex flex-col border-r border-border bg-sidebar transition-all duration-300",
+                "fixed left-0 top-0 z-40 h-screen hidden lg:flex flex-col border-r border-border bg-sidebar transition-all duration-300",
                 collapsed ? "w-[70px]" : "w-[250px]"
             )}
         >

@@ -33,25 +33,40 @@ export default function RecursosPage() {
     const [filterTipo, setFilterTipo] = useState<string>("todos");
     const [form, setForm] = useState({ titulo: "", url: "", tipo: "link" as TipoRecurso, tags: "", descripcion: "" });
 
-    const reload = () => setRecursos(recursosStore.getAll());
-    useEffect(() => { reload(); setMounted(true); }, []);
+    const reload = async () => {
+        try {
+            const data = await recursosStore.getAll();
+            setRecursos(data);
+        } catch (error) {
+            console.error("Error reloading resources:", error);
+        }
+    };
+    useEffect(() => { reload().then(() => setMounted(true)); }, []);
 
-    const handleCreate = () => {
+    const handleCreate = async () => {
         if (!form.titulo.trim()) { toast.error("Título requerido"); return; }
-        recursosStore.create({
-            ...form,
-            tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
-        });
-        setForm({ titulo: "", url: "", tipo: "link", tags: "", descripcion: "" });
-        setShowNew(false);
-        reload();
-        toast.success("Recurso guardado");
+        try {
+            await recursosStore.create({
+                ...form,
+                tags: form.tags.split(",").map((t) => t.trim()).filter(Boolean),
+            });
+            setForm({ titulo: "", url: "", tipo: "link", tags: "", descripcion: "" });
+            setShowNew(false);
+            await reload();
+            toast.success("Recurso guardado");
+        } catch (error) {
+            toast.error("Error al guardar recurso");
+        }
     };
 
-    const deleteRecurso = (id: string) => {
-        recursosStore.delete(id);
-        reload();
-        toast.success("Recurso eliminado");
+    const deleteRecurso = async (id: string) => {
+        try {
+            await recursosStore.delete(id);
+            await reload();
+            toast.success("Recurso eliminado");
+        } catch (error) {
+            toast.error("Error al eliminar recurso");
+        }
     };
 
     const allTags = Array.from(new Set(recursos.flatMap((r) => r.tags)));

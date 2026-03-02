@@ -73,18 +73,26 @@ function ProyectoDetailModal({ open, onClose, proyecto, reload }: { open: boolea
     const [cliente, setCliente] = useState<Cliente | undefined>();
 
     useEffect(() => {
-        if (proyecto) {
-            setTareas(tareasStore.getByProyecto(proyecto.id));
-            setCliente(clientesStore.getById(proyecto.cliente_id));
-        }
+        const load = async () => {
+            if (proyecto) {
+                const [pts, cl] = await Promise.all([
+                    tareasStore.getByProyecto(proyecto.id),
+                    clientesStore.getById(proyecto.cliente_id)
+                ]);
+                setTareas(pts);
+                setCliente(cl || undefined);
+            }
+        };
+        load();
     }, [proyecto]);
 
     if (!open || !proyecto) return null;
 
-    const toggleTarea = (tareaId: string, currentEstado: string) => {
+    const toggleTarea = async (tareaId: string, currentEstado: string) => {
         const next = currentEstado === "completada" ? "pendiente" : "completada";
-        tareasStore.update(tareaId, { estado: next as Tarea["estado"] });
-        setTareas(tareasStore.getByProyecto(proyecto.id));
+        await tareasStore.update(tareaId, { estado: next as Tarea["estado"] });
+        const updatedTareas = await tareasStore.getByProyecto(proyecto.id);
+        setTareas(updatedTareas);
         reload();
     };
 
@@ -160,13 +168,28 @@ function ProyectoDetailModal({ open, onClose, proyecto, reload }: { open: boolea
 
 export default function ProyectosPage() {
     const [proyectos, setProyectos] = useState<Proyecto[]>([]);
+    const [tareas, setTareas] = useState<Tarea[]>([]);
+    const [clientes, setClientes] = useState<Cliente[]>([]);
     const [mounted, setMounted] = useState(false);
     const [selected, setSelected] = useState<Proyecto | null>(null);
     const [showDetail, setShowDetail] = useState(false);
     const [filter, setFilter] = useState<string>("todos");
 
-    const reload = () => setProyectos(proyectosStore.getAll());
-    useEffect(() => { reload(); setMounted(true); }, []);
+    const reload = async () => {
+        try {
+            const [p, t, c] = await Promise.all([
+                proyectosStore.getAll(),
+                tareasStore.getAll(),
+                clientesStore.getAll()
+            ]);
+            setProyectos(p);
+            setTareas(t);
+            setClientes(c);
+        } catch (error) {
+            console.error("Error reloading projects:", error);
+        }
+    };
+    useEffect(() => { reload().then(() => setMounted(true)); }, []);
 
     if (!mounted) {
         return (
@@ -206,8 +229,8 @@ export default function ProyectosPage() {
                     <ProyectoCard
                         key={p.id}
                         proyecto={p}
-                        tareas={tareasStore.getByProyecto(p.id)}
-                        cliente={clientesStore.getById(p.cliente_id)}
+                        tareas={tareas.filter(t => t.proyecto_id === p.id)}
+                        cliente={clientes.find(c => c.id === p.cliente_id)}
                         onClick={() => { setSelected(p); setShowDetail(true); }}
                     />
                 ))}

@@ -28,11 +28,19 @@ export default function CotizacionesPage() {
     const [items, setItems] = useState<CotizacionItem[]>([{ descripcion: "", precio: 0 }]);
     const [notas, setNotas] = useState("");
 
-    const reload = () => {
-        setCotizaciones(cotizacionesStore.getAll());
-        setClientes(clientesStore.getAll());
+    const reload = async () => {
+        try {
+            const [q, c] = await Promise.all([
+                cotizacionesStore.getAll(),
+                clientesStore.getAll()
+            ]);
+            setCotizaciones(q);
+            setClientes(c);
+        } catch (error) {
+            console.error("Error reloading quotes:", error);
+        }
     };
-    useEffect(() => { reload(); setMounted(true); }, []);
+    useEffect(() => { reload().then(() => setMounted(true)); }, []);
 
     const addItem = () => setItems([...items, { descripcion: "", precio: 0 }]);
     const removeItem = (i: number) => setItems(items.filter((_, idx) => idx !== i));
@@ -44,23 +52,27 @@ export default function CotizacionesPage() {
     };
     const total = items.reduce((sum, item) => sum + item.precio, 0);
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (!clienteId) { toast.error("Selecciona un cliente"); return; }
         if (items.length === 0 || !items[0].descripcion) { toast.error("Agrega al menos un ítem"); return; }
-        cotizacionesStore.create({
-            cliente_id: clienteId,
-            total,
-            items: items.filter((i) => i.descripcion),
-            estado: "borrador",
-            pdf_url: "",
-            notas,
-        });
-        setShowNew(false);
-        setItems([{ descripcion: "", precio: 0 }]);
-        setClienteId("");
-        setNotas("");
-        reload();
-        toast.success("Cotización creada");
+        try {
+            await cotizacionesStore.create({
+                cliente_id: clienteId,
+                total,
+                items: items.filter((i) => i.descripcion),
+                estado: "borrador",
+                pdf_url: "",
+                notas,
+            });
+            setShowNew(false);
+            setItems([{ descripcion: "", precio: 0 }]);
+            setClienteId("");
+            setNotas("");
+            await reload();
+            toast.success("Cotización creada");
+        } catch (error) {
+            toast.error("Error al guardar cotización");
+        }
     };
 
     const handleAIGenerate = async () => {
@@ -82,10 +94,14 @@ export default function CotizacionesPage() {
         toast.success("Ítems generados por IA — revisa y ajusta los precios");
     };
 
-    const updateEstado = (id: string, estado: EstadoCotizacion) => {
-        cotizacionesStore.update(id, { estado });
-        reload();
-        toast.success(`Cotización marcada como ${estado}`);
+    const updateEstado = async (id: string, estado: EstadoCotizacion) => {
+        try {
+            await cotizacionesStore.update(id, { estado });
+            await reload();
+            toast.success(`Cotización marcada como ${estado}`);
+        } catch (error) {
+            toast.error("Error al actualizar estado");
+        }
     };
 
     if (!mounted) {

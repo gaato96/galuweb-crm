@@ -16,34 +16,62 @@ export default function TareasPage() {
     const [filterProyecto, setFilterProyecto] = useState<string>("todos");
     const [filterEstado, setFilterEstado] = useState<string>("todos");
 
-    const reload = () => setTareas(tareasStore.getAll());
-    useEffect(() => { reload(); setMounted(true); }, []);
+    const [proyectos, setProyectos] = useState<any[]>([]);
+
+    const reload = async () => {
+        try {
+            const [t, p] = await Promise.all([
+                tareasStore.getAll(),
+                proyectosStore.getAll()
+            ]);
+            setTareas(t);
+            setProyectos(p);
+        } catch (error) {
+            console.error("Error reloading tasks/projects:", error);
+        }
+    };
+    useEffect(() => {
+        reload().then(() => setMounted(true));
+    }, []);
 
     // New task form
     const [form, setForm] = useState({ titulo: "", descripcion: "", prioridad: "media" as Prioridad, categoria: "otro" as CategoriaTarea, proyecto_id: "" });
 
-    const handleCreate = () => {
+    const handleCreate = async () => {
         if (!form.titulo.trim()) { toast.error("Título requerido"); return; }
-        tareasStore.create({ ...form, proyecto_id: form.proyecto_id || null, estado: "pendiente" });
-        setForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "otro", proyecto_id: "" });
-        setShowNew(false);
-        reload();
-        toast.success("Tarea creada");
+        try {
+            await tareasStore.create({ ...form, proyecto_id: form.proyecto_id || null, estado: "pendiente" });
+            setForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "otro", proyecto_id: "" });
+            setShowNew(false);
+            await reload();
+            toast.success("Tarea creada");
+        } catch (error) {
+            toast.error("Error al crear tarea");
+        }
     };
 
-    const toggleTarea = (id: string, estado: EstadoTarea) => {
+    const toggleTarea = async (id: string, estado: EstadoTarea) => {
         const next = estado === "completada" ? "pendiente" : estado === "pendiente" ? "en_progreso" : "completada";
-        tareasStore.update(id, { estado: next });
-        reload();
+        try {
+            await tareasStore.update(id, { estado: next });
+            await reload();
+        } catch (error) {
+            toast.error("Error al actualizar tarea");
+        }
     };
 
-    const deleteTarea = (id: string) => {
-        tareasStore.delete(id);
-        reload();
-        toast.success("Tarea eliminada");
+    const deleteTarea = async (id: string) => {
+        try {
+            await tareasStore.delete(id);
+            await reload();
+            toast.success("Tarea eliminada");
+        } catch (error) {
+            toast.error("Error al eliminar tarea");
+        }
     };
 
-    const proyectos = proyectosStore.getAll();
+    // Remove direct call to store in render
+    // const proyectos = proyectosStore.getAll();
 
     let filtered = tareas;
     if (filterPrioridad !== "todas") filtered = filtered.filter((t) => t.prioridad === filterPrioridad);

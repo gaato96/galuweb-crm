@@ -19,12 +19,12 @@ export default function RootLayout({
       <body>
         <div className="flex min-h-screen">
           <Sidebar />
-          <main className="flex-1 ml-[250px] transition-all duration-300">
+          <div className="flex-1 flex flex-col lg:pl-[250px] transition-all duration-300">
             <Header />
-            <div className="p-6">
+            <main className="flex-1 p-4 lg:p-6 overflow-x-hidden">
               {children}
-            </div>
-          </main>
+            </main>
+          </div>
         </div>
         <Toaster
           position="bottom-right"

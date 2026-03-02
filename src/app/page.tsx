@@ -63,11 +63,25 @@ export default function DashboardPage() {
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
-    setClientes(clientesStore.getAll());
-    setProyectos(proyectosStore.getAll());
-    setFinanzas(finanzasStore.getAll());
-    setTareas(tareasStore.getAll());
-    setMounted(true);
+    const fetchData = async () => {
+      try {
+        const [c, p, f, t] = await Promise.all([
+          clientesStore.getAll(),
+          proyectosStore.getAll(),
+          finanzasStore.getAll(),
+          tareasStore.getAll(),
+        ]);
+        setClientes(c);
+        setProyectos(p);
+        setFinanzas(f);
+        setTareas(t);
+      } catch (error) {
+        console.error("Error fetching dashboard data:", error);
+      } finally {
+        setMounted(true);
+      }
+    };
+    fetchData();
   }, []);
 
   if (!mounted) {
