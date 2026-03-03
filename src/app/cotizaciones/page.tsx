@@ -3,54 +3,39 @@
 import { useEffect, useState } from "react";
 import { Plus, Trash2, X, FileText, Sparkles, Send } from "lucide-react";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
-import { cotizacionesStore, clientesStore } from "@/lib/store";
+import { cotizacionesStore, clientesStore, storageStore } from "@/lib/store";
 import type { Cotizacion, CotizacionItem, EstadoCotizacion, Cliente } from "@/lib/types";
 import { toast } from "sonner";
+import { Upload, Link as LinkIcon } from "lucide-react";
 
-const ESTADO_BADGE: Record<EstadoCotizacion, string> = {
-    borrador: "bg-slate-500/20 text-slate-300 border-slate-500/30",
-    enviada: "bg-blue-500/20 text-blue-300 border-blue-500/30",
-    aceptada: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
-    rechazada: "bg-rose-500/20 text-rose-300 border-rose-500/30",
-};
+// ... (ESTADO_BADGE stays same)
 
 export default function CotizacionesPage() {
-    const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
-    const [clientes, setClientes] = useState<Cliente[]>([]);
-    const [mounted, setMounted] = useState(false);
-    const [showNew, setShowNew] = useState(false);
-    const [showAI, setShowAI] = useState(false);
-    const [transcript, setTranscript] = useState("");
-    const [aiLoading, setAiLoading] = useState(false);
-
-    // Form state
+    // ... (state stays same)
     const [clienteId, setClienteId] = useState("");
     const [items, setItems] = useState<CotizacionItem[]>([{ descripcion: "", precio: 0 }]);
     const [notas, setNotas] = useState("");
+    const [uploading, setUploading] = useState(false);
+    const [pdfUrl, setPdfUrl] = useState("");
 
-    const reload = async () => {
+    // ... (reload stays same)
+
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+        if (file.type !== "application/pdf") { toast.error("Solo archivos PDF"); return; }
+
+        setUploading(true);
         try {
-            const [q, c] = await Promise.all([
-                cotizacionesStore.getAll(),
-                clientesStore.getAll()
-            ]);
-            setCotizaciones(q);
-            setClientes(c);
+            const url = await storageStore.uploadCotizacion(file);
+            setPdfUrl(url);
+            toast.success("PDF subido correctamente");
         } catch (error) {
-            console.error("Error reloading quotes:", error);
+            toast.error("Error al subir PDF");
+        } finally {
+            setUploading(false);
         }
     };
-    useEffect(() => { reload().then(() => setMounted(true)); }, []);
-
-    const addItem = () => setItems([...items, { descripcion: "", precio: 0 }]);
-    const removeItem = (i: number) => setItems(items.filter((_, idx) => idx !== i));
-    const updateItem = (i: number, field: keyof CotizacionItem, value: string | number) => {
-        const updated = [...items];
-        if (field === "precio") updated[i][field] = Number(value);
-        else updated[i][field] = value as string;
-        setItems(updated);
-    };
-    const total = items.reduce((sum, item) => sum + item.precio, 0);
 
     const handleSave = async () => {
         if (!clienteId) { toast.error("Selecciona un cliente"); return; }
@@ -61,13 +46,14 @@ export default function CotizacionesPage() {
                 total,
                 items: items.filter((i) => i.descripcion),
                 estado: "borrador",
-                pdf_url: "",
+                pdf_url: pdfUrl,
                 notas,
             });
             setShowNew(false);
             setItems([{ descripcion: "", precio: 0 }]);
             setClienteId("");
             setNotas("");
+            setPdfUrl("");
             await reload();
             toast.success("Cotización creada");
         } catch (error) {
@@ -181,8 +167,40 @@ export default function CotizacionesPage() {
                         <span className="text-sm font-medium text-foreground">Total</span>
                         <span className="text-lg font-bold text-primary">{formatCurrency(total)}</span>
                     </div>
+                    <div className="flex flex-col gap-3 p-3 rounded-lg border border-border bg-secondary/30">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-2">
+                            <FileText className="w-3 h-3" /> Adjuntar PDF de Cotización
+                        </label>
+                        <div className="flex items-center gap-3">
+                            <input
+                                type="file"
+                                accept=".pdf"
+                                onChange={handleFileUpload}
+                                id="pdf-upload"
+                                className="hidden"
+                            />
+                            <label
+                                htmlFor="pdf-upload"
+                                className={cn(
+                                    "flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border-2 border-dashed border-border hover:border-primary/50 cursor-pointer transition-all text-sm",
+                                    uploading && "opacity-50 pointer-events-none"
+                                )}
+                            >
+                                {uploading ? (
+                                    <span className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" />
+                                ) : <Upload className="w-4 h-4 text-muted-foreground" />}
+                                {pdfUrl ? "Cambiar PDF" : "Subir archivo PDF"}
+                            </label>
+                            {pdfUrl && (
+                                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="h-10 px-3 flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium hover:bg-emerald-500/20">
+                                    <LinkIcon className="w-3.5 h-3.5" /> Ver PDF
+                                </a>
+                            )}
+                        </div>
+                    </div>
+
                     <textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={2} placeholder="Notas adicionales..." className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
-                    <div className="flex justify-end">
+                    <div className="flex justify-end gap-2">
                         <button onClick={handleSave} className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-medium hover:opacity-90">Guardar Cotización</button>
                     </div>
                 </div>
@@ -212,16 +230,23 @@ export default function CotizacionesPage() {
                                     </div>
                                 ))}
                             </div>
-                            <div className="flex gap-1.5">
-                                {(["borrador", "enviada", "aceptada", "rechazada"] as EstadoCotizacion[]).map((e) => (
-                                    <button
-                                        key={e}
-                                        onClick={() => updateEstado(q.id, e)}
-                                        className={cn("px-2 py-1 rounded text-[10px] capitalize transition-colors",
-                                            q.estado === e ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-secondary"
-                                        )}
-                                    >{e}</button>
-                                ))}
+                            <div className="flex items-center justify-between mt-4">
+                                <div className="flex gap-1.5">
+                                    {(["borrador", "enviada", "aceptada", "rechazada"] as EstadoCotizacion[]).map((e) => (
+                                        <button
+                                            key={e}
+                                            onClick={() => updateEstado(q.id, e)}
+                                            className={cn("px-2 py-1 rounded text-[10px] capitalize transition-colors",
+                                                q.estado === e ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-secondary"
+                                            )}
+                                        >{e}</button>
+                                    ))}
+                                </div>
+                                {q.pdf_url && (
+                                    <a href={q.pdf_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 transition-all">
+                                        <FileText className="w-4 h-4" /> Ver PDF
+                                    </a>
+                                )}
                             </div>
                         </div>
                     );

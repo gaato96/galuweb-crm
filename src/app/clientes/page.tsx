@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Search, Eye, Pencil, Trash2, MessageCircle, ArrowRight, X, ChevronDown } from "lucide-react";
+import { Plus, Search, Eye, Pencil, Trash2, MessageCircle, ArrowRight, X, ChevronDown, GripVertical } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { clientesStore, proyectosStore, tareasStore } from "@/lib/store";
 import type { Cliente, EtapaCliente, TipoProyecto } from "@/lib/types";
@@ -10,6 +10,17 @@ import { PROJECT_TEMPLATES } from "@/lib/templates";
 import { slugify } from "@/lib/utils";
 import { toast } from "sonner";
 import Link from "next/link";
+import {
+    DndContext,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    DragEndEvent,
+    useDraggable,
+    useDroppable,
+} from "@dnd-kit/core";
+import { storageStore } from "@/lib/store";
+import { Upload, FileText, Link as LinkIcon, File } from "lucide-react";
 
 // --- Nuevo Cliente Modal ---
 function NuevoClienteModal({
@@ -339,22 +350,94 @@ function ClienteDetailModal({
                     </div>
                 )}
 
-                {/* Contactado - Seguimiento */}
+                {/* Seguimiento & Cotización */}
                 {(cliente.etapa === "contactado" || cliente.etapa === "cotizado") && (
-                    <div className="mb-5">
-                        <h4 className="text-sm font-semibold text-foreground mb-3">Seguimiento</h4>
-                        <div className="flex gap-2 mb-3">
-                            <input value={seguimiento} onChange={(e) => setSeguimiento(e.target.value)} placeholder="Agregar nota..." className="flex-1 h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
-                            <button onClick={addSeguimiento} className="px-3 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground hover:opacity-90">Agregar</button>
+                    <div className="mb-5 space-y-4">
+                        <div className="p-4 rounded-xl bg-secondary/30 border border-border">
+                            <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2">
+                                <MessageCircle className="w-4 h-4 text-primary" /> Notas de Seguimiento
+                            </h4>
+                            <div className="flex gap-2 mb-3">
+                                <input
+                                    value={seguimiento}
+                                    onChange={(e) => setSeguimiento(e.target.value)}
+                                    placeholder="¿Qué se habló con el cliente?..."
+                                    className="flex-1 h-10 px-3 rounded-lg bg-card border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                />
+                                <button onClick={addSeguimiento} className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity">
+                                    Agregar
+                                </button>
+                            </div>
+                            <div className="space-y-2 max-h-[150px] overflow-y-auto pr-1 custom-scrollbar">
+                                {(cliente.notas_seguimiento || []).length > 0 ? (
+                                    (cliente.notas_seguimiento || []).map((n) => (
+                                        <div key={n.id} className="p-3 rounded-lg bg-card border border-border/50 animate-fade-in">
+                                            <p className="text-[10px] text-muted-foreground mb-1">{new Date(n.fecha).toLocaleString("es-AR", { dateStyle: 'short', timeStyle: 'short' })}</p>
+                                            <p className="text-sm text-foreground leading-relaxed">{n.texto}</p>
+                                        </div>
+                                    )).reverse()
+                                ) : (
+                                    <p className="text-xs text-muted-foreground text-center py-4 italic">No hay notas de seguimiento aún</p>
+                                )}
+                            </div>
                         </div>
-                        <div className="space-y-2 max-h-[150px] overflow-y-auto">
-                            {(cliente.notas_seguimiento || []).map((n) => (
-                                <div key={n.id} className="p-2 rounded-lg bg-secondary/50 border border-border">
-                                    <p className="text-[10px] text-muted-foreground">{new Date(n.fecha).toLocaleDateString("es-AR")}</p>
-                                    <p className="text-sm text-foreground">{n.texto}</p>
+
+                        {cliente.etapa === "cotizado" && (
+                            <div className="p-4 rounded-xl bg-emerald-500/5 border border-emerald-500/20">
+                                <h4 className="text-sm font-semibold text-emerald-400 mb-3 flex items-center gap-2">
+                                    <FileText className="w-4 h-4" /> Cotización Formal (PDF)
+                                </h4>
+                                <div className="space-y-3">
+                                    {cliente.pdf_cotizacion_url ? (
+                                        <div className="flex items-center justify-between p-3 rounded-lg bg-card border border-emerald-500/30">
+                                            <div className="flex items-center gap-2">
+                                                <FileText className="w-5 h-5 text-emerald-400" />
+                                                <span className="text-sm font-medium text-foreground">Archivo adjunto</span>
+                                            </div>
+                                            <a
+                                                href={cliente.pdf_cotizacion_url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-xs font-bold hover:bg-emerald-600 transition-colors"
+                                            >
+                                                Ver PDF
+                                            </a>
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-muted-foreground italic mb-2">No se ha adjuntado el PDF de la cotización aún.</p>
+                                    )}
+
+                                    <div className="flex items-center gap-3">
+                                        <input
+                                            type="file"
+                                            accept=".pdf"
+                                            id="pdf-upload-detail"
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) {
+                                                    const toastId = toast.loading("Subiendo PDF...");
+                                                    try {
+                                                        const url = await storageStore.uploadCotizacion(file);
+                                                        onUpdate(cliente.id, { pdf_cotizacion_url: url });
+                                                        toast.success("PDF actualizado", { id: toastId });
+                                                    } catch (err) {
+                                                        toast.error("Error al subir", { id: toastId });
+                                                    }
+                                                }
+                                            }}
+                                        />
+                                        <label
+                                            htmlFor="pdf-upload-detail"
+                                            className="flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border-2 border-dashed border-emerald-500/30 hover:border-emerald-500/50 cursor-pointer transition-all text-sm text-emerald-400 hover:bg-emerald-500/10"
+                                        >
+                                            <Upload className="w-4 h-4" />
+                                            {cliente.pdf_cotizacion_url ? "Reemplazar PDF" : "Subir PDF de Cotización"}
+                                        </label>
+                                    </div>
                                 </div>
-                            ))}
-                        </div>
+                            </div>
+                        )}
                     </div>
                 )}
 
@@ -375,6 +458,78 @@ function ClienteDetailModal({
     );
 }
 
+// --- Kanban Components ---
+function DraggableClienteCard({ cliente, onClick }: { cliente: Cliente; onClick: () => void }) {
+    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+        id: cliente.id,
+        data: { cliente },
+    });
+
+    const style = transform ? {
+        transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`,
+        zIndex: isDragging ? 100 : 1,
+    } : undefined;
+
+    return (
+        <div
+            ref={setNodeRef}
+            style={style}
+            className={cn(
+                "w-full text-left p-2.5 rounded-lg bg-secondary/50 border border-border hover:border-primary/30 transition-all group relative",
+                isDragging && "opacity-50 border-primary shadow-2xl"
+            )}
+        >
+            <div className="flex items-center gap-2">
+                <div
+                    {...listeners}
+                    {...attributes}
+                    className="cursor-grab active:cursor-grabbing p-1 -ml-1 text-muted-foreground hover:text-foreground touch-none"
+                >
+                    <GripVertical className="w-3.5 h-3.5" />
+                </div>
+                <button
+                    onClick={onClick}
+                    className="flex-1 flex items-center gap-2 min-w-0"
+                >
+                    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary/40 to-cyan-500/40 flex items-center justify-center text-[10px] font-bold text-foreground shrink-0">
+                        {getInitials(cliente.nombre)}
+                    </div>
+                    <div className="min-w-0 text-left">
+                        <p className="text-sm font-medium text-foreground truncate">{cliente.nombre}</p>
+                        <p className="text-[11px] text-muted-foreground truncate">{cliente.negocio}</p>
+                    </div>
+                </button>
+            </div>
+        </div>
+    );
+}
+
+function DroppableEtapaColumn({ etapa, children, count }: { etapa: EtapaCliente; children: React.ReactNode; count: number }) {
+    const { setNodeRef, isOver } = useDroppable({
+        id: etapa,
+    });
+
+    return (
+        <div
+            ref={setNodeRef}
+            className={cn(
+                "rounded-xl border border-border bg-card/50 p-3 min-h-[150px] transition-colors",
+                isOver && "border-primary/50 bg-primary/5 shadow-inner shadow-primary/5"
+            )}
+        >
+            <div className="flex items-center justify-between mb-3">
+                <span className={cn("text-xs px-2.5 py-1 rounded-full border font-medium", ETAPA_COLORS[etapa])}>
+                    {ETAPA_LABELS[etapa]}
+                </span>
+                <span className="text-xs text-muted-foreground">{count}</span>
+            </div>
+            <div className="space-y-2">
+                {children}
+            </div>
+        </div>
+    );
+}
+
 // --- Main Page ---
 export default function ClientesPage() {
     const [clientes, setClientes] = useState<Cliente[]>([]);
@@ -385,6 +540,14 @@ export default function ClientesPage() {
     const [selected, setSelected] = useState<Cliente | null>(null);
     const [search, setSearch] = useState("");
     const [viewMode, setViewMode] = useState<"pipeline" | "list">("pipeline");
+
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: {
+                distance: 8,
+            },
+        })
+    );
 
     const reload = async () => {
         try {
@@ -397,6 +560,25 @@ export default function ClientesPage() {
     useEffect(() => {
         reload().then(() => setMounted(true));
     }, []);
+
+    const handleDragEnd = async (event: DragEndEvent) => {
+        const { active, over } = event;
+        if (!over) return;
+
+        const clienteId = active.id as string;
+        const newEtapa = over.id as EtapaCliente;
+        const cliente = active.data.current?.cliente as Cliente;
+
+        if (cliente && cliente.etapa !== newEtapa) {
+            try {
+                await clientesStore.update(clienteId, { etapa: newEtapa });
+                await reload();
+                toast.success(`${cliente.nombre} movido a ${ETAPA_LABELS[newEtapa]}`);
+            } catch (error) {
+                toast.error("Error al mover cliente");
+            }
+        }
+    };
 
     const handleCreate = async (data: Partial<Cliente>) => {
         try {
@@ -506,53 +688,37 @@ export default function ClientesPage() {
             </div>
 
             {/* Pipeline Board */}
-            <div className="space-y-6">
-                {FASES.map((fase) => (
-                    <div key={fase.key}>
-                        <div className="flex items-center gap-2 mb-3">
-                            <div className={cn("w-3 h-3 rounded-full bg-gradient-to-r", fase.color)} />
-                            <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">{fase.label}</h3>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                            {FASES_PIPELINE[fase.key].map((etapa) => {
-                                const etapaClientes = filtered.filter((c) => c.etapa === etapa);
-                                return (
-                                    <div key={etapa} className="rounded-xl border border-border bg-card/50 p-3 min-h-[120px]">
-                                        <div className="flex items-center justify-between mb-3">
-                                            <span className={cn("text-xs px-2.5 py-1 rounded-full border font-medium", ETAPA_COLORS[etapa])}>
-                                                {ETAPA_LABELS[etapa]}
-                                            </span>
-                                            <span className="text-xs text-muted-foreground">{etapaClientes.length}</span>
-                                        </div>
-                                        <div className="space-y-2">
+            <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                <div className="space-y-6">
+                    {FASES.map((fase) => (
+                        <div key={fase.key}>
+                            <div className="flex items-center gap-2 mb-3">
+                                <div className={cn("w-3 h-3 rounded-full bg-gradient-to-r", fase.color)} />
+                                <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">{fase.label}</h3>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                                {FASES_PIPELINE[fase.key].map((etapa) => {
+                                    const etapaClientes = filtered.filter((c) => c.etapa === etapa);
+                                    return (
+                                        <DroppableEtapaColumn key={etapa} etapa={etapa} count={etapaClientes.length}>
                                             {etapaClientes.map((c) => (
-                                                <button
+                                                <DraggableClienteCard
                                                     key={c.id}
+                                                    cliente={c}
                                                     onClick={() => { setSelected(c); setShowDetail(true); }}
-                                                    className="w-full text-left p-2.5 rounded-lg bg-secondary/50 border border-border hover:border-primary/30 transition-all group"
-                                                >
-                                                    <div className="flex items-center gap-2">
-                                                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary/40 to-cyan-500/40 flex items-center justify-center text-[10px] font-bold text-foreground shrink-0">
-                                                            {getInitials(c.nombre)}
-                                                        </div>
-                                                        <div className="min-w-0">
-                                                            <p className="text-sm font-medium text-foreground truncate">{c.nombre}</p>
-                                                            <p className="text-[11px] text-muted-foreground truncate">{c.negocio}</p>
-                                                        </div>
-                                                    </div>
-                                                </button>
+                                                />
                                             ))}
                                             {etapaClientes.length === 0 && (
                                                 <p className="text-xs text-muted-foreground text-center py-3 opacity-50">Sin contactos</p>
                                             )}
-                                        </div>
-                                    </div>
-                                );
-                            })}
+                                        </DroppableEtapaColumn>
+                                    );
+                                })}
+                            </div>
                         </div>
-                    </div>
-                ))}
-            </div>
+                    ))}
+                </div>
+            </DndContext>
 
             {/* Modals */}
             <NuevoClienteModal open={showNew} onClose={() => setShowNew(false)} onSave={handleCreate} />

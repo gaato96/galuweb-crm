@@ -6,6 +6,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { NAV_ITEMS } from "./sidebar";
+import Logo from "./logo";
 
 const PAGE_TITLES: Record<string, string> = {
     "/": "Dashboard",
@@ -71,12 +72,7 @@ export default function Header() {
                 mobileMenuOpen ? "translate-x-0" : "-translate-x-full"
             )}>
                 <div className="flex items-center justify-between px-4 h-[65px] border-b border-border">
-                    <div className="flex items-center gap-3">
-                        <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-primary/20">
-                            <Zap className="w-4 h-4 text-primary" />
-                        </div>
-                        <span className="font-bold gradient-text">Galu CRM</span>
-                    </div>
+                    <Logo />
                     <button onClick={() => setMobileMenuOpen(false)} className="p-2 rounded-lg hover:bg-secondary">
                         <X className="w-5 h-5 text-muted-foreground" />
                     </button>

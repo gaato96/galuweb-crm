@@ -36,6 +36,7 @@ export interface Cliente {
     info_investigacion: InfoInvestigacion | null;
     msg_whatsapp: string;
     notas_seguimiento: NotaSeguimiento[];
+    pdf_cotizacion_url?: string;
 }
 
 export interface InfoInvestigacion {
@@ -73,6 +74,11 @@ export interface Tarea {
     estado: EstadoTarea;
     categoria: CategoriaTarea;
     proyecto?: Proyecto;
+    // Marketing/Content fields
+    idea_contenido?: string;
+    guion?: string;
+    editado?: boolean;
+    publicado?: boolean;
 }
 
 export interface CotizacionItem {

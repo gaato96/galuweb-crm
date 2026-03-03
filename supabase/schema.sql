@@ -1,5 +1,5 @@
 -- ============================================================
--- Nexus-CRM — Supabase Database Schema
+-- Galu-CRM — Supabase Database Schema
 -- ============================================================
 
 -- Enums

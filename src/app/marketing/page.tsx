@@ -12,7 +12,16 @@ export default function MarketingPage() {
     const [tareas, setTareas] = useState<Tarea[]>([]);
     const [mounted, setMounted] = useState(false);
     const [showNew, setShowNew] = useState(false);
-    const [form, setForm] = useState({ titulo: "", descripcion: "", prioridad: "media" as Prioridad, categoria: "marketing" as CategoriaTarea });
+    const [form, setForm] = useState({
+        titulo: "",
+        descripcion: "",
+        prioridad: "media" as Prioridad,
+        categoria: "marketing" as CategoriaTarea,
+        idea_contenido: "",
+        guion: "",
+        editado: false,
+        publicado: false
+    });
 
     const reload = async () => {
         try {
@@ -28,7 +37,16 @@ export default function MarketingPage() {
         if (!form.titulo.trim()) { toast.error("Título requerido"); return; }
         try {
             await tareasStore.create({ ...form, proyecto_id: null, estado: "pendiente" });
-            setForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "marketing" });
+            setForm({
+                titulo: "",
+                descripcion: "",
+                prioridad: "media",
+                categoria: "marketing",
+                idea_contenido: "",
+                guion: "",
+                editado: false,
+                publicado: false
+            });
             setShowNew(false);
             await reload();
             toast.success("Tarea de marketing creada");
@@ -76,13 +94,38 @@ export default function MarketingPage() {
                 </button>
                 <div className="flex-1 min-w-0">
                     <p className={cn("text-sm font-medium", t.estado === "completada" ? "text-muted-foreground line-through" : "text-foreground")}>{t.titulo}</p>
-                    {t.descripcion && <p className="text-[11px] text-muted-foreground truncate">{t.descripcion}</p>}
+                    {(t.idea_contenido || t.guion) && (
+                        <div className="mt-1 space-y-1">
+                            {t.idea_contenido && <p className="text-[11px] text-muted-foreground italic">Idea: {t.idea_contenido}</p>}
+                            {t.guion && <p className="text-[11px] text-primary/80">Guion listo</p>}
+                        </div>
+                    )}
+                    <div className="flex items-center gap-2 mt-1.5">
+                        <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", PRIORIDAD_COLORS[t.prioridad])}>{t.prioridad}</span>
+                        <span className="text-[10px] text-muted-foreground uppercase">{t.categoria}</span>
+                        {t.editado && <span className="text-[10px] text-blue-400 font-medium">✨ Editado</span>}
+                        {t.publicado && <span className="text-[10px] text-emerald-400 font-medium">🚀 Publicado</span>}
+                    </div>
                 </div>
-                <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", PRIORIDAD_COLORS[t.prioridad])}>{t.prioridad}</span>
-                <span className="text-[10px] text-muted-foreground uppercase">{t.categoria}</span>
-                <button onClick={() => deleteTarea(t.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-destructive/20 transition-all">
-                    <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                </button>
+                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all">
+                    <button
+                        onClick={() => tareasStore.update(t.id, { editado: !t.editado }).then(reload)}
+                        className={cn("p-1.5 rounded-lg border transition-colors", t.editado ? "bg-blue-500/20 border-blue-500/40 text-blue-400" : "bg-secondary border-border text-muted-foreground hover:text-foreground")}
+                        title="Marcar como editado"
+                    >
+                        ✨
+                    </button>
+                    <button
+                        onClick={() => tareasStore.update(t.id, { publicado: !t.publicado }).then(reload)}
+                        className={cn("p-1.5 rounded-lg border transition-colors", t.publicado ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400" : "bg-secondary border-border text-muted-foreground hover:text-foreground")}
+                        title="Marcar como publicado"
+                    >
+                        🚀
+                    </button>
+                    <button onClick={() => deleteTarea(t.id)} className="p-1.5 rounded-lg hover:bg-destructive/20 transition-all ml-1">
+                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                    </button>
+                </div>
             </div>
         );
     };
@@ -131,6 +174,24 @@ export default function MarketingPage() {
                             <option value="contenido">Contenido</option>
                         </select>
                     </div>
+                    {form.categoria === "contenido" && (
+                        <div className="space-y-3 animate-slide-up">
+                            <textarea
+                                value={form.idea_contenido}
+                                onChange={(e) => setForm({ ...form, idea_contenido: e.target.value })}
+                                placeholder="Idea de contenido..."
+                                className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                                rows={2}
+                            />
+                            <textarea
+                                value={form.guion}
+                                onChange={(e) => setForm({ ...form, guion: e.target.value })}
+                                placeholder="Guion / Script..."
+                                className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                                rows={3}
+                            />
+                        </div>
+                    )}
                     <div className="flex justify-end gap-2">
                         <button onClick={() => setShowNew(false)} className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary">Cancelar</button>
                         <button onClick={handleCreate} className="px-3 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground hover:opacity-90">Guardar</button>

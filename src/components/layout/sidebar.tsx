@@ -30,6 +30,8 @@ export const NAV_ITEMS = [
     { label: "Recursos", href: "/recursos", icon: BookOpen },
 ];
 
+import Logo from "./logo";
+
 export default function Sidebar() {
     const pathname = usePathname();
     const [collapsed, setCollapsed] = useState(false);
@@ -42,16 +44,8 @@ export default function Sidebar() {
             )}
         >
             {/* Logo */}
-            <div className="flex items-center gap-3 px-4 h-[65px] border-b border-border">
-                <div className="flex items-center justify-center w-9 h-9 rounded-lg bg-primary/20 shrink-0">
-                    <Zap className="w-5 h-5 text-primary" />
-                </div>
-                {!collapsed && (
-                    <div className="overflow-hidden">
-                        <h1 className="text-lg font-bold gradient-text tracking-tight">Galu</h1>
-                        <p className="text-[10px] text-muted-foreground -mt-1 tracking-widest uppercase">CRM</p>
-                    </div>
-                )}
+            <div className="flex items-center px-4 h-[65px] border-b border-border">
+                <Logo collapsed={collapsed} />
             </div>
 
             {/* Navigation */}

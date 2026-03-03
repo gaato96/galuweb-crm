@@ -241,3 +241,23 @@ export const recursosStore = {
         if (error) throw error;
     },
 };
+// --- Storage ---
+export const storageStore = {
+    uploadCotizacion: async (file: File): Promise<string> => {
+        const fileExt = file.name.split(".").pop();
+        const fileName = `${Math.random().toString(36).slice(2)}.${fileExt}`;
+        const filePath = `cotizaciones/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from("galu-assets")
+            .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        const { data } = supabase.storage
+            .from("galu-assets")
+            .getPublicUrl(filePath);
+
+        return data.publicUrl;
+    },
+};
