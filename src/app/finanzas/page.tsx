@@ -30,8 +30,8 @@ export default function FinanzasPage() {
             ]);
             setFinanzas(f);
             setProyectos(p);
-        } catch (error) {
-            console.error("Error reloading finances/projects:", error);
+        } catch (_error) {
+            console.error("Error reloading finances/projects:", _error);
         }
     };
     useEffect(() => { reload().then(() => setMounted(true)); }, []);
@@ -72,7 +72,7 @@ export default function FinanzasPage() {
             setForm({ monto: 0, tipo: "ingreso", descripcion: "", cuotas_totales: 1, cuota_actual: 1, fecha_cobro: "", proyecto_id: "" });
             setShowNew(false);
             await reload();
-        } catch (error) {
+        } catch (_error) {
             toast.error("Error al guardar registro financiero");
         }
     };

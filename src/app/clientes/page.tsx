@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Search, Eye, Pencil, Trash2, MessageCircle, ArrowRight, X, ChevronDown, GripVertical } from "lucide-react";
+import { Plus, MessageCircle, ArrowRight, X, GripVertical } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { clientesStore, proyectosStore, tareasStore } from "@/lib/store";
 import type { Cliente, EtapaCliente, TipoProyecto } from "@/lib/types";
@@ -9,7 +9,6 @@ import { ETAPA_LABELS, ETAPA_COLORS, FASES_PIPELINE } from "@/lib/types";
 import { PROJECT_TEMPLATES } from "@/lib/templates";
 import { slugify } from "@/lib/utils";
 import { toast } from "sonner";
-import Link from "next/link";
 import {
     DndContext,
     PointerSensor,
@@ -20,7 +19,7 @@ import {
     useDroppable,
 } from "@dnd-kit/core";
 import { storageStore } from "@/lib/store";
-import { Upload, FileText, Link as LinkIcon, File } from "lucide-react";
+import { Upload, FileText } from "lucide-react";
 
 // --- Nuevo Cliente Modal ---
 function NuevoClienteModal({
@@ -539,7 +538,6 @@ export default function ClientesPage() {
     const [showProject, setShowProject] = useState(false);
     const [selected, setSelected] = useState<Cliente | null>(null);
     const [search, setSearch] = useState("");
-    const [viewMode, setViewMode] = useState<"pipeline" | "list">("pipeline");
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -625,20 +623,11 @@ export default function ClientesPage() {
             const updated = await clientesStore.getById(cliente.id);
             setSelected(updated);
             toast.success(`${cliente.nombre} → ${ETAPA_LABELS[next]}`);
-        } catch (error) {
+        } catch (_error) {
             toast.error("Error al avanzar etapa");
         }
     };
 
-    const handleDelete = async (id: string) => {
-        try {
-            await clientesStore.delete(id);
-            await reload();
-            toast.success("Contacto eliminado");
-        } catch (error) {
-            toast.error("Error al eliminar");
-        }
-    };
 
     const filtered = clientes.filter(
         (c) =>

@@ -1,24 +1,58 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Trash2, X, FileText, Sparkles, Send } from "lucide-react";
+import { Plus, Trash2, X, FileText, Sparkles, Upload, Link as LinkIcon } from "lucide-react";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { cotizacionesStore, clientesStore, storageStore } from "@/lib/store";
 import type { Cotizacion, CotizacionItem, EstadoCotizacion, Cliente } from "@/lib/types";
 import { toast } from "sonner";
-import { Upload, Link as LinkIcon } from "lucide-react";
 
-// ... (ESTADO_BADGE stays same)
+const ESTADO_BADGE: Record<EstadoCotizacion, string> = {
+    borrador: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+    enviada: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+    aceptada: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+    rechazada: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+};
 
 export default function CotizacionesPage() {
-    // ... (state stays same)
+    const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
+    const [clientes, setClientes] = useState<Cliente[]>([]);
+    const [mounted, setMounted] = useState(false);
+    const [showNew, setShowNew] = useState(false);
+    const [showAI, setShowAI] = useState(false);
+    const [transcript, setTranscript] = useState("");
+    const [aiLoading, setAiLoading] = useState(false);
+
+    // Form state
     const [clienteId, setClienteId] = useState("");
     const [items, setItems] = useState<CotizacionItem[]>([{ descripcion: "", precio: 0 }]);
     const [notas, setNotas] = useState("");
     const [uploading, setUploading] = useState(false);
     const [pdfUrl, setPdfUrl] = useState("");
 
-    // ... (reload stays same)
+    const reload = async () => {
+        try {
+            const [q, c] = await Promise.all([
+                cotizacionesStore.getAll(),
+                clientesStore.getAll()
+            ]);
+            setCotizaciones(q);
+            setClientes(c);
+        } catch (err) {
+            console.error("Error reloading quotes:", err);
+        }
+    };
+    useEffect(() => { reload().then(() => setMounted(true)); }, []);
+
+    const addItem = () => setItems([...items, { descripcion: "", precio: 0 }]);
+    const removeItem = (i: number) => setItems(items.filter((_, idx) => idx !== i));
+    const updateItem = (i: number, field: keyof CotizacionItem, value: string | number) => {
+        const updated = [...items];
+        if (field === "precio") updated[i][field] = Number(value);
+        else updated[i][field] = value as string;
+        setItems(updated);
+    };
+    const total = items.reduce((sum, item) => sum + item.precio, 0);
 
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -30,7 +64,7 @@ export default function CotizacionesPage() {
             const url = await storageStore.uploadCotizacion(file);
             setPdfUrl(url);
             toast.success("PDF subido correctamente");
-        } catch (error) {
+        } catch (err) {
             toast.error("Error al subir PDF");
         } finally {
             setUploading(false);

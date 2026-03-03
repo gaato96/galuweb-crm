@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Plus, ClipboardList, X, Save } from "lucide-react";
-import { cn, formatDate, getInitials } from "@/lib/utils";
+import { formatDate, getInitials } from "@/lib/utils";
 import { briefsStore, clientesStore } from "@/lib/store";
 import type { Brief, BriefRespuesta, Cliente } from "@/lib/types";
 import { BRIEF_QUESTIONS } from "@/lib/templates";
@@ -25,8 +25,8 @@ export default function BriefsPage() {
             ]);
             setBriefs(b);
             setClientes(c);
-        } catch (error) {
-            console.error("Error reloading briefs:", error);
+        } catch (_error) {
+            console.error("Error reloading briefs:", _error);
         }
     };
     useEffect(() => { reload().then(() => setMounted(true)); }, []);
@@ -58,7 +58,7 @@ export default function BriefsPage() {
             setShowNew(false);
             setEditing(null);
             await reload();
-        } catch (error) {
+        } catch (_error) {
             toast.error("Error al guardar brief");
         }
     };

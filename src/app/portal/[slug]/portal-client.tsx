@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { CheckCircle2, Circle, Clock, ExternalLink, MessageCircle, Calendar, FileText, Zap } from "lucide-react";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency } from "@/lib/utils";
 import { proyectosStore, tareasStore, clientesStore, cotizacionesStore } from "@/lib/store";
 import type { Proyecto, Tarea, Cliente, Cotizacion } from "@/lib/types";
 

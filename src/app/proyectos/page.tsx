@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, ExternalLink, Eye, Trash2, X, CheckCircle2, Circle, Clock } from "lucide-react";
-import { cn, formatDate, getInitials } from "@/lib/utils";
+import { ExternalLink, Eye, X, CheckCircle2, Circle, Plus, Clock, Filter, Trash2 } from "lucide-react";
+import { cn, getInitials } from "@/lib/utils";
 import { proyectosStore, tareasStore, clientesStore } from "@/lib/store";
+import { PRIORIDAD_COLORS } from "@/lib/types";
 import type { Proyecto, Tarea, Cliente } from "@/lib/types";
-import { toast } from "sonner";
 import Link from "next/link";
 
 function ProyectoCard({
@@ -185,8 +185,8 @@ export default function ProyectosPage() {
             setProyectos(p);
             setTareas(t);
             setClientes(c);
-        } catch (error) {
-            console.error("Error reloading projects:", error);
+        } catch (_error) {
+            console.error("Error reloading tasks/projects:", _error);
         }
     };
     useEffect(() => { reload().then(() => setMounted(true)); }, []);
