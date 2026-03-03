@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Plus, ExternalLink, X, Tag, Play, Link2, BookOpen, Sparkles, Puzzle, GraduationCap, Trash2 } from "lucide-react";
-import { cn, formatDate } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { recursosStore } from "@/lib/store";
 import type { Recurso, TipoRecurso } from "@/lib/types";
 import { toast } from "sonner";
@@ -37,8 +37,8 @@ export default function RecursosPage() {
         try {
             const data = await recursosStore.getAll();
             setRecursos(data);
-        } catch (error) {
-            console.error("Error reloading resources:", error);
+        } catch {
+            console.error("Error reloading resources:");
         }
     };
     useEffect(() => { reload().then(() => setMounted(true)); }, []);
@@ -54,7 +54,7 @@ export default function RecursosPage() {
             setShowNew(false);
             await reload();
             toast.success("Recurso guardado");
-        } catch (error) {
+        } catch {
             toast.error("Error al guardar recurso");
         }
     };
@@ -64,7 +64,7 @@ export default function RecursosPage() {
             await recursosStore.delete(id);
             await reload();
             toast.success("Recurso eliminado");
-        } catch (error) {
+        } catch {
             toast.error("Error al eliminar recurso");
         }
     };

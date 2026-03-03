@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, MessageCircle, ArrowRight, X, GripVertical } from "lucide-react";
+import { Plus, MessageCircle, ArrowRight, X, GripVertical, Search } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { clientesStore, proyectosStore, tareasStore } from "@/lib/store";
 import type { Cliente, EtapaCliente, TipoProyecto } from "@/lib/types";
@@ -420,7 +420,7 @@ function ClienteDetailModal({
                                                         const url = await storageStore.uploadCotizacion(file);
                                                         onUpdate(cliente.id, { pdf_cotizacion_url: url });
                                                         toast.success("PDF actualizado", { id: toastId });
-                                                    } catch (err) {
+                                                    } catch {
                                                         toast.error("Error al subir", { id: toastId });
                                                     }
                                                 }
@@ -572,7 +572,7 @@ export default function ClientesPage() {
                 await clientesStore.update(clienteId, { etapa: newEtapa });
                 await reload();
                 toast.success(`${cliente.nombre} movido a ${ETAPA_LABELS[newEtapa]}`);
-            } catch (error) {
+            } catch {
                 toast.error("Error al mover cliente");
             }
         }
@@ -583,7 +583,7 @@ export default function ClientesPage() {
             await clientesStore.create(data as Omit<Cliente, "id" | "created_at">);
             await reload();
             toast.success("Contacto agregado");
-        } catch (error) {
+        } catch {
             toast.error("Error al añadir contacto");
         }
     };
@@ -594,7 +594,7 @@ export default function ClientesPage() {
             await reload();
             const updated = await clientesStore.getById(id);
             setSelected(updated);
-        } catch (error) {
+        } catch {
             toast.error("Error al actualizar");
         }
     };
@@ -623,7 +623,7 @@ export default function ClientesPage() {
             const updated = await clientesStore.getById(cliente.id);
             setSelected(updated);
             toast.success(`${cliente.nombre} → ${ETAPA_LABELS[next]}`);
-        } catch (_error) {
+        } catch {
             toast.error("Error al avanzar etapa");
         }
     };

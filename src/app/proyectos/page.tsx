@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ExternalLink, Eye, X, CheckCircle2, Circle, Plus, Clock, Filter, Trash2 } from "lucide-react";
+import { ExternalLink, Eye, X, CheckCircle2, Circle } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { proyectosStore, tareasStore, clientesStore } from "@/lib/store";
-import { PRIORIDAD_COLORS } from "@/lib/types";
 import type { Proyecto, Tarea, Cliente } from "@/lib/types";
 import Link from "next/link";
 
@@ -185,8 +184,8 @@ export default function ProyectosPage() {
             setProyectos(p);
             setTareas(t);
             setClientes(c);
-        } catch (_error) {
-            console.error("Error reloading tasks/projects:", _error);
+        } catch {
+            console.error("Error reloading projects:");
         }
     };
     useEffect(() => { reload().then(() => setMounted(true)); }, []);

@@ -38,8 +38,8 @@ export default function CotizacionesPage() {
             ]);
             setCotizaciones(q);
             setClientes(c);
-        } catch (err) {
-            console.error("Error reloading quotes:", err);
+        } catch {
+            console.error("Error reloading quotes:");
         }
     };
     useEffect(() => { reload().then(() => setMounted(true)); }, []);
@@ -64,7 +64,7 @@ export default function CotizacionesPage() {
             const url = await storageStore.uploadCotizacion(file);
             setPdfUrl(url);
             toast.success("PDF subido correctamente");
-        } catch (err) {
+        } catch {
             toast.error("Error al subir PDF");
         } finally {
             setUploading(false);
@@ -90,7 +90,7 @@ export default function CotizacionesPage() {
             setPdfUrl("");
             await reload();
             toast.success("Cotización creada");
-        } catch (error) {
+        } catch {
             toast.error("Error al guardar cotización");
         }
     };

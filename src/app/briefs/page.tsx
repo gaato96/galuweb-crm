@@ -25,8 +25,8 @@ export default function BriefsPage() {
             ]);
             setBriefs(b);
             setClientes(c);
-        } catch (_error) {
-            console.error("Error reloading briefs:", _error);
+        } catch {
+            console.error("Error reloading briefs:");
         }
     };
     useEffect(() => { reload().then(() => setMounted(true)); }, []);
@@ -58,7 +58,7 @@ export default function BriefsPage() {
             setShowNew(false);
             setEditing(null);
             await reload();
-        } catch (_error) {
+        } catch {
             toast.error("Error al guardar brief");
         }
     };

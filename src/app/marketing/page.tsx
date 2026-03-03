@@ -27,8 +27,8 @@ export default function MarketingPage() {
         try {
             const data = await tareasStore.getMarketing();
             setTareas(data);
-        } catch (_error) {
-            console.error("Error reloading marketing tasks:", _error);
+        } catch {
+            console.error("Error reloading marketing tasks:");
         }
     };
     useEffect(() => { reload().then(() => setMounted(true)); }, []);
@@ -50,7 +50,7 @@ export default function MarketingPage() {
             setShowNew(false);
             await reload();
             toast.success("Tarea de marketing creada");
-        } catch (_error) {
+        } catch {
             toast.error("Error al crear tarea");
         }
     };
@@ -60,7 +60,7 @@ export default function MarketingPage() {
         try {
             await tareasStore.update(id, { estado: next });
             await reload();
-        } catch (_error) {
+        } catch {
             toast.error("Error al actualizar tarea");
         }
     };
@@ -70,7 +70,7 @@ export default function MarketingPage() {
             await tareasStore.delete(id);
             await reload();
             toast.success("Tarea eliminada");
-        } catch (_error) {
+        } catch {
             toast.error("Error al eliminar tarea");
         }
     };

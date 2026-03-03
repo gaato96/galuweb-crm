@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, CheckCircle2, Circle, Clock, Filter, X, Trash2 } from "lucide-react";
+import { Plus, CheckCircle2, Circle, Clock, Filter, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tareasStore, proyectosStore } from "@/lib/store";
 import type { Tarea, Prioridad, EstadoTarea, CategoriaTarea } from "@/lib/types";
-import { PRIORIDAD_COLORS, ESTADO_TAREA_COLORS } from "@/lib/types";
+import { PRIORIDAD_COLORS } from "@/lib/types";
 import { toast } from "sonner";
 
 export default function TareasPage() {
@@ -26,8 +26,8 @@ export default function TareasPage() {
             ]);
             setTareas(t);
             setProyectos(p);
-        } catch (error) {
-            console.error("Error reloading tasks/projects:", error);
+        } catch {
+            console.error("Error reloading tasks/projects:");
         }
     };
     useEffect(() => {
@@ -45,7 +45,7 @@ export default function TareasPage() {
             setShowNew(false);
             await reload();
             toast.success("Tarea creada");
-        } catch (error) {
+        } catch {
             toast.error("Error al crear tarea");
         }
     };
@@ -55,7 +55,7 @@ export default function TareasPage() {
         try {
             await tareasStore.update(id, { estado: next });
             await reload();
-        } catch (error) {
+        } catch {
             toast.error("Error al actualizar tarea");
         }
     };
@@ -65,7 +65,7 @@ export default function TareasPage() {
             await tareasStore.delete(id);
             await reload();
             toast.success("Tarea eliminada");
-        } catch (error) {
+        } catch {
             toast.error("Error al eliminar tarea");
         }
     };
