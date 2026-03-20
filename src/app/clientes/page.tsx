@@ -122,6 +122,9 @@ function NuevoProyectoModal({ open, onClose, cliente }: { open: boolean; onClose
             const proyecto = await proyectosStore.create({
                 cliente_id: cliente.id,
                 nombre,
+                descripcion: "",
+                es_interno: false,
+                accesos: [],
                 tipo_proyecto: tipo,
                 figma_url: "",
                 calendly_url: "https://calendly.com/agencia/reunion",
