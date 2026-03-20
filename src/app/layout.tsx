@@ -44,6 +44,7 @@ export default function RootLayout({
           </div>
         </div>
         <Toaster
+          className="!z-[100]"
           position="bottom-right"
           toastOptions={{
             style: {
