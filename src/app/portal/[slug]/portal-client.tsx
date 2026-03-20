@@ -28,7 +28,7 @@ export default function PortalClient({ slug }: { slug: string }) {
 
                 const [pts, foundCliente] = await Promise.all([
                     tareasStore.getByProyecto(found.id),
-                    clientesStore.getById(found.cliente_id)
+                    found.cliente_id ? clientesStore.getById(found.cliente_id) : Promise.resolve(null)
                 ]);
 
                 setTareas(pts);

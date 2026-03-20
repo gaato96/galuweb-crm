@@ -121,7 +121,7 @@ export default function CotizacionesPage() {
             await cotizacionesStore.update(id, { estado });
             await reload();
             toast.success(`Cotización marcada como ${estado}`);
-        } catch (error) {
+        } catch {
             toast.error("Error al actualizar estado");
         }
     };
@@ -292,15 +292,14 @@ export default function CotizacionesPage() {
                                         >{e}</button>
                                     ))}
                                 </div>
-                                {q.pdf_url ? (
+                                {q.pdf_url && (
                                     <a href={q.pdf_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 transition-all">
                                         <FileText className="w-4 h-4" /> Ver PDF (Subido)
                                     </a>
-                                ) : (
-                                    <button onClick={() => setPrintView(q)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs font-semibold hover:bg-primary/20 transition-all">
-                                        <FileText className="w-4 h-4" /> Imprimir Cotización
-                                    </button>
                                 )}
+                                <button onClick={() => setPrintView(q)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-semibold hover:bg-violet-500/20 transition-all">
+                                    <FileText className="w-4 h-4" /> 📄 Generar Propuesta
+                                </button>
                             </div>
                         </div>
                     );
