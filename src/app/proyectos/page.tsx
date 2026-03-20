@@ -81,7 +81,7 @@ function ProyectoDetailModal({ open, onClose, proyecto, reload }: { open: boolea
             if (proyecto) {
                 const [pts, cl] = await Promise.all([
                     tareasStore.getByProyecto(proyecto.id),
-                    clientesStore.getById(proyecto.cliente_id)
+                    proyecto.cliente_id ? clientesStore.getById(proyecto.cliente_id) : Promise.resolve(null)
                 ]);
                 setTareas(pts);
                 setCliente(cl || undefined);
@@ -281,26 +281,41 @@ function NuevoProyectoModal({
         e.preventDefault();
         setSubmitting(true);
         try {
-            const data: any = { ...form };
+            const data: any = {
+                nombre: form.nombre,
+                tipo_proyecto: form.tipo_proyecto,
+                descripcion: form.descripcion || "",
+                figma_url: form.figma_url || "",
+                calendly_url: form.calendly_url || "",
+                slug_portal: form.slug_portal || form.nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''),
+                estado: "activo" as const,
+                es_interno: form.es_interno,
+                accesos: [],
+            };
+
             if (form.es_interno) {
                 data.cliente_id = null;
-            } else if (!form.cliente_id) {
-                toast.error("Seleccione un cliente para proyectos externos");
-                setSubmitting(false);
-                return;
+            } else {
+                if (!form.cliente_id) {
+                    toast.error("Seleccione un cliente para proyectos externos");
+                    setSubmitting(false);
+                    return;
+                }
+                data.cliente_id = form.cliente_id;
             }
-            if (!data.slug_portal) {
-                data.slug_portal = data.nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+
+            if (form.fecha_entrega) {
+                data.fecha_entrega = form.fecha_entrega;
             }
-            if (!data.fecha_entrega) delete data.fecha_entrega;
 
             await proyectosStore.create(data);
             toast.success("Proyecto creado exitosamente");
             reload();
             onClose();
             setForm({ nombre: "", es_interno: false, cliente_id: "", tipo_proyecto: "landing", descripcion: "", fecha_entrega: "", figma_url: "", calendly_url: "", slug_portal: "" });
-        } catch {
-            toast.error("Error al crear proyecto");
+        } catch (err: any) {
+            console.error("Error al crear proyecto:", err);
+            toast.error(err?.message || "Error al crear proyecto");
         } finally {
             setSubmitting(false);
         }

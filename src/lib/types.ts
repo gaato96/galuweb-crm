@@ -54,7 +54,7 @@ export interface NotaSeguimiento {
 export interface Proyecto {
     id: string;
     created_at: string;
-    cliente_id: string;
+    cliente_id: string | null;
     nombre: string;
     tipo_proyecto: TipoProyecto;
     figma_url: string;
