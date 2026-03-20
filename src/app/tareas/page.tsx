@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, CheckCircle2, Circle, Clock, Filter, Trash2 } from "lucide-react";
+import { Plus, CheckCircle2, Circle, Clock, Filter, Trash2, CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tareasStore, proyectosStore } from "@/lib/store";
 import type { Tarea, Prioridad, EstadoTarea, CategoriaTarea } from "@/lib/types";
@@ -35,13 +35,15 @@ export default function TareasPage() {
     }, []);
 
     // New task form
-    const [form, setForm] = useState({ titulo: "", descripcion: "", prioridad: "media" as Prioridad, categoria: "otro" as CategoriaTarea, proyecto_id: "" });
+    const [form, setForm] = useState({ titulo: "", descripcion: "", prioridad: "media" as Prioridad, categoria: "otro" as CategoriaTarea, proyecto_id: "", fecha_vencimiento: "" });
 
     const handleCreate = async () => {
         if (!form.titulo.trim()) { toast.error("Título requerido"); return; }
         try {
-            await tareasStore.create({ ...form, proyecto_id: form.proyecto_id || null, estado: "pendiente" });
-            setForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "otro", proyecto_id: "" });
+            const data: any = { ...form, proyecto_id: form.proyecto_id || null, estado: "pendiente" as EstadoTarea };
+            if (!data.fecha_vencimiento) delete data.fecha_vencimiento;
+            await tareasStore.create(data);
+            setForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "otro", proyecto_id: "", fecha_vencimiento: "" });
             setShowNew(false);
             await reload();
             toast.success("Tarea creada");
@@ -89,6 +91,22 @@ export default function TareasPage() {
         return <div className="space-y-3 animate-pulse">{[...Array(5)].map((_, i) => <div key={i} className="h-14 rounded-lg skeleton" />)}</div>;
     }
 
+    const getDueDateStatus = (dateStr?: string) => {
+        if (!dateStr) return null;
+        // Parse date considering timezone offset properly (assuming YYYY-MM-DD input)
+        const [year, month, day] = dateStr.split("-").map(Number);
+        const due = new Date(year, month - 1, day);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        
+        const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+        
+        if (diffDays < 0) return { label: "Vencida", classes: "text-red-500 bg-red-500/10 border-red-500/30 font-bold" };
+        if (diffDays === 0) return { label: "Vence Hoy", classes: "text-orange-500 bg-orange-500/10 border-orange-500/30 font-bold" };
+        if (diffDays <= 2) return { label: `En ${diffDays} día${diffDays>1?'s':''}`, classes: "text-amber-500 bg-amber-500/10 border-amber-500/30" };
+        return { label: due.toLocaleDateString(), classes: "text-muted-foreground bg-secondary/50 border-border" };
+    };
+
     const ICON_MAP = {
         pendiente: Circle,
         en_progreso: Clock,
@@ -98,20 +116,32 @@ export default function TareasPage() {
     const renderTarea = (t: Tarea) => {
         const Icon = ICON_MAP[t.estado];
         const proyecto = t.proyecto_id ? proyectos.find((p) => p.id === t.proyecto_id) : null;
+        const dueStatus = t.estado !== "completada" ? getDueDateStatus(t.fecha_vencimiento) : null;
+        
         return (
-            <div key={t.id} className={cn("flex items-center gap-3 p-3 rounded-lg border transition-all group", t.estado === "completada" ? "bg-emerald-500/5 border-emerald-500/20" : "bg-secondary/30 border-border hover:border-primary/30")}>
-                <button onClick={() => toggleTarea(t.id, t.estado)}>
-                    <Icon className={cn("w-5 h-5 shrink-0", t.estado === "completada" ? "text-emerald-400" : t.estado === "en_progreso" ? "text-blue-400" : "text-muted-foreground")} />
-                </button>
-                <div className="flex-1 min-w-0">
-                    <p className={cn("text-sm font-medium", t.estado === "completada" ? "text-muted-foreground line-through" : "text-foreground")}>{t.titulo}</p>
-                    {proyecto && <p className="text-[11px] text-muted-foreground">{proyecto.nombre}</p>}
+            <div key={t.id} className={cn("flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border transition-all group", t.estado === "completada" ? "bg-emerald-500/5 border-emerald-500/20" : dueStatus && dueStatus.classes.includes("red") ? "bg-red-500/5 border-red-500/30" : "bg-secondary/30 border-border hover:border-primary/30")}>
+                <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <button onClick={() => toggleTarea(t.id, t.estado)}>
+                        <Icon className={cn("w-5 h-5 shrink-0", t.estado === "completada" ? "text-emerald-400" : t.estado === "en_progreso" ? "text-blue-400" : "text-muted-foreground")} />
+                    </button>
+                    <div className="flex-1 min-w-0">
+                        <p className={cn("text-sm font-medium", t.estado === "completada" ? "text-muted-foreground line-through" : "text-foreground")}>{t.titulo}</p>
+                        {proyecto && <p className="text-[11px] text-muted-foreground">{proyecto.nombre}</p>}
+                    </div>
                 </div>
-                <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", PRIORIDAD_COLORS[t.prioridad])}>{t.prioridad}</span>
-                <span className="text-[10px] text-muted-foreground uppercase hidden sm:block">{t.categoria}</span>
-                <button onClick={() => deleteTarea(t.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-destructive/20 transition-all">
-                    <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                </button>
+                
+                <div className="flex items-center gap-2 pl-8 sm:pl-0 sm:ml-auto">
+                    {dueStatus && (
+                        <span className={cn("flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border", dueStatus.classes)}>
+                            <CalendarClock className="w-3 h-3" /> {dueStatus.label}
+                        </span>
+                    )}
+                    <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", PRIORIDAD_COLORS[t.prioridad])}>{t.prioridad}</span>
+                    <span className="text-[10px] text-muted-foreground uppercase hidden md:block">{t.categoria}</span>
+                    <button onClick={() => deleteTarea(t.id)} className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-destructive/20 transition-all">
+                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
+                    </button>
+                </div>
             </div>
         );
     };
@@ -154,7 +184,7 @@ export default function TareasPage() {
             {showNew && (
                 <div className="p-4 rounded-xl bg-card border border-primary/30 space-y-3 animate-fade-in">
                     <input value={form.titulo} onChange={(e) => setForm({ ...form, titulo: e.target.value })} placeholder="Título de la tarea..." className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                         <select value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value as Prioridad })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground">
                             <option value="baja">Baja</option>
                             <option value="media">Media</option>
@@ -172,6 +202,7 @@ export default function TareasPage() {
                             <option value="">Sin proyecto</option>
                             {proyectos.map((p) => (<option key={p.id} value={p.id}>{p.nombre}</option>))}
                         </select>
+                        <input type="date" value={form.fecha_vencimiento} onChange={(e) => setForm({ ...form, fecha_vencimiento: e.target.value })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground focus:outline-none" />
                     </div>
                     <div className="flex justify-end gap-2">
                         <button onClick={() => setShowNew(false)} className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary">Cancelar</button>

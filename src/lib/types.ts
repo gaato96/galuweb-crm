@@ -61,6 +61,10 @@ export interface Proyecto {
     calendly_url: string;
     slug_portal: string;
     estado: EstadoProyecto;
+    descripcion: string;
+    fecha_entrega?: string;
+    es_interno: boolean;
+    accesos: { servicio: string; url: string; usuario: string; password: string; }[];
     cliente?: Cliente;
 }
 
@@ -79,6 +83,7 @@ export interface Tarea {
     guion?: string;
     editado?: boolean;
     publicado?: boolean;
+    fecha_vencimiento?: string;
 }
 
 export interface CotizacionItem {

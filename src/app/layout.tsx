@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import Sidebar from "@/components/layout/sidebar";
 import Header from "@/components/layout/header";
@@ -7,6 +7,23 @@ import { Toaster } from "sonner";
 export const metadata: Metadata = {
   title: "Galu CRM — Gestión de Agencia Web",
   description: "CRM completo para agencias de diseño web. Gestiona clientes, proyectos, cotizaciones y más.",
+  manifest: "/manifest.json",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Galu CRM",
+  },
+  formatDetection: {
+    telephone: false,
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#09090b",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({

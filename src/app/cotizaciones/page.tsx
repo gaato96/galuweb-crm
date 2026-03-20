@@ -6,6 +6,7 @@ import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { cotizacionesStore, clientesStore, storageStore } from "@/lib/store";
 import type { Cotizacion, CotizacionItem, EstadoCotizacion, Cliente } from "@/lib/types";
 import { toast } from "sonner";
+import CotizacionPlantilla from "./plantilla";
 
 const ESTADO_BADGE: Record<EstadoCotizacion, string> = {
     borrador: "bg-slate-500/20 text-slate-300 border-slate-500/30",
@@ -20,6 +21,7 @@ export default function CotizacionesPage() {
     const [mounted, setMounted] = useState(false);
     const [showNew, setShowNew] = useState(false);
     const [showAI, setShowAI] = useState(false);
+    const [printView, setPrintView] = useState<Cotizacion | null>(null);
     const [transcript, setTranscript] = useState("");
     const [aiLoading, setAiLoading] = useState(false);
 
@@ -128,8 +130,22 @@ export default function CotizacionesPage() {
         return <div className="space-y-3 animate-pulse">{[...Array(3)].map((_, i) => <div key={i} className="h-24 rounded-xl skeleton" />)}</div>;
     }
 
+    if (printView) {
+        const clientePlantilla = clientes.find(c => c.id === printView.cliente_id);
+        if (!clientePlantilla) return null;
+        return (
+            <div className="fixed inset-0 z-50 bg-black/60 pt-4 pb-20 overflow-y-auto print:bg-white print:p-0">
+                <div className="w-full max-w-[210mm] mx-auto mb-4 flex justify-end gap-3 print:hidden px-4">
+                    <button onClick={() => setPrintView(null)} className="px-4 py-2 bg-secondary text-foreground text-sm rounded-lg hover:bg-secondary/80">Cerrar</button>
+                    <button onClick={() => window.print()} className="px-4 py-2 bg-primary text-black font-bold text-sm rounded-lg hover:opacity-90">Imprimir / Guardar PDF</button>
+                </div>
+                <CotizacionPlantilla cotizacion={printView} cliente={clientePlantilla} />
+            </div>
+        );
+    }
+
     return (
-        <div className="space-y-5 animate-fade-in">
+        <div className="space-y-5 animate-fade-in print:hidden">
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-2xl font-bold text-foreground">Cotizaciones</h2>
@@ -276,10 +292,14 @@ export default function CotizacionesPage() {
                                         >{e}</button>
                                     ))}
                                 </div>
-                                {q.pdf_url && (
+                                {q.pdf_url ? (
                                     <a href={q.pdf_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 transition-all">
-                                        <FileText className="w-4 h-4" /> Ver PDF
+                                        <FileText className="w-4 h-4" /> Ver PDF (Subido)
                                     </a>
+                                ) : (
+                                    <button onClick={() => setPrintView(q)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-primary text-xs font-semibold hover:bg-primary/20 transition-all">
+                                        <FileText className="w-4 h-4" /> Imprimir Cotización
+                                    </button>
                                 )}
                             </div>
                         </div>

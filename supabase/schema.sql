@@ -35,13 +35,17 @@ CREATE TABLE clientes (
 CREATE TABLE proyectos (
   id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
-  cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  cliente_id UUID REFERENCES clientes(id) ON DELETE CASCADE,
   nombre TEXT NOT NULL,
   tipo_proyecto tipo_proyecto NOT NULL DEFAULT 'landing',
   figma_url TEXT NOT NULL DEFAULT '',
   calendly_url TEXT NOT NULL DEFAULT '',
   slug_portal TEXT NOT NULL UNIQUE,
-  estado estado_proyecto NOT NULL DEFAULT 'activo'
+  estado estado_proyecto NOT NULL DEFAULT 'activo',
+  descripcion TEXT NOT NULL DEFAULT '',
+  fecha_entrega DATE,
+  es_interno BOOLEAN NOT NULL DEFAULT false,
+  accesos JSONB NOT NULL DEFAULT '[]'::jsonb
 );
 
 -- Tareas
@@ -53,7 +57,8 @@ CREATE TABLE tareas (
   descripcion TEXT NOT NULL DEFAULT '',
   prioridad prioridad NOT NULL DEFAULT 'media',
   estado estado_tarea NOT NULL DEFAULT 'pendiente',
-  categoria categoria_tarea NOT NULL DEFAULT 'otro'
+  categoria categoria_tarea NOT NULL DEFAULT 'otro',
+  fecha_vencimiento DATE
 );
 
 -- Cotizaciones

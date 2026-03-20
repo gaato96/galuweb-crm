@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ExternalLink, Eye, X, CheckCircle2, Circle } from "lucide-react";
+import { ExternalLink, Eye, X, CheckCircle2, Circle, Plus } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { proyectosStore, tareasStore, clientesStore } from "@/lib/store";
+import { toast } from "sonner";
 import type { Proyecto, Tarea, Cliente } from "@/lib/types";
 import Link from "next/link";
 
@@ -42,7 +43,9 @@ function ProyectoCard({
                 </span>
                 <span className="text-[10px] text-muted-foreground uppercase">{TIPO_LABEL[proyecto.tipo_proyecto]}</span>
             </div>
-            <h4 className="text-base font-semibold text-foreground mb-1 group-hover:text-primary transition-colors">{proyecto.nombre}</h4>
+            <h4 className="text-base font-semibold text-foreground mb-1 group-hover:text-primary transition-colors">
+                {proyecto.nombre} {proyecto.es_interno && <span className="ml-1 text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-md">SaaS / Interno</span>}
+            </h4>
             {cliente && (
                 <div className="flex items-center gap-2 mb-4">
                     <div className="w-5 h-5 rounded-full bg-gradient-to-br from-primary/40 to-cyan-500/40 flex items-center justify-center text-[8px] font-bold text-foreground">
@@ -70,6 +73,8 @@ function ProyectoCard({
 function ProyectoDetailModal({ open, onClose, proyecto, reload }: { open: boolean; onClose: () => void; proyecto: Proyecto | null; reload: () => void; }) {
     const [tareas, setTareas] = useState<Tarea[]>([]);
     const [cliente, setCliente] = useState<Cliente | undefined>();
+    const [showNewAcceso, setShowNewAcceso] = useState(false);
+    const [newAcceso, setNewAcceso] = useState({ servicio: "", url: "", usuario: "", password: "" });
 
     useEffect(() => {
         const load = async () => {
@@ -98,13 +103,42 @@ function ProyectoDetailModal({ open, onClose, proyecto, reload }: { open: boolea
     const completed = tareas.filter((t) => t.estado === "completada").length;
     const progress = tareas.length > 0 ? Math.round((completed / tareas.length) * 100) : 0;
 
+    const handleAddAcceso = async () => {
+        if (!newAcceso.servicio || !newAcceso.usuario) return;
+        const currentAccesos = proyecto.accesos || [];
+        const updatedAccesos = [...currentAccesos, newAcceso];
+        try {
+            await proyectosStore.update(proyecto.id, { accesos: updatedAccesos });
+            toast.success("Acceso guardado");
+            setNewAcceso({ servicio: "", url: "", usuario: "", password: "" });
+            setShowNewAcceso(false);
+            reload();
+        } catch {
+            toast.error("Error al guardar acceso");
+        }
+    };
+
+    const handleRemoveAcceso = async (index: number) => {
+        const updatedAccesos = (proyecto.accesos || []).filter((_, i) => i !== index);
+        try {
+            await proyectosStore.update(proyecto.id, { accesos: updatedAccesos });
+            toast.success("Acceso eliminado");
+            reload();
+        } catch {
+            toast.error("Error al eliminar acceso");
+        }
+    };
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-8">
             <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in">
                 <div className="flex items-center justify-between mb-5">
                     <div>
-                        <h3 className="text-lg font-bold text-foreground">{proyecto.nombre}</h3>
-                        <p className="text-sm text-muted-foreground">{cliente?.nombre} · {proyecto.tipo_proyecto}</p>
+                        <div className="flex items-center gap-2">
+                            <h3 className="text-lg font-bold text-foreground">{proyecto.nombre}</h3>
+                            {proyecto.es_interno && <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-md uppercase font-bold tracking-wider">Interno</span>}
+                        </div>
+                        <p className="text-sm text-muted-foreground">{proyecto.es_interno ? "Producto Propio" : cliente?.nombre} · {proyecto.tipo_proyecto}</p>
                     </div>
                     <button onClick={onClose} className="p-1 rounded-lg hover:bg-secondary"><X className="w-5 h-5 text-muted-foreground" /></button>
                 </div>
@@ -129,6 +163,57 @@ function ProyectoDetailModal({ open, onClose, proyecto, reload }: { open: boolea
                     </div>
                     <div className="h-2 rounded-full bg-background overflow-hidden">
                         <div className="h-full rounded-full bg-gradient-to-r from-primary to-cyan-400 transition-all" style={{ width: `${progress}%` }} />
+                    </div>
+                    {proyecto.fecha_entrega && (
+                        <p className="text-xs text-muted-foreground mt-2">Entrega: <strong className="text-foreground">{new Date(proyecto.fecha_entrega).toLocaleDateString()}</strong></p>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
+                    {/* Detalles */}
+                    <div>
+                        <h4 className="text-sm font-semibold text-foreground mb-2">Descripción</h4>
+                        <div className="p-3 rounded-lg border border-border bg-secondary/30 text-sm text-muted-foreground min-h-[80px]">
+                            {proyecto.descripcion || "Sin descripción proporcionada."}
+                        </div>
+                    </div>
+
+                    {/* Accesos */}
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <h4 className="text-sm font-semibold text-foreground">Accesos / Credenciales</h4>
+                            <button onClick={() => setShowNewAcceso(!showNewAcceso)} className="text-xs text-primary hover:text-primary/80 flex items-center gap-1">
+                                <Plus className="w-3 h-3" /> Agregar
+                            </button>
+                        </div>
+                        
+                        {showNewAcceso && (
+                            <div className="mb-3 p-3 rounded-lg border border-primary/30 bg-primary/5 space-y-2">
+                                <input type="text" placeholder="Servicio (ej. Hosting)" className="w-full text-xs p-1.5 rounded bg-background border" value={newAcceso.servicio} onChange={e => setNewAcceso({...newAcceso, servicio: e.target.value})} />
+                                <input type="text" placeholder="URL Login (opcional)" className="w-full text-xs p-1.5 rounded bg-background border" value={newAcceso.url} onChange={e => setNewAcceso({...newAcceso, url: e.target.value})} />
+                                <input type="text" placeholder="Usuario / Email" className="w-full text-xs p-1.5 rounded bg-background border" value={newAcceso.usuario} onChange={e => setNewAcceso({...newAcceso, usuario: e.target.value})} />
+                                <div className="flex gap-2">
+                                    <input type="text" placeholder="Contraseña" className="flex-1 text-xs p-1.5 rounded bg-background border" value={newAcceso.password} onChange={e => setNewAcceso({...newAcceso, password: e.target.value})} />
+                                    <button onClick={handleAddAcceso} className="bg-primary text-black px-2 py-1.5 rounded text-xs font-bold">Guardar</button>
+                                </div>
+                            </div>
+                        )}
+
+                        <div className="space-y-2 max-h-[150px] overflow-y-auto pr-1">
+                            {(!proyecto.accesos || proyecto.accesos.length === 0) && !showNewAcceso && (
+                                <p className="text-xs text-muted-foreground italic">No hay accesos guardados.</p>
+                            )}
+                            {(proyecto.accesos || []).map((acceso, i) => (
+                                <div key={i} className="p-2.5 rounded-lg border border-border bg-secondary/30 group relative">
+                                    <button onClick={() => handleRemoveAcceso(i)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-500 transition-opacity">
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                    <p className="text-xs font-bold text-foreground">{acceso.servicio}</p>
+                                    <p className="text-[10px] text-muted-foreground break-all">{acceso.usuario} • {acceso.password}</p>
+                                    {acceso.url && <a href={acceso.url} target="_blank" rel="noopener" className="text-[10px] text-primary hover:underline mt-1 inline-block">🔗 {acceso.url}</a>}
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
 
@@ -165,6 +250,159 @@ function ProyectoDetailModal({ open, onClose, proyecto, reload }: { open: boolea
     );
 }
 
+// --- Nuevo Proyecto Modal ---
+function NuevoProyectoModal({
+    open,
+    onClose,
+    clientes,
+    reload,
+}: {
+    open: boolean;
+    onClose: () => void;
+    clientes: Cliente[];
+    reload: () => void;
+}) {
+    const [form, setForm] = useState({
+        nombre: "",
+        es_interno: false,
+        cliente_id: "",
+        tipo_proyecto: "landing" as Proyecto["tipo_proyecto"],
+        descripcion: "",
+        fecha_entrega: "",
+        figma_url: "",
+        calendly_url: "",
+        slug_portal: "",
+    });
+    const [submitting, setSubmitting] = useState(false);
+
+    if (!open) return null;
+
+    const handleSubmit = async (e: React.FormEvent) => {
+        e.preventDefault();
+        setSubmitting(true);
+        try {
+            const data: any = { ...form };
+            if (form.es_interno) {
+                data.cliente_id = null;
+            } else if (!form.cliente_id) {
+                toast.error("Seleccione un cliente para proyectos externos");
+                setSubmitting(false);
+                return;
+            }
+            if (!data.slug_portal) {
+                data.slug_portal = data.nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+            }
+            if (!data.fecha_entrega) delete data.fecha_entrega;
+
+            await proyectosStore.create(data);
+            toast.success("Proyecto creado exitosamente");
+            reload();
+            onClose();
+            setForm({ nombre: "", es_interno: false, cliente_id: "", tipo_proyecto: "landing", descripcion: "", fecha_entrega: "", figma_url: "", calendly_url: "", slug_portal: "" });
+        } catch {
+            toast.error("Error al crear proyecto");
+        } finally {
+            setSubmitting(false);
+        }
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-8">
+            <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in relative my-auto">
+                <div className="flex items-center justify-between mb-5">
+                    <h3 className="text-lg font-bold text-foreground">Crear Nuevo Proyecto</h3>
+                    <button onClick={onClose} className="p-1 rounded-lg hover:bg-secondary"><X className="w-5 h-5 text-muted-foreground" /></button>
+                </div>
+
+                <form onSubmit={handleSubmit} className="space-y-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <div className="space-y-1.5 md:col-span-2">
+                            <label className="text-xs font-medium text-foreground">Nombre del Proyecto</label>
+                            <input
+                                required
+                                type="text"
+                                className="w-full h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                value={form.nombre}
+                                onChange={(e) => setForm({ ...form, nombre: e.target.value })}
+                                placeholder="Ej: E-commerce Galu"
+                            />
+                        </div>
+
+                        <div className="space-y-1.5 flex flex-col justify-end">
+                            <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg border border-border bg-secondary/50 hover:bg-secondary transition-colors">
+                                <input
+                                    type="checkbox"
+                                    className="rounded border-border text-primary focus:ring-primary h-4 w-4"
+                                    checked={form.es_interno}
+                                    onChange={(e) => setForm({ ...form, es_interno: e.target.checked, cliente_id: "" })}
+                                />
+                                <span className="text-sm font-medium text-foreground">Es un producto SaaS / Interno</span>
+                            </label>
+                        </div>
+
+                        {!form.es_interno && (
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-medium text-foreground">Cliente</label>
+                                <select
+                                    required={!form.es_interno}
+                                    className="w-full h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                    value={form.cliente_id}
+                                    onChange={(e) => setForm({ ...form, cliente_id: e.target.value })}
+                                >
+                                    <option value="">Seleccione un cliente...</option>
+                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                                </select>
+                            </div>
+                        )}
+
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-medium text-foreground">Tipo de Proyecto</label>
+                            <select
+                                className="w-full h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                value={form.tipo_proyecto}
+                                onChange={(e) => setForm({ ...form, tipo_proyecto: e.target.value as Proyecto["tipo_proyecto"] })}
+                            >
+                                <option value="landing">Landing Page</option>
+                                <option value="institucional">Institucional</option>
+                                <option value="ecommerce">E-Commerce</option>
+                            </select>
+                        </div>
+
+                        <div className="space-y-1.5">
+                            <label className="text-xs font-medium text-foreground">Fecha Estimada Entrega</label>
+                            <input
+                                type="date"
+                                className="w-full h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                value={form.fecha_entrega}
+                                onChange={(e) => setForm({ ...form, fecha_entrega: e.target.value })}
+                            />
+                        </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                        <label className="text-xs font-medium text-foreground">Descripción o Resumen</label>
+                        <textarea
+                            className="w-full p-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 min-h-[80px]"
+                            value={form.descripcion}
+                            onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
+                            placeholder="Detalles principales del proyecto..."
+                        />
+                    </div>
+
+                    <div className="pt-4 border-t border-border flex justify-end gap-2">
+                        <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground">
+                            Cancelar
+                        </button>
+                        <button disabled={submitting} type="submit" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 disabled:opacity-50">
+                            {submitting ? "Creando..." : "Crear Proyecto"}
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    );
+}
+
 export default function ProyectosPage() {
     const [proyectos, setProyectos] = useState<Proyecto[]>([]);
     const [tareas, setTareas] = useState<Tarea[]>([]);
@@ -172,6 +410,7 @@ export default function ProyectosPage() {
     const [mounted, setMounted] = useState(false);
     const [selected, setSelected] = useState<Proyecto | null>(null);
     const [showDetail, setShowDetail] = useState(false);
+    const [showNew, setShowNew] = useState(false);
     const [filter, setFilter] = useState<string>("todos");
 
     const reload = async () => {
@@ -207,7 +446,16 @@ export default function ProyectosPage() {
                     <h2 className="text-2xl font-bold text-foreground">Proyectos</h2>
                     <p className="text-sm text-muted-foreground">{proyectos.filter((p) => p.estado === "activo").length} proyectos activos</p>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-3">
+                    <button
+                        onClick={() => setShowNew(true)}
+                        className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-all glow-primary"
+                    >
+                        <Plus className="w-4 h-4" />
+                        <span>Nuevo Proyecto</span>
+                    </button>
+                    <div className="h-6 w-px bg-border hidden md:block" />
+                    <div className="hidden md:flex items-center gap-2">
                     {["todos", "activo", "pausado", "finalizado"].map((f) => (
                         <button
                             key={f}
@@ -220,6 +468,7 @@ export default function ProyectosPage() {
                             {f}
                         </button>
                     ))}
+                    </div>
                 </div>
             </div>
 
@@ -244,6 +493,13 @@ export default function ProyectosPage() {
                 open={showDetail}
                 onClose={() => { setShowDetail(false); setSelected(null); }}
                 proyecto={selected}
+                reload={reload}
+            />
+
+            <NuevoProyectoModal
+                open={showNew}
+                onClose={() => setShowNew(false)}
+                clientes={clientes}
                 reload={reload}
             />
         </div>
