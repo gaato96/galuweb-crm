@@ -14,6 +14,8 @@ import {
     Megaphone,
     BookOpen,
     ChevronLeft,
+    Server,
+    LifeBuoy
 } from "lucide-react";
 import { useState } from "react";
 
@@ -24,6 +26,8 @@ export const NAV_ITEMS = [
     { label: "Tareas", href: "/tareas", icon: CheckSquare },
     { label: "Cotizaciones", href: "/cotizaciones", icon: FileText },
     { label: "Finanzas", href: "/finanzas", icon: DollarSign },
+    { label: "Infraestructura", href: "/infraestructura", icon: Server },
+    { label: "Tickets", href: "/tickets", icon: LifeBuoy },
     { label: "Briefs", href: "/briefs", icon: ClipboardList },
     { label: "Marketing", href: "/marketing", icon: Megaphone },
     { label: "Recursos", href: "/recursos", icon: BookOpen },

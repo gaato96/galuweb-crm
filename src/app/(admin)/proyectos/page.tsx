@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ExternalLink, Eye, X, CheckCircle2, Circle, Plus } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { ExternalLink, Eye, X, CheckCircle2, Circle, Plus, Copy } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { proyectosStore, tareasStore, clientesStore } from "@/lib/store";
 import { toast } from "sonner";
@@ -144,15 +145,25 @@ function ProyectoDetailModal({ open, onClose, proyecto, reload }: { open: boolea
                 </div>
 
                 {/* Links */}
-                <div className="flex gap-3 mb-5">
+                <div className="flex flex-wrap gap-3 mb-5">
                     {proyecto.figma_url && (
                         <a href={proyecto.figma_url} target="_blank" rel="noopener" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary border border-border text-xs text-foreground hover:border-primary/30 transition-colors">
                             <ExternalLink className="w-3.5 h-3.5" /> Figma
                         </a>
                     )}
-                    <Link href={`/portal/${proyecto.slug_portal}`} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary border border-border text-xs text-foreground hover:border-primary/30 transition-colors">
-                        <Eye className="w-3.5 h-3.5" /> Portal del Cliente
+                    <Link href={`/portal/${proyecto.slug_portal}`} target="_blank" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary border border-border text-xs text-foreground hover:border-primary/30 transition-colors">
+                        <Eye className="w-3.5 h-3.5" /> Ver Portal
                     </Link>
+                    <button 
+                        onClick={() => {
+                            const url = `${window.location.origin}/portal/${proyecto.slug_portal}`;
+                            navigator.clipboard.writeText(url);
+                            toast.success("Enlace del portal copiado al portapapeles");
+                        }}
+                        className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary/10 border border-primary/20 text-xs text-primary font-medium hover:bg-primary/20 transition-colors"
+                    >
+                        <Copy className="w-3.5 h-3.5" /> Copiar Link
+                    </button>
                 </div>
 
                 {/* Progress */}
@@ -168,6 +179,33 @@ function ProyectoDetailModal({ open, onClose, proyecto, reload }: { open: boolea
                         <p className="text-xs text-muted-foreground mt-2">Entrega: <strong className="text-foreground">{new Date(proyecto.fecha_entrega).toLocaleDateString()}</strong></p>
                     )}
                 </div>
+
+                {/* Figma Approval Status */}
+                {proyecto.figma_url && (
+                    <div className={cn(
+                        "mb-5 p-4 rounded-xl border flex items-center justify-between",
+                        proyecto.figma_aprobado ? "bg-emerald-500/10 border-emerald-500/20" : "bg-purple-500/5 border-purple-500/20"
+                    )}>
+                        <div className="flex items-center gap-3">
+                            <div className={cn(
+                                "w-10 h-10 rounded-lg flex items-center justify-center shrink-0",
+                                proyecto.figma_aprobado ? "bg-emerald-500/20 text-emerald-500" : "bg-purple-500/20 text-purple-400"
+                            )}>
+                                {proyecto.figma_aprobado ? <CheckCircle2 className="w-5 h-5" /> : <ExternalLink className="w-5 h-5" />}
+                            </div>
+                            <div>
+                                <h4 className={cn("text-sm font-bold", proyecto.figma_aprobado ? "text-emerald-500" : "text-purple-400")}>
+                                    {proyecto.figma_aprobado ? "Diseño Aprobado por el Cliente" : "Diseño (Figma) Pendiente"}
+                                </h4>
+                                {proyecto.figma_comentarios ? (
+                                    <p className="text-xs text-foreground/80 mt-1 italic">&quot;{proyecto.figma_comentarios}&quot;</p>
+                                ) : (
+                                    <p className="text-xs text-muted-foreground mt-0.5">Pendiente de aprobación en el portal.</p>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5 mb-5">
                     {/* Detalles */}
@@ -419,13 +457,14 @@ function NuevoProyectoModal({
 }
 
 export default function ProyectosPage() {
+    const searchParams = useSearchParams();
     const [proyectos, setProyectos] = useState<Proyecto[]>([]);
     const [tareas, setTareas] = useState<Tarea[]>([]);
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [mounted, setMounted] = useState(false);
     const [selected, setSelected] = useState<Proyecto | null>(null);
     const [showDetail, setShowDetail] = useState(false);
-    const [showNew, setShowNew] = useState(false);
+    const [showNew, setShowNew] = useState(searchParams.get("new") === "true");
     const [filter, setFilter] = useState<string>("todos");
 
     const reload = async () => {

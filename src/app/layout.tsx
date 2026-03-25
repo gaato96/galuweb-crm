@@ -1,7 +1,5 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import Sidebar from "@/components/layout/sidebar";
-import Header from "@/components/layout/header";
 import { Toaster } from "sonner";
 
 export const metadata: Metadata = {
@@ -34,15 +32,7 @@ export default function RootLayout({
   return (
     <html lang="es" className="dark">
       <body>
-        <div className="flex min-h-screen">
-          <Sidebar />
-          <div className="flex-1 flex flex-col lg:pl-[250px] transition-all duration-300">
-            <Header />
-            <main className="flex-1 p-4 lg:p-6 overflow-x-hidden">
-              {children}
-            </main>
-          </div>
-        </div>
+        {children}
         <Toaster
           className="!z-[100]"
           position="bottom-right"

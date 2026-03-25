@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { CheckCircle2, Circle, Clock, ExternalLink, MessageCircle, Calendar, FileText, Zap } from "lucide-react";
+import { CheckCircle2, Circle, Clock, ExternalLink, MessageCircle, Calendar, FileText, Zap, LifeBuoy, Check, XCircle, X as XIcon } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
-import { proyectosStore, tareasStore, clientesStore, cotizacionesStore } from "@/lib/store";
+import { proyectosStore, tareasStore, clientesStore, cotizacionesStore, ticketsStore } from "@/lib/store";
+import { toast } from "sonner";
 import type { Proyecto, Tarea, Cliente, Cotizacion } from "@/lib/types";
 
 export default function PortalClient({ slug }: { slug: string }) {
@@ -13,6 +14,9 @@ export default function PortalClient({ slug }: { slug: string }) {
     const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
     const [mounted, setMounted] = useState(false);
     const [notFound, setNotFound] = useState(false);
+    const [showTicketModal, setShowTicketModal] = useState(false);
+    const [ticketForm, setTicketForm] = useState({ asunto: "", descripcion: "" });
+    const [isApproving, setIsApproving] = useState(false);
 
     useEffect(() => {
         const load = async () => {
@@ -85,6 +89,43 @@ export default function PortalClient({ slug }: { slug: string }) {
         { label: "Desarrollo", tasks: tareas.filter((t) => t.categoria === "dev") },
         { label: "SEO", tasks: tareas.filter((t) => t.categoria === "seo") },
     ].filter((p) => p.tasks.length > 0);
+
+    const handleCreateTicket = async () => {
+        if (!ticketForm.asunto.trim() || !cliente) return;
+        try {
+            await ticketsStore.create({
+                cliente_id: cliente.id,
+                proyecto_id: proyecto.id,
+                asunto: ticketForm.asunto,
+                descripcion: ticketForm.descripcion,
+                prioridad: "media"
+            });
+            toast.success("Ticket enviado correctamente");
+            setShowTicketModal(false);
+            setTicketForm({ asunto: "", descripcion: "" });
+        } catch {
+            toast.error("Error al enviar el ticket");
+        }
+    };
+
+    const handleFigmaApproval = async (approved: boolean) => {
+        setIsApproving(true);
+        try {
+            const comentarios = approved ? "Aprobado desde el portal." : prompt("Por favor, dejanos un breve comentario de qué te gustaría cambiar:");
+            if (!approved && comentarios === null) return; // User cancelled
+            
+            await proyectosStore.update(proyecto.id, {
+                figma_aprobado: approved,
+                figma_comentarios: comentarios || ""
+            });
+            setProyecto({ ...proyecto, figma_aprobado: approved, figma_comentarios: comentarios || "" });
+            toast.success(approved ? "¡Diseño aprobado! Gracias." : "Comentarios enviados. Trabajaremos en ello.");
+        } catch {
+            toast.error("Error al procesar la solicitud");
+        } finally {
+            setIsApproving(false);
+        }
+    };
 
     return (
         <div className="min-h-screen bg-background">
@@ -171,16 +212,41 @@ export default function PortalClient({ slug }: { slug: string }) {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     {/* Figma */}
                     {proyecto.figma_url && (
-                        <a href={proyecto.figma_url} target="_blank" rel="noopener"
-                            className="flex items-center gap-4 p-5 rounded-2xl border border-border bg-card card-hover group">
-                            <div className="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center">
-                                <ExternalLink className="w-5 h-5 text-purple-400" />
-                            </div>
-                            <div>
-                                <h3 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">Diseño en Figma</h3>
-                                <p className="text-xs text-muted-foreground">Ver el diseño de tu proyecto</p>
-                            </div>
-                        </a>
+                        <div className="flex flex-col gap-3 p-5 rounded-2xl border border-border bg-card">
+                            <a href={proyecto.figma_url} target="_blank" rel="noopener" className="flex items-center gap-4 group cursor-pointer">
+                                <div className="w-12 h-12 rounded-xl bg-purple-500/20 flex items-center justify-center shrink-0">
+                                    <ExternalLink className="w-5 h-5 text-purple-400 group-hover:scale-110 transition-transform" />
+                                </div>
+                                <div className="flex-1">
+                                    <h3 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">Diseño Visual (Figma)</h3>
+                                    <p className="text-xs text-muted-foreground">{proyecto.figma_aprobado ? "Diseño Final Aprobado" : "Pendiente de Aprobación"}</p>
+                                </div>
+                            </a>
+
+                            {!proyecto.figma_aprobado ? (
+                                <div className="flex items-center gap-2 pt-3 border-t border-border/50">
+                                    <button
+                                        disabled={isApproving}
+                                        onClick={() => handleFigmaApproval(true)}
+                                        className="flex-1 flex items-center justify-center gap-2 h-9 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-bold hover:bg-emerald-500/30 transition-colors"
+                                    >
+                                        <Check className="w-4 h-4" /> Aprobar
+                                    </button>
+                                    <button
+                                        disabled={isApproving}
+                                        onClick={() => handleFigmaApproval(false)}
+                                        className="flex-1 flex items-center justify-center gap-2 h-9 rounded-lg bg-rose-500/20 text-rose-400 text-xs font-bold hover:bg-rose-500/30 transition-colors"
+                                    >
+                                        <XCircle className="w-4 h-4" /> Solicitar Cambios
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex items-center justify-center gap-2 pt-3 border-t border-border/50 text-emerald-500">
+                                    <CheckCircle2 className="w-4 h-4" />
+                                    <span className="text-xs font-bold">¡Aprobado!</span>
+                                </div>
+                            )}
+                        </div>
                     )}
 
                     {/* Calendly */}
@@ -223,6 +289,17 @@ export default function PortalClient({ slug }: { slug: string }) {
                             </div>
                         </div>
                     )}
+
+                    {/* Technical Support */}
+                    <button onClick={() => setShowTicketModal(true)} className="flex items-center gap-4 p-5 rounded-2xl border border-border bg-card card-hover group text-left">
+                        <div className="w-12 h-12 rounded-xl bg-primary/20 flex items-center justify-center">
+                            <LifeBuoy className="w-5 h-5 text-primary" />
+                        </div>
+                        <div>
+                            <h3 className="text-sm font-semibold text-foreground group-hover:text-primary transition-colors">Soporte Técnico</h3>
+                            <p className="text-xs text-muted-foreground">Abrir un ticket de ayuda</p>
+                        </div>
+                    </button>
                 </div>
 
                 {/* Cotización Detail */}
@@ -243,9 +320,53 @@ export default function PortalClient({ slug }: { slug: string }) {
                         </div>
                     </div>
                 )}
+                
+                {/* Tickets Modal */}
+                {showTicketModal && (
+                    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
+                        <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in relative">
+                            <button onClick={() => setShowTicketModal(false)} className="absolute top-4 right-4 p-1.5 rounded-lg bg-secondary text-muted-foreground hover:text-foreground">
+                                <XIcon className="w-4 h-4" />
+                            </button>
+                            <h3 className="text-lg font-bold text-foreground mb-1 flex items-center gap-2">
+                                <LifeBuoy className="w-5 h-5 text-primary" /> Nuevo Ticket de Soporte
+                            </h3>
+                            <p className="text-xs text-muted-foreground mb-5">Describe en qué necesitas ayuda y nuestro equipo lo revisará.</p>
+                            
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="text-xs text-muted-foreground mb-1 block">Asunto *</label>
+                                    <input 
+                                        type="text"
+                                        placeholder="Ej: Necesito cambiar una foto"
+                                        value={ticketForm.asunto}
+                                        onChange={(e) => setTicketForm({ ...ticketForm, asunto: e.target.value })}
+                                        className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-muted-foreground mb-1 block">Descripción Detallada</label>
+                                    <textarea 
+                                        rows={4}
+                                        placeholder="Por favor, incluye links, secciones específicas o la imagen de referencia..."
+                                        value={ticketForm.descripcion}
+                                        onChange={(e) => setTicketForm({ ...ticketForm, descripcion: e.target.value })}
+                                        className="w-full p-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                                    />
+                                </div>
+                                <button 
+                                    onClick={handleCreateTicket}
+                                    className="w-full h-11 rounded-lg bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity"
+                                >
+                                    Enviar Ticket
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Footer */}
-                <div className="text-center py-8 border-t border-border">
+                <div className="text-center py-8 border-t border-border mt-10">
                     <div className="flex items-center justify-center gap-2 mb-2">
                         <Zap className="w-4 h-4 text-primary" />
                         <span className="text-sm font-bold gradient-text">Galu CRM</span>

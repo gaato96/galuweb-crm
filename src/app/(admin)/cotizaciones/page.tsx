@@ -6,7 +6,6 @@ import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { cotizacionesStore, clientesStore, storageStore } from "@/lib/store";
 import type { Cotizacion, CotizacionItem, EstadoCotizacion, Cliente } from "@/lib/types";
 import { toast } from "sonner";
-import CotizacionPlantilla from "./plantilla";
 
 const ESTADO_BADGE: Record<EstadoCotizacion, string> = {
     borrador: "bg-slate-500/20 text-slate-300 border-slate-500/30",
@@ -21,7 +20,7 @@ export default function CotizacionesPage() {
     const [mounted, setMounted] = useState(false);
     const [showNew, setShowNew] = useState(false);
     const [showAI, setShowAI] = useState(false);
-    const [printView, setPrintView] = useState<Cotizacion | null>(null);
+    const [promptView, setPromptView] = useState<Cotizacion | null>(null);
     const [transcript, setTranscript] = useState("");
     const [aiLoading, setAiLoading] = useState(false);
 
@@ -130,16 +129,82 @@ export default function CotizacionesPage() {
         return <div className="space-y-3 animate-pulse">{[...Array(3)].map((_, i) => <div key={i} className="h-24 rounded-xl skeleton" />)}</div>;
     }
 
-    if (printView) {
-        const clientePlantilla = clientes.find(c => c.id === printView.cliente_id);
-        if (!clientePlantilla) return null;
+    if (promptView) {
+        const c = clientes.find((cliente) => cliente.id === promptView.cliente_id);
+        if (!c) return null;
+
+        const notas = c.notas_seguimiento?.map(n => n.texto).join("\n") || "No hay notas previas.";
+        const info = c.info_investigacion 
+          ? `Qué hace: ${c.info_investigacion.que_hace}\nPuntos débiles: ${c.info_investigacion.puntos_debiles}\nSoluciones: ${c.info_investigacion.soluciones}`
+          : "No hay información de investigación.";
+        const itemsText = promptView.items.map(i => `- ${i.descripcion}: ${formatCurrency(i.precio)}`).join("\n");
+
+        const promptText = `Actúa como un experto en redacción persuasiva y ventas para una agencia de diseño web.
+Por favor, redacta el copywriting completo y profesional para una propuesta de servicios (Cotización) basándote en la siguiente información del cliente y del proyecto.
+
+--- INFORMACIÓN DEL CLIENTE ---
+Nombre: ${c.nombre}
+Negocio: ${c.negocio}
+Notas de reuniones y seguimiento:
+${notas}
+
+Información de investigación:
+${info}
+
+Notas específicas de esta cotización:
+${promptView.notas || 'Ninguna'}
+
+--- COTIZACIÓN A PRESENTAR ---
+Ítems del servicio:
+${itemsText}
+Total estimado: ${formatCurrency(promptView.total)}
+
+--- ESTRUCTURA REQUERIDA ---
+Por favor, estructura la propuesta en las siguientes 6 secciones, asegurándote de usar un tono persuasivo, profesional y claro que me permita pegarlo directamente en el diseño de Figma que le presentaré:
+
+01. Descripción general (Resumen ejecutivo del problema y la solución que aportaremos basándote en la info del cliente).
+02. Alcance (Descripción detallada y atractiva de los ítems cotizados y qué implican para su negocio).
+03. Cronograma (Estimación de tiempos lógicos para este tipo de proyecto).
+04. Cotización (Presentación elegante de la inversión).
+05. Términos (Condiciones de pago e iteraciones de forma breve y clara).
+06. Acuerdo (Llamado a la acción final para iniciar y próximos pasos).`;
+
+        const copyToClipboard = () => {
+            navigator.clipboard.writeText(promptText);
+            toast.success("Prompt copiado al portapapeles");
+        };
+
         return (
-            <div className="fixed inset-0 z-50 bg-black/60 pt-4 pb-20 overflow-y-auto print:bg-white print:p-0">
-                <div className="w-full max-w-[210mm] mx-auto mb-4 flex justify-end gap-3 print:hidden px-4">
-                    <button onClick={() => setPrintView(null)} className="px-4 py-2 bg-secondary text-foreground text-sm rounded-lg hover:bg-secondary/80">Cerrar</button>
-                    <button onClick={() => window.print()} className="px-4 py-2 bg-primary text-black font-bold text-sm rounded-lg hover:opacity-90">Imprimir / Guardar PDF</button>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                <div className="w-full max-w-3xl flex flex-col max-h-[90vh] rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in">
+                    <div className="flex items-center justify-between mb-4">
+                        <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
+                            <Sparkles className="w-5 h-5 text-violet-400" /> Generador de Copywriting para IA
+                        </h3>
+                        <button onClick={() => setPromptView(null)} className="p-1 rounded-lg hover:bg-secondary">
+                            <X className="w-5 h-5 text-muted-foreground" />
+                        </button>
+                    </div>
+                    
+                    <p className="text-sm text-muted-foreground mb-4">
+                        Copia este prompt optimizado y pégalo en ChatGPT, Claude o Gemini. Creará el contenido perfecto para que lo lleves a tu plantilla de Figma.
+                    </p>
+
+                    <textarea
+                        readOnly
+                        className="flex-1 w-full p-4 rounded-xl bg-secondary/50 border border-primary/20 text-sm font-mono text-foreground focus:outline-none resize-none mb-4"
+                        value={promptText}
+                    />
+
+                    <div className="flex justify-end gap-3 shrink-0">
+                        <button onClick={() => setPromptView(null)} className="px-5 py-2.5 bg-secondary text-foreground text-sm font-medium rounded-xl hover:bg-secondary/80 transition-colors">
+                            Cerrar
+                        </button>
+                        <button onClick={copyToClipboard} className="px-5 py-2.5 bg-violet-600 text-white font-bold text-sm rounded-xl hover:bg-violet-500 transition-colors shadow-[0_0_15px_rgba(139,92,246,0.5)]">
+                            Copiar Prompt
+                        </button>
+                    </div>
                 </div>
-                <CotizacionPlantilla cotizacion={printView} cliente={clientePlantilla} />
             </div>
         );
     }
@@ -297,8 +362,8 @@ export default function CotizacionesPage() {
                                         <FileText className="w-4 h-4" /> Ver PDF (Subido)
                                     </a>
                                 )}
-                                <button onClick={() => setPrintView(q)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-semibold hover:bg-violet-500/20 transition-all">
-                                    <FileText className="w-4 h-4" /> 📄 Generar Propuesta
+                                <button onClick={() => setPromptView(q)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-semibold hover:bg-violet-500/20 transition-all">
+                                    <Sparkles className="w-4 h-4" /> Armar Copy Prompt
                                 </button>
                             </div>
                         </div>

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { Plus, CheckCircle2, Circle, Clock, Filter, Trash2, CalendarClock } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tareasStore, proyectosStore } from "@/lib/store";
@@ -9,12 +10,14 @@ import { PRIORIDAD_COLORS } from "@/lib/types";
 import { toast } from "sonner";
 
 export default function TareasPage() {
+    const searchParams = useSearchParams();
     const [tareas, setTareas] = useState<Tarea[]>([]);
     const [mounted, setMounted] = useState(false);
-    const [showNew, setShowNew] = useState(false);
+    const [showNew, setShowNew] = useState(searchParams.get("new") === "true");
     const [filterPrioridad, setFilterPrioridad] = useState<string>("todas");
     const [filterProyecto, setFilterProyecto] = useState<string>("todos");
     const [filterEstado, setFilterEstado] = useState<string>("todos");
+    const [showHistory, setShowHistory] = useState(false);
 
     const [proyectos, setProyectos] = useState<any[]>([]);
 
@@ -41,14 +44,20 @@ export default function TareasPage() {
         if (!form.titulo.trim()) { toast.error("Título requerido"); return; }
         try {
             const data: any = { ...form, proyecto_id: form.proyecto_id || null, estado: "pendiente" as EstadoTarea };
-            if (!data.fecha_vencimiento) delete data.fecha_vencimiento;
+            if (!data.fecha_vencimiento) {
+                delete data.fecha_vencimiento;
+            } else {
+                // Ensure format works for timestamp or date by appending time
+                data.fecha_vencimiento = new Date(data.fecha_vencimiento + "T12:00:00").toISOString();
+            }
             await tareasStore.create(data);
             setForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "otro", proyecto_id: "", fecha_vencimiento: "" });
             setShowNew(false);
             await reload();
             toast.success("Tarea creada");
-        } catch {
-            toast.error("Error al crear tarea");
+        } catch (error: any) {
+            console.error("Error creating task:", error);
+            toast.error(`Error al crear tarea: ${error?.message || "Desconocido"}`);
         }
     };
 
@@ -226,8 +235,19 @@ export default function TareasPage() {
             )}
             {completadas.length > 0 && (
                 <div>
-                    <h3 className="text-sm font-semibold text-emerald-400 mb-2 flex items-center gap-2"><CheckCircle2 className="w-4 h-4" /> Completadas ({completadas.length})</h3>
-                    <div className="space-y-1.5">{completadas.map(renderTarea)}</div>
+                    <div className="flex items-center justify-between mb-2">
+                        <h3 className="text-sm font-semibold text-emerald-400 flex items-center gap-2">
+                            <CheckCircle2 className="w-4 h-4" /> Completadas ({completadas.length})
+                        </h3>
+                        {completadas.length > 3 && (
+                            <button onClick={() => setShowHistory(!showHistory)} className="text-xs text-muted-foreground hover:text-foreground underline">
+                                {showHistory ? "Ocultar historial" : "Ver historial (" + (completadas.length - 3) + " más)"}
+                            </button>
+                        )}
+                    </div>
+                    <div className="space-y-1.5">
+                        {(showHistory ? completadas : completadas.slice(0, 3)).map(renderTarea)}
+                    </div>
                 </div>
             )}
         </div>

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, MessageCircle, ArrowRight, X, GripVertical, Search } from "lucide-react";
+import { useSearchParams } from "next/navigation";
+import { Plus, MessageCircle, ArrowRight, X, GripVertical, Search, ShieldCheck } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { clientesStore, proyectosStore, tareasStore } from "@/lib/store";
 import type { Cliente, EtapaCliente, TipoProyecto } from "@/lib/types";
@@ -37,6 +38,7 @@ function NuevoClienteModal({
         email: "",
         tel: "",
         canal: "",
+        mantenimiento_mensual: false,
     });
 
     if (!open) return null;
@@ -83,6 +85,19 @@ function NuevoClienteModal({
                             <option value="Otro">Otro</option>
                         </select>
                     </div>
+                    <div className="flex items-center gap-2 mt-2 p-3 bg-secondary/50 rounded-lg border border-border">
+                        <input
+                            type="checkbox"
+                            className="w-4 h-4 rounded border-border text-primary focus:ring-primary/50"
+                            checked={form.mantenimiento_mensual}
+                            onChange={(e) => setForm({ ...form, mantenimiento_mensual: e.target.checked })}
+                            id="mant-mensual"
+                        />
+                        <label htmlFor="mant-mensual" className="text-sm font-medium text-foreground cursor-pointer flex items-center gap-2">
+                            <ShieldCheck className="w-4 h-4 text-emerald-500" />
+                            Abona Mantenimiento Mensual
+                        </label>
+                    </div>
                 </div>
                 <div className="flex justify-end gap-3 mt-6">
                     <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-secondary transition-colors">
@@ -92,7 +107,7 @@ function NuevoClienteModal({
                         onClick={() => {
                             if (!form.nombre.trim()) { toast.error("El nombre es obligatorio"); return; }
                             onSave({ ...form, etapa: "contacto" as EtapaCliente, info_investigacion: null, msg_whatsapp: "", notas_seguimiento: [] });
-                            setForm({ nombre: "", negocio: "", email: "", tel: "", canal: "" });
+                            setForm({ nombre: "", negocio: "", email: "", tel: "", canal: "", mantenimiento_mensual: false });
                             onClose();
                         }}
                         className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity"
@@ -282,6 +297,11 @@ function ClienteDetailModal({
                         </div>
                     </div>
                     <div className="flex items-center gap-2">
+                        {cliente.mantenimiento_mensual && (
+                            <div className="flex items-center gap-1.5 px-2 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-500 text-[10px] font-bold uppercase">
+                                <ShieldCheck className="w-3.5 h-3.5" /> Mantenimiento
+                            </div>
+                        )}
                         <span className={cn("text-xs px-2.5 py-1 rounded-full border font-medium", ETAPA_COLORS[cliente.etapa])}>
                             {ETAPA_LABELS[cliente.etapa]}
                         </span>
@@ -290,10 +310,25 @@ function ClienteDetailModal({
                 </div>
 
                 {/* Datos Básicos */}
-                <div className="grid grid-cols-3 gap-3 mb-5 p-3 rounded-lg bg-secondary/50 border border-border">
+                <div className="grid grid-cols-4 gap-3 mb-5 p-3 rounded-lg bg-secondary/50 border border-border">
                     <div><p className="text-[10px] text-muted-foreground uppercase">Email</p><p className="text-sm text-foreground truncate">{cliente.email || "—"}</p></div>
                     <div><p className="text-[10px] text-muted-foreground uppercase">Teléfono</p><p className="text-sm text-foreground">{cliente.tel || "—"}</p></div>
                     <div><p className="text-[10px] text-muted-foreground uppercase">Canal</p><p className="text-sm text-foreground">{cliente.canal || "—"}</p></div>
+                    <div className="flex items-center justify-end">
+                        <button
+                            onClick={() => {
+                                onUpdate(cliente.id, { mantenimiento_mensual: !cliente.mantenimiento_mensual });
+                                toast.success(cliente.mantenimiento_mensual ? "Mantenimiento desactivado" : "Mantenimiento activado");
+                            }}
+                            className={cn(
+                                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors",
+                                cliente.mantenimiento_mensual
+                                    ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30 hover:bg-emerald-500/30"
+                                    : "bg-secondary text-muted-foreground border-border hover:bg-secondary/80"
+                            )}>
+                            <ShieldCheck className="w-4 h-4" /> {cliente.mantenimiento_mensual ? "Abona Mantenimiento" : "Sin Mantenimiento"}
+                        </button>
+                    </div>
                 </div>
 
                 {/* Fase Investigación */}
@@ -496,8 +531,11 @@ function DraggableClienteCard({ cliente, onClick }: { cliente: Cliente; onClick:
                     <div className="w-8 h-8 rounded-full bg-gradient-to-br from-primary/40 to-cyan-500/40 flex items-center justify-center text-[10px] font-bold text-foreground shrink-0">
                         {getInitials(cliente.nombre)}
                     </div>
-                    <div className="min-w-0 text-left">
-                        <p className="text-sm font-medium text-foreground truncate">{cliente.nombre}</p>
+                    <div className="min-w-0 text-left flex-1">
+                        <div className="flex items-center gap-1.5 justify-between">
+                            <p className="text-sm font-medium text-foreground truncate">{cliente.nombre}</p>
+                            {cliente.mantenimiento_mensual && <ShieldCheck className="w-3.5 h-3.5 text-emerald-500 shrink-0" />}
+                        </div>
                         <p className="text-[11px] text-muted-foreground truncate">{cliente.negocio}</p>
                     </div>
                 </button>
@@ -534,9 +572,10 @@ function DroppableEtapaColumn({ etapa, children, count }: { etapa: EtapaCliente;
 
 // --- Main Page ---
 export default function ClientesPage() {
+    const searchParams = useSearchParams();
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [mounted, setMounted] = useState(false);
-    const [showNew, setShowNew] = useState(false);
+    const [showNew, setShowNew] = useState(searchParams.get("new") === "true");
     const [showDetail, setShowDetail] = useState(false);
     const [showProject, setShowProject] = useState(false);
     const [selected, setSelected] = useState<Cliente | null>(null);

@@ -23,6 +23,9 @@ export type EstadoCotizacion = "borrador" | "enviada" | "aceptada" | "rechazada"
 export type TipoFinanza = "ingreso" | "ads" | "gasto" | "herramienta";
 export type TipoRecurso = "link" | "video" | "archivo" | "curso" | "plugin" | "inspiracion";
 
+export type TipoInfraestructura = "hosting" | "dominio";
+export type EstadoTicket = "abierto" | "en_progreso" | "resuelto";
+
 // --- Database Models ---
 export interface Cliente {
     id: string;
@@ -37,6 +40,7 @@ export interface Cliente {
     msg_whatsapp: string;
     notas_seguimiento: NotaSeguimiento[];
     pdf_cotizacion_url?: string;
+    mantenimiento_mensual?: boolean;
 }
 
 export interface InfoInvestigacion {
@@ -65,6 +69,8 @@ export interface Proyecto {
     fecha_entrega?: string;
     es_interno: boolean;
     accesos: { servicio: string; url: string; usuario: string; password: string; }[];
+    figma_aprobado?: boolean;
+    figma_comentarios?: string;
     cliente?: Cliente;
 }
 
@@ -137,6 +143,31 @@ export interface Recurso {
     tipo: TipoRecurso;
     tags: string[];
     descripcion: string;
+}
+
+export interface Infraestructura {
+    id: string;
+    created_at: string;
+    cliente_id: string;
+    tipo: TipoInfraestructura;
+    nombre: string;
+    proveedor: string;
+    fecha_vencimiento: string | null;
+    costo: number;
+    cliente?: Cliente;
+}
+
+export interface TicketSoporte {
+    id: string;
+    created_at: string;
+    cliente_id: string;
+    proyecto_id: string | null;
+    asunto: string;
+    descripcion: string;
+    estado: EstadoTicket;
+    prioridad: Prioridad;
+    cliente?: Cliente;
+    proyecto?: Proyecto;
 }
 
 // --- UI Helpers ---

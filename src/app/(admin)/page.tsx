@@ -9,6 +9,9 @@ import {
   ArrowUpRight,
   Clock,
   AlertCircle,
+  Briefcase,
+  UserPlus,
+  CheckSquare
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, daysFromNow } from "@/lib/utils";
 import { clientesStore, proyectosStore, finanzasStore, tareasStore } from "@/lib/store";
@@ -119,6 +122,31 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6 animate-fade-in">
+      {/* Quick Actions */}
+      <div className="flex flex-wrap items-center gap-3 pb-2 border-b border-border/50">
+        <Link
+          href="/tareas?new=true"
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-secondary text-foreground rounded-lg border border-border hover:bg-primary/10 hover:border-primary/30 hover:text-primary transition-all"
+        >
+          <CheckSquare className="w-4 h-4" />
+          Nueva Tarea
+        </Link>
+        <Link
+          href="/clientes?new=true"
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-secondary text-foreground rounded-lg border border-border hover:bg-primary/10 hover:border-primary/30 hover:text-primary transition-all"
+        >
+          <UserPlus className="w-4 h-4" />
+          Nuevo Cliente
+        </Link>
+        <Link
+          href="/proyectos?new=true"
+          className="flex items-center gap-2 px-4 py-2 text-sm font-medium bg-secondary text-foreground rounded-lg border border-border hover:bg-primary/10 hover:border-primary/30 hover:text-primary transition-all"
+        >
+          <Briefcase className="w-4 h-4" />
+          Nuevo Proyecto
+        </Link>
+      </div>
+
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         <KPICard
