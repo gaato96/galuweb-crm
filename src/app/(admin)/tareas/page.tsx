@@ -9,7 +9,7 @@ import type { Tarea, Prioridad, EstadoTarea, CategoriaTarea } from "@/lib/types"
 import { PRIORIDAD_COLORS } from "@/lib/types";
 import { toast } from "sonner";
 
-export default function TareasPage() {
+function TareasContent() {
     const searchParams = useSearchParams();
     const [tareas, setTareas] = useState<Tarea[]>([]);
     const [mounted, setMounted] = useState(false);
@@ -107,12 +107,12 @@ export default function TareasPage() {
         const due = new Date(year, month - 1, day);
         const today = new Date();
         today.setHours(0, 0, 0, 0);
-        
+
         const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        
+
         if (diffDays < 0) return { label: "Vencida", classes: "text-red-500 bg-red-500/10 border-red-500/30 font-bold" };
         if (diffDays === 0) return { label: "Vence Hoy", classes: "text-orange-500 bg-orange-500/10 border-orange-500/30 font-bold" };
-        if (diffDays <= 2) return { label: `En ${diffDays} día${diffDays>1?'s':''}`, classes: "text-amber-500 bg-amber-500/10 border-amber-500/30" };
+        if (diffDays <= 2) return { label: `En ${diffDays} día${diffDays > 1 ? 's' : ''}`, classes: "text-amber-500 bg-amber-500/10 border-amber-500/30" };
         return { label: due.toLocaleDateString(), classes: "text-muted-foreground bg-secondary/50 border-border" };
     };
 
@@ -126,7 +126,7 @@ export default function TareasPage() {
         const Icon = ICON_MAP[t.estado];
         const proyecto = t.proyecto_id ? proyectos.find((p) => p.id === t.proyecto_id) : null;
         const dueStatus = t.estado !== "completada" ? getDueDateStatus(t.fecha_vencimiento) : null;
-        
+
         return (
             <div key={t.id} className={cn("flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border transition-all group", t.estado === "completada" ? "bg-emerald-500/5 border-emerald-500/20" : dueStatus && dueStatus.classes.includes("red") ? "bg-red-500/5 border-red-500/30" : "bg-secondary/30 border-border hover:border-primary/30")}>
                 <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -138,7 +138,7 @@ export default function TareasPage() {
                         {proyecto && <p className="text-[11px] text-muted-foreground">{proyecto.nombre}</p>}
                     </div>
                 </div>
-                
+
                 <div className="flex items-center gap-2 pl-8 sm:pl-0 sm:ml-auto">
                     {dueStatus && (
                         <span className={cn("flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border", dueStatus.classes)}>
@@ -251,5 +251,19 @@ export default function TareasPage() {
                 </div>
             )}
         </div>
+    );
+}
+
+import { Suspense } from "react";
+
+export default function TareasPage() {
+    return (
+        <Suspense fallback={
+            <div className="space-y-3 animate-pulse">
+                {[...Array(5)].map((_, i) => <div key={i} className="h-14 rounded-lg bg-secondary/30" />)}
+            </div>
+        }>
+            <TareasContent />
+        </Suspense>
     );
 }

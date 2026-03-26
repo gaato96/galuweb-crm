@@ -154,7 +154,7 @@ function ProyectoDetailModal({ open, onClose, proyecto, reload }: { open: boolea
                     <Link href={`/portal/${proyecto.slug_portal}`} target="_blank" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary border border-border text-xs text-foreground hover:border-primary/30 transition-colors">
                         <Eye className="w-3.5 h-3.5" /> Ver Portal
                     </Link>
-                    <button 
+                    <button
                         onClick={() => {
                             const url = `${window.location.origin}/portal/${proyecto.slug_portal}`;
                             navigator.clipboard.writeText(url);
@@ -224,14 +224,14 @@ function ProyectoDetailModal({ open, onClose, proyecto, reload }: { open: boolea
                                 <Plus className="w-3 h-3" /> Agregar
                             </button>
                         </div>
-                        
+
                         {showNewAcceso && (
                             <div className="mb-3 p-3 rounded-lg border border-primary/30 bg-primary/5 space-y-2">
-                                <input type="text" placeholder="Servicio (ej. Hosting)" className="w-full text-xs p-1.5 rounded bg-background border" value={newAcceso.servicio} onChange={e => setNewAcceso({...newAcceso, servicio: e.target.value})} />
-                                <input type="text" placeholder="URL Login (opcional)" className="w-full text-xs p-1.5 rounded bg-background border" value={newAcceso.url} onChange={e => setNewAcceso({...newAcceso, url: e.target.value})} />
-                                <input type="text" placeholder="Usuario / Email" className="w-full text-xs p-1.5 rounded bg-background border" value={newAcceso.usuario} onChange={e => setNewAcceso({...newAcceso, usuario: e.target.value})} />
+                                <input type="text" placeholder="Servicio (ej. Hosting)" className="w-full text-xs p-1.5 rounded bg-background border" value={newAcceso.servicio} onChange={e => setNewAcceso({ ...newAcceso, servicio: e.target.value })} />
+                                <input type="text" placeholder="URL Login (opcional)" className="w-full text-xs p-1.5 rounded bg-background border" value={newAcceso.url} onChange={e => setNewAcceso({ ...newAcceso, url: e.target.value })} />
+                                <input type="text" placeholder="Usuario / Email" className="w-full text-xs p-1.5 rounded bg-background border" value={newAcceso.usuario} onChange={e => setNewAcceso({ ...newAcceso, usuario: e.target.value })} />
                                 <div className="flex gap-2">
-                                    <input type="text" placeholder="Contraseña" className="flex-1 text-xs p-1.5 rounded bg-background border" value={newAcceso.password} onChange={e => setNewAcceso({...newAcceso, password: e.target.value})} />
+                                    <input type="text" placeholder="Contraseña" className="flex-1 text-xs p-1.5 rounded bg-background border" value={newAcceso.password} onChange={e => setNewAcceso({ ...newAcceso, password: e.target.value })} />
                                     <button onClick={handleAddAcceso} className="bg-primary text-black px-2 py-1.5 rounded text-xs font-bold">Guardar</button>
                                 </div>
                             </div>
@@ -456,7 +456,7 @@ function NuevoProyectoModal({
     );
 }
 
-export default function ProyectosPage() {
+function ProyectosContent() {
     const searchParams = useSearchParams();
     const [proyectos, setProyectos] = useState<Proyecto[]>([]);
     const [tareas, setTareas] = useState<Tarea[]>([]);
@@ -510,18 +510,18 @@ export default function ProyectosPage() {
                     </button>
                     <div className="h-6 w-px bg-border hidden md:block" />
                     <div className="hidden md:flex items-center gap-2">
-                    {["todos", "activo", "pausado", "finalizado"].map((f) => (
-                        <button
-                            key={f}
-                            onClick={() => setFilter(f)}
-                            className={cn(
-                                "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize",
-                                filter === f ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"
-                            )}
-                        >
-                            {f}
-                        </button>
-                    ))}
+                        {["todos", "activo", "pausado", "finalizado"].map((f) => (
+                            <button
+                                key={f}
+                                onClick={() => setFilter(f)}
+                                className={cn(
+                                    "px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize",
+                                    filter === f ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:text-foreground"
+                                )}
+                            >
+                                {f}
+                            </button>
+                        ))}
                     </div>
                 </div>
             </div>
@@ -557,5 +557,19 @@ export default function ProyectosPage() {
                 reload={reload}
             />
         </div>
+    );
+}
+
+import { Suspense } from "react";
+
+export default function ProyectosPage() {
+    return (
+        <Suspense fallback={
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
+                {[...Array(3)].map((_, i) => <div key={i} className="h-[200px] rounded-xl bg-secondary/30" />)}
+            </div>
+        }>
+            <ProyectosContent />
+        </Suspense>
     );
 }

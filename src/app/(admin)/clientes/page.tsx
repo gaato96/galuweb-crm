@@ -571,7 +571,8 @@ function DroppableEtapaColumn({ etapa, children, count }: { etapa: EtapaCliente;
 }
 
 // --- Main Page ---
-export default function ClientesPage() {
+// --- Main Content ---
+function ClientesContent() {
     const searchParams = useSearchParams();
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [mounted, setMounted] = useState(false);
@@ -766,5 +767,19 @@ export default function ClientesPage() {
                 cliente={selected}
             />
         </div>
+    );
+}
+
+import { Suspense } from "react";
+
+export default function ClientesPage() {
+    return (
+        <Suspense fallback={
+            <div className="space-y-4 animate-pulse">
+                {[...Array(3)].map((_, i) => (<div key={i} className="h-[200px] rounded-xl bg-secondary/30" />))}
+            </div>
+        }>
+            <ClientesContent />
+        </Suspense>
     );
 }
