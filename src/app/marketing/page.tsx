@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Plus, Megaphone, CheckCircle2, Circle, Clock, Trash2 } from "lucide-react";
+import { Plus, Megaphone, CheckCircle2, Circle, Clock, Trash2, X, Sparkles } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tareasStore } from "@/lib/store";
 import type { Tarea, Prioridad, CategoriaTarea, EstadoTarea } from "@/lib/types";
@@ -12,6 +12,7 @@ export default function MarketingPage() {
     const [tareas, setTareas] = useState<Tarea[]>([]);
     const [mounted, setMounted] = useState(false);
     const [showNew, setShowNew] = useState(false);
+    const [promptView, setPromptView] = useState<Tarea | null>(null);
     const [form, setForm] = useState({
         titulo: "",
         descripcion: "",
@@ -125,6 +126,11 @@ export default function MarketingPage() {
                     <button onClick={() => deleteTarea(t.id)} className="p-1.5 rounded-lg hover:bg-destructive/20 transition-all ml-1">
                         <Trash2 className="w-3.5 h-3.5 text-destructive" />
                     </button>
+                    {t.categoria === "contenido" && t.idea_contenido && (
+                        <button onClick={() => setPromptView(t)} className="flex items-center gap-1.5 px-2 py-1 ml-2 text-[10px] rounded-lg border border-violet-500/30 text-violet-400 font-medium hover:bg-violet-500/10 transition-colors">
+                            <Sparkles className="w-3 h-3" /> Script IA
+                        </button>
+                    )}
                 </div>
             </div>
         );
@@ -141,6 +147,45 @@ export default function MarketingPage() {
                     <Plus className="w-4 h-4" /> Nueva Tarea
                 </button>
             </div>
+
+            {/* Modal Prompt IA */}
+            {promptView && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                    <div className="w-full max-w-2xl flex flex-col max-h-[90vh] rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in relative my-auto">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
+                                <Sparkles className="w-5 h-5 text-violet-400" /> Creador de Guion IA
+                            </h3>
+                            <button onClick={() => setPromptView(null)} className="p-1 rounded-lg hover:bg-secondary">
+                                <X className="w-5 h-5 text-muted-foreground" />
+                            </button>
+                        </div>
+
+                        <p className="text-sm text-muted-foreground mb-4">
+                            Copia este prompt optimizado y pégalo en ChatGPT o Gemini para generar un guion altamente conversivo basado en tu idea.
+                        </p>
+
+                        <textarea
+                            readOnly
+                            rows={15}
+                            className="flex-1 w-full p-4 rounded-xl bg-secondary/50 border border-violet-500/20 text-sm font-mono text-foreground focus:outline-none resize-none mb-4"
+                            value={`Actúa como un experto en creación de contenido viral y marketing digital.\nPor favor, crea un guion altamente conversivo (para un Reel de Instagram/TikTok o Carrusel) basado en la siguiente idea:\n\nIdea de contenido: "${promptView.idea_contenido}"\n\nEstructura el contenido obligatoriamente de la siguiente manera:\n1. Hook (Gancho visual/auditivo hiper llamativo que frene el scroll en los primeros 3 segundos).\n2. Énfasis del problema (Plantea un dolor o necesidad del cliente ideal).\n3. Solución propuesta (Presenta nuestro servicio o consejo de forma clara).\n4. Beneficios (Por qué esta solución cambia su situación).\n5. Call to Action (Un CTA claro para generar interacción o agendar reunión).\n\nAdicionalmente, dame recomendaciones visuales (qué debería aparecer en pantalla, B-roll a utilizar o diseño del carrusel).`}
+                        />
+
+                        <div className="flex justify-end gap-3 shrink-0">
+                            <button onClick={() => setPromptView(null)} className="px-5 py-2.5 bg-secondary text-foreground text-sm font-medium rounded-xl hover:bg-secondary/80 transition-colors">
+                                Cerrar
+                            </button>
+                            <button onClick={() => {
+                                navigator.clipboard.writeText(`Actúa como un experto en creación de contenido viral y marketing digital.\nPor favor, crea un guion altamente conversivo (para un Reel de Instagram/TikTok o Carrusel) basado en la siguiente idea:\n\nIdea de contenido: "${promptView.idea_contenido}"\n\nEstructura el contenido obligatoriamente de la siguiente manera:\n1. Hook (Gancho visual/auditivo hiper llamativo que frene el scroll en los primeros 3 segundos).\n2. Énfasis del problema (Plantea un dolor o necesidad del cliente ideal).\n3. Solución propuesta (Presenta nuestro servicio o consejo de forma clara).\n4. Beneficios (Por qué esta solución cambia su situación).\n5. Call to Action (Un CTA claro para generar interacción o agendar reunión).\n\nAdicionalmente, dame recomendaciones visuales (qué debería aparecer en pantalla, B-roll a utilizar o diseño del carrusel).`);
+                                toast.success("Prompt copiado al portapapeles");
+                            }} className="px-5 py-2.5 bg-violet-600 text-white font-bold text-sm rounded-xl hover:bg-violet-500 transition-colors shadow-[0_0_15px_rgba(139,92,246,0.3)]">
+                                Copiar Prompt
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
 
             {/* Stats */}
             <div className="grid grid-cols-3 gap-4">

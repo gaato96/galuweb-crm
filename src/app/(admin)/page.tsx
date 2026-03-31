@@ -112,9 +112,10 @@ export default function DashboardPage() {
     (c) => c.etapa === "contacto" || c.etapa === "investigando"
   );
 
-  const tareasUrgentes = tareas.filter(
-    (t) => t.prioridad === "alta" && t.estado !== "completada"
-  );
+  const priorityOrder = { alta: 1, media: 2, baja: 3 };
+  const tareasPendientes = tareas
+    .filter((t) => t.estado !== "completada")
+    .sort((a, b) => priorityOrder[a.prioridad] - priorityOrder[b.prioridad]);
 
   const proximosCobros = finanzas
     .filter((f) => f.tipo === "ingreso" && daysFromNow(f.fecha_cobro) > 0 && daysFromNow(f.fecha_cobro) <= 30)
@@ -174,9 +175,9 @@ export default function DashboardPage() {
           href="/clientes"
         />
         <KPICard
-          title="Tareas Urgentes"
-          value={tareasUrgentes.length}
-          subtitle="Prioridad alta"
+          title="Tareas Pendientes"
+          value={tareasPendientes.length}
+          subtitle="Pendientes y En progreso"
           icon={AlertCircle}
           color="bg-rose-500/20 text-rose-400"
           href="/tareas"
@@ -270,22 +271,22 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Tareas Urgentes */}
+      {/* Tareas Pendientes */}
       <div className="rounded-xl border border-border bg-card p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-semibold text-foreground">Tareas Prioritarias</h3>
+          <h3 className="text-lg font-semibold text-foreground">Tareas Pendientes</h3>
           <Link
             href="/tareas"
             className="flex items-center gap-1 text-xs text-primary hover:underline"
           >
-            Ver todas <ArrowUpRight className="w-3 h-3" />
+            Administrar <ArrowUpRight className="w-3 h-3" />
           </Link>
         </div>
-        {tareasUrgentes.length === 0 ? (
-          <p className="text-sm text-muted-foreground py-4">No hay tareas urgentes pendientes 🎉</p>
+        {tareasPendientes.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4">No hay tareas pendientes 🎉</p>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {tareasUrgentes.slice(0, 6).map((t) => (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+            {tareasPendientes.map((t) => (
               <div
                 key={t.id}
                 className="p-3 rounded-lg bg-secondary/50 border border-border card-hover"

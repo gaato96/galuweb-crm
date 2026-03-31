@@ -46,9 +46,6 @@ function TareasContent() {
             const data: any = { ...form, proyecto_id: form.proyecto_id || null, estado: "pendiente" as EstadoTarea };
             if (!data.fecha_vencimiento) {
                 delete data.fecha_vencimiento;
-            } else {
-                // Ensure format works for timestamp or date by appending time
-                data.fecha_vencimiento = new Date(data.fecha_vencimiento + "T12:00:00").toISOString();
             }
             await tareasStore.create(data);
             setForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "otro", proyecto_id: "", fecha_vencimiento: "" });

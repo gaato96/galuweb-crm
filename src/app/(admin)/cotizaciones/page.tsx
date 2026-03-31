@@ -125,6 +125,17 @@ export default function CotizacionesPage() {
         }
     };
 
+    const deleteCotizacion = async (id: string) => {
+        if (!confirm("¿Seguro que deseas eliminar esta cotización?")) return;
+        try {
+            await cotizacionesStore.delete(id);
+            await reload();
+            toast.success("Cotización eliminada");
+        } catch {
+            toast.error("Error al eliminar cotización");
+        }
+    };
+
     if (!mounted) {
         return <div className="space-y-3 animate-pulse">{[...Array(3)].map((_, i) => <div key={i} className="h-24 rounded-xl skeleton" />)}</div>;
     }
@@ -134,9 +145,9 @@ export default function CotizacionesPage() {
         if (!c) return null;
 
         const notas = c.notas_seguimiento?.map(n => n.texto).join("\n") || "No hay notas previas.";
-        const info = c.info_investigacion 
-          ? `Qué hace: ${c.info_investigacion.que_hace}\nPuntos débiles: ${c.info_investigacion.puntos_debiles}\nSoluciones: ${c.info_investigacion.soluciones}`
-          : "No hay información de investigación.";
+        const info = c.info_investigacion
+            ? `Qué hace: ${c.info_investigacion.que_hace}\nPuntos débiles: ${c.info_investigacion.puntos_debiles}\nSoluciones: ${c.info_investigacion.soluciones}`
+            : "No hay información de investigación.";
         const itemsText = promptView.items.map(i => `- ${i.descripcion}: ${formatCurrency(i.precio)}`).join("\n");
 
         const promptText = `Actúa como un experto en redacción persuasiva y ventas para una agencia de diseño web.
@@ -185,7 +196,7 @@ Por favor, estructura la propuesta en las siguientes 6 secciones, asegurándote 
                             <X className="w-5 h-5 text-muted-foreground" />
                         </button>
                     </div>
-                    
+
                     <p className="text-sm text-muted-foreground mb-4">
                         Copia este prompt optimizado y pégalo en ChatGPT, Claude o Gemini. Creará el contenido perfecto para que lo lleves a tu plantilla de Figma.
                     </p>
@@ -357,14 +368,19 @@ Por favor, estructura la propuesta en las siguientes 6 secciones, asegurándote 
                                         >{e}</button>
                                     ))}
                                 </div>
-                                {q.pdf_url && (
-                                    <a href={q.pdf_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 transition-all">
-                                        <FileText className="w-4 h-4" /> Ver PDF (Subido)
-                                    </a>
-                                )}
-                                <button onClick={() => setPromptView(q)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-semibold hover:bg-violet-500/20 transition-all">
-                                    <Sparkles className="w-4 h-4" /> Armar Copy Prompt
-                                </button>
+                                <div className="flex items-center gap-2">
+                                    {q.pdf_url && (
+                                        <a href={q.pdf_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 transition-all">
+                                            <FileText className="w-4 h-4" /> Ver PDF (Subido)
+                                        </a>
+                                    )}
+                                    <button onClick={() => setPromptView(q)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-semibold hover:bg-violet-500/20 transition-all">
+                                        <Sparkles className="w-4 h-4" /> Armar Copy Prompt
+                                    </button>
+                                    <button onClick={() => deleteCotizacion(q.id)} className="p-1.5 rounded-lg bg-secondary/50 hover:bg-destructive/20 transition-all">
+                                        <Trash2 className="w-4 h-4 text-destructive" />
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     );
