@@ -86,7 +86,12 @@ export interface Tarea {
     proyecto?: Proyecto;
     // Marketing/Content fields
     idea_contenido?: string;
+    hook?: string;
     guion?: string;
+    notas_visuales?: string;
+    plataformas?: string[];
+    formato?: string;
+    workflow_stage?: string;
     editado?: boolean;
     publicado?: boolean;
     fecha_vencimiento?: string;

@@ -81,7 +81,7 @@ function TareasContent() {
     // Remove direct call to store in render
     // const proyectos = proyectosStore.getAll();
 
-    let filtered = tareas;
+    let filtered = tareas.filter((t) => t.categoria !== "marketing" && t.categoria !== "contenido");
     if (filterPrioridad !== "todas") filtered = filtered.filter((t) => t.prioridad === filterPrioridad);
     if (filterProyecto !== "todos") {
         if (filterProyecto === "sin_proyecto") filtered = filtered.filter((t) => !t.proyecto_id);
