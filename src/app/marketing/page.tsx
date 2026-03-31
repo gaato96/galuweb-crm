@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-    Plus, Megaphone, CheckCircle2, Circle, Clock, Trash2, X, Sparkles,
+    Plus, Megaphone, CheckCircle2, Trash2, X, Sparkles,
     Instagram, Video, Layers, Smartphone, Copy, Layout, Palette,
     ArrowRight, Lightbulb, PlayCircle, Edit3, Send
 } from "lucide-react";
@@ -168,7 +168,7 @@ export default function MarketingPage() {
 
                 <div>
                     <h4 className="text-sm font-bold text-foreground leading-tight mb-1">{t.titulo}</h4>
-                    <p className="text-[11px] text-muted-foreground line-clamp-2 italic">"{t.idea_contenido || "Sin idea definida"}"</p>
+                    <p className="text-[11px] text-muted-foreground line-clamp-2 italic">&quot;{t.idea_contenido || "Sin idea definida"}&quot;</p>
                 </div>
 
                 <div className="flex items-center justify-between mt-auto pt-2 border-t border-border/50">
