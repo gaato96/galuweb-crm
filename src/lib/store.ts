@@ -4,7 +4,7 @@
 import { supabase } from "./supabase";
 import {
     Cliente, Proyecto, Tarea, Cotizacion, Finanza, Brief, Recurso,
-    EtapaCliente, Infraestructura, TicketSoporte
+    EtapaCliente, Infraestructura, TicketSoporte, LogProyecto
 } from "./types";
 
 // ============================================================
@@ -100,7 +100,7 @@ export const tareasStore = {
         return data || [];
     },
     getMarketing: async (): Promise<Tarea[]> => {
-        const { data, error } = await supabase.from("tareas").select("*").is("proyecto_id", null).order("created_at", { ascending: false });
+        const { data, error } = await supabase.from("tareas").select("*").not("workflow_stage", "is", null).order("created_at", { ascending: false });
         if (error) throw error;
         return data || [];
     },
@@ -333,3 +333,31 @@ export const storageStore = {
         return data.publicUrl;
     },
 };
+
+// --- Logs de Proyecto (Changelog / Seguimiento) ---
+export const logsProyectoStore = {
+    getByProyecto: async (proyectoId: string): Promise<LogProyecto[]> => {
+        const { data, error } = await supabase
+            .from("logs_proyecto")
+            .select("*")
+            .eq("proyecto_id", proyectoId)
+            .order("fecha", { ascending: false });
+        if (error) throw error;
+        return data || [];
+    },
+    create: async (data: Omit<LogProyecto, "id" | "created_at">): Promise<LogProyecto> => {
+        const { data: created, error } = await supabase.from("logs_proyecto").insert(data).select().single();
+        if (error) throw error;
+        return created;
+    },
+    update: async (id: string, data: Partial<LogProyecto>): Promise<LogProyecto> => {
+        const { data: updated, error } = await supabase.from("logs_proyecto").update(data).eq("id", id).select().single();
+        if (error) throw error;
+        return updated;
+    },
+    delete: async (id: string): Promise<void> => {
+        const { error } = await supabase.from("logs_proyecto").delete().eq("id", id);
+        if (error) throw error;
+    },
+};
+

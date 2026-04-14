@@ -82,13 +82,8 @@ export default function PortalClient({ slug }: { slug: string }) {
         ecommerce: "E-Commerce",
     };
 
-    // Phase calculation
-    const phases = [
-        { label: "Diseño", tasks: tareas.filter((t) => t.categoria === "diseno") },
-        { label: "Contenido", tasks: tareas.filter((t) => t.categoria === "contenido") },
-        { label: "Desarrollo", tasks: tareas.filter((t) => t.categoria === "dev") },
-        { label: "SEO", tasks: tareas.filter((t) => t.categoria === "seo") },
-    ].filter((p) => p.tasks.length > 0);
+    // Use project phases if they exist, otherwise fallback to empty (progress is handled by the bar)
+    const phases = proyecto.fases || [];
 
     const handleCreateTicket = async () => {
         if (!ticketForm.asunto.trim() || !cliente) return;
@@ -113,7 +108,7 @@ export default function PortalClient({ slug }: { slug: string }) {
         try {
             const comentarios = approved ? "Aprobado desde el portal." : prompt("Por favor, dejanos un breve comentario de qué te gustaría cambiar:");
             if (!approved && comentarios === null) return; // User cancelled
-            
+
             await proyectosStore.update(proyecto.id, {
                 figma_aprobado: approved,
                 figma_comentarios: comentarios || ""
@@ -169,15 +164,12 @@ export default function PortalClient({ slug }: { slug: string }) {
                 <div className="rounded-2xl border border-border bg-card p-6">
                     <h2 className="text-lg font-semibold text-foreground mb-5">Fases del Proyecto</h2>
                     <div className="relative">
-                        {phases.map((phase, i) => {
-                            const phaseCompleted = phase.tasks.filter((t) => t.estado === "completada").length;
-                            const phaseTotal = phase.tasks.length;
-                            const phaseProgress = phaseTotal > 0 ? Math.round((phaseCompleted / phaseTotal) * 100) : 0;
-                            const isComplete = phaseProgress === 100;
-                            const isActive = phaseProgress > 0 && phaseProgress < 100;
+                        {phases.map((fase, i) => {
+                            const isComplete = fase.completada;
+                            const isActive = !isComplete && (i === 0 || phases[i - 1].completada);
 
                             return (
-                                <div key={phase.label} className="flex gap-4 mb-6 last:mb-0">
+                                <div key={fase.nombre} className="flex gap-4 mb-6 last:mb-0">
                                     <div className="flex flex-col items-center">
                                         <div className={cn(
                                             "w-10 h-10 rounded-full flex items-center justify-center border-2 transition-all",
@@ -195,11 +187,11 @@ export default function PortalClient({ slug }: { slug: string }) {
                                     </div>
                                     <div className="flex-1 pt-1.5">
                                         <div className="flex items-center justify-between mb-1">
-                                            <h3 className="text-sm font-semibold text-foreground">{phase.label}</h3>
-                                            <span className="text-xs text-muted-foreground">{phaseCompleted}/{phaseTotal}</span>
+                                            <h3 className="text-sm font-semibold text-foreground">{fase.nombre}</h3>
+                                            <span className="text-xs text-muted-foreground">{isComplete ? "100%" : isActive ? "En proceso" : "0%"}</span>
                                         </div>
                                         <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                                            <div className={cn("h-full rounded-full transition-all", isComplete ? "bg-emerald-500" : "bg-primary/60")} style={{ width: `${phaseProgress}%` }} />
+                                            <div className={cn("h-full rounded-full transition-all", isComplete ? "bg-emerald-500" : isActive ? "bg-primary/60" : "bg-muted-foreground/20")} style={{ width: isComplete ? "100%" : isActive ? "50%" : "0%" }} />
                                         </div>
                                     </div>
                                 </div>
@@ -320,7 +312,7 @@ export default function PortalClient({ slug }: { slug: string }) {
                         </div>
                     </div>
                 )}
-                
+
                 {/* Tickets Modal */}
                 {showTicketModal && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4">
@@ -332,11 +324,11 @@ export default function PortalClient({ slug }: { slug: string }) {
                                 <LifeBuoy className="w-5 h-5 text-primary" /> Nuevo Ticket de Soporte
                             </h3>
                             <p className="text-xs text-muted-foreground mb-5">Describe en qué necesitas ayuda y nuestro equipo lo revisará.</p>
-                            
+
                             <div className="space-y-4">
                                 <div>
                                     <label className="text-xs text-muted-foreground mb-1 block">Asunto *</label>
-                                    <input 
+                                    <input
                                         type="text"
                                         placeholder="Ej: Necesito cambiar una foto"
                                         value={ticketForm.asunto}
@@ -346,7 +338,7 @@ export default function PortalClient({ slug }: { slug: string }) {
                                 </div>
                                 <div>
                                     <label className="text-xs text-muted-foreground mb-1 block">Descripción Detallada</label>
-                                    <textarea 
+                                    <textarea
                                         rows={4}
                                         placeholder="Por favor, incluye links, secciones específicas o la imagen de referencia..."
                                         value={ticketForm.descripcion}
@@ -354,7 +346,7 @@ export default function PortalClient({ slug }: { slug: string }) {
                                         className="w-full p-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
                                     />
                                 </div>
-                                <button 
+                                <button
                                     onClick={handleCreateTicket}
                                     className="w-full h-11 rounded-lg bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity"
                                 >

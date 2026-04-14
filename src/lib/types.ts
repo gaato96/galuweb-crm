@@ -12,19 +12,55 @@ export type EtapaCliente =
     | "cliente_actual"
     | "cliente_finalizado";
 
-export type TipoProyecto = "landing" | "institucional" | "ecommerce";
+export type TipoProyecto = "landing" | "institucional" | "ecommerce" | "webapp" | "saas";
 export type EstadoProyecto = "activo" | "pausado" | "finalizado";
 
 export type Prioridad = "baja" | "media" | "alta";
 export type EstadoTarea = "pendiente" | "en_progreso" | "completada";
-export type CategoriaTarea = "diseno" | "dev" | "marketing" | "contenido" | "seo" | "otro";
+export type CategoriaTarea = "diseno" | "dev" | "seo" | "otro";
 
 export type EstadoCotizacion = "borrador" | "enviada" | "aceptada" | "rechazada";
+export type TipoCotizacion = "web" | "webapp";
 export type TipoFinanza = "ingreso" | "ads" | "gasto" | "herramienta";
 export type TipoRecurso = "link" | "video" | "archivo" | "curso" | "plugin" | "inspiracion";
 
 export type TipoInfraestructura = "hosting" | "dominio";
 export type EstadoTicket = "abierto" | "en_progreso" | "resuelto";
+
+// --- Fases de Proyecto ---
+export interface FaseProyecto {
+    nombre: string;
+    completada: boolean;
+}
+
+export const FASES_POR_TIPO: Record<TipoProyecto, string[]> = {
+    landing: ["Investigación", "Diseño", "Desarrollo", "Revisión del Cliente", "Lanzamiento", "Post-entrega"],
+    institucional: ["Investigación", "Arquitectura", "Diseño", "Desarrollo", "SEO On-page", "Revisión", "Lanzamiento", "Post-entrega"],
+    ecommerce: ["Investigación", "Diseño", "Catálogo de Productos", "Pasarela de Pago", "Desarrollo", "Testing", "Lanzamiento", "Post-entrega"],
+    webapp: ["Investigación", "Arquitectura del Sistema", "UX/UI", "Autenticación", "Módulos Core", "Testing QA", "Deploy", "Documentación", "Iteración"],
+    saas: ["Investigación", "Arquitectura del Sistema", "UX/UI", "Autenticación & Roles", "Módulos Core", "Facturación/Membresías", "Testing QA", "Deploy Producción", "Onboarding", "Iteración Continua"],
+};
+
+// --- Log de Proyecto (Changelog/Seguimiento) ---
+export interface LogProyecto {
+    id: string;
+    created_at: string;
+    proyecto_id: string;
+    titulo: string;
+    descripcion: string;
+    fecha: string;
+}
+
+// --- Especificaciones Web App para Cotizaciones ---
+export interface EspecificacionesWebApp {
+    modulos: string[];
+    cantidad_usuarios: string;
+    roles: string;
+    integraciones: string;
+    plataforma: string;
+    modelo_negocio: string;
+    notas_tecnicas: string;
+}
 
 // --- Database Models ---
 export interface Cliente {
@@ -72,6 +108,13 @@ export interface Proyecto {
     figma_aprobado?: boolean;
     figma_comentarios?: string;
     cliente?: Cliente;
+    // Fases de progreso
+    fases?: FaseProyecto[];
+    // Campos SaaS/Interno
+    saas_url?: string;
+    version?: string;
+    usuarios_activos?: number;
+    membresias?: { nombre: string; precio: number; activas: number; }[];
 }
 
 export interface Tarea {
@@ -84,7 +127,7 @@ export interface Tarea {
     estado: EstadoTarea;
     categoria: CategoriaTarea;
     proyecto?: Proyecto;
-    // Marketing/Content fields
+    // Marketing/Content fields (solo para módulo de marketing)
     idea_contenido?: string;
     hook?: string;
     guion?: string;
@@ -111,6 +154,8 @@ export interface Cotizacion {
     estado: EstadoCotizacion;
     pdf_url: string;
     notas: string;
+    tipo_cotizacion?: TipoCotizacion;
+    especificaciones_webapp?: EspecificacionesWebApp | null;
     cliente?: Cliente;
 }
 
@@ -206,6 +251,14 @@ export const ESTADO_TAREA_COLORS: Record<EstadoTarea, string> = {
     pendiente: "bg-slate-500/20 text-slate-300",
     en_progreso: "bg-blue-500/20 text-blue-300",
     completada: "bg-emerald-500/20 text-emerald-300",
+};
+
+export const TIPO_PROYECTO_LABELS: Record<TipoProyecto, string> = {
+    landing: "Landing Page",
+    institucional: "Web Institucional",
+    ecommerce: "E-Commerce",
+    webapp: "Web App",
+    saas: "SaaS / Producto",
 };
 
 export const FASES_PIPELINE = {
