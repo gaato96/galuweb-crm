@@ -51,6 +51,7 @@ const SECCIONES_WEB_DEFAULT: SeccionesPDF = {
 const SECCIONES_WEBAPP_DEFAULT: SeccionesPDF = {
     descripcion: "",
     alcance: "",
+    arquitectura: "",
     cronograma: "",
     terminos: "",
     proximos_pasos: "",
@@ -146,9 +147,10 @@ function SeccionesForm({
     const FIELDS_WEBAPP = [
         { key: "descripcion", label: "01. Descripción del Sistema" },
         { key: "alcance", label: "02. Módulos y Funcionalidades" },
-        { key: "cronograma", label: "03. Plan de Desarrollo" },
-        { key: "terminos", label: "04. Términos y Modelo de Pago" },
-        { key: "proximos_pasos", label: "05. Próximos Pasos" },
+        { key: "arquitectura", label: "03. Arquitectura y Tecnología" },
+        { key: "cronograma", label: "04. Plan de Desarrollo" },
+        { key: "terminos", label: "05. Términos y Modelo de Pago" },
+        { key: "proximos_pasos", label: "06. Próximos Pasos" },
     ];
 
     const fields = tipo === "webapp" ? FIELDS_WEBAPP : FIELDS_WEB;

@@ -66,9 +66,10 @@ export interface EspecificacionesWebApp {
 export interface SeccionesPDF {
     descripcion: string;         // 01. Descripción del proyecto / sistema
     alcance: string;             // 02. Alcance / Módulos y funcionalidades
-    cronograma: string;          // 03. Cronograma / Plan de desarrollo
-    terminos: string;            // 04. Términos y modelo de pago
-    proximos_pasos: string;      // 05. Próximos pasos
+    arquitectura?: string;       // 03. (Web App) Arquitectura y Tecnología
+    cronograma: string;          // 04. Cronograma / Plan de desarrollo
+    terminos: string;            // 05. Términos y modelo de pago
+    proximos_pasos: string;      // 06. Próximos pasos
     conclusion?: string;         // (solo Web) Conclusión / cierre persuasivo
 }
 
