@@ -1,10 +1,8 @@
 /**
  * CotizacionPDFTemplate
  * ─────────────────────────────────────────────────────────────
- * This component renders visually inside a hidden div.
- * html2canvas captures it, jsPDF turns the capture into a PDF.
- *
- * All styling is inline so html2canvas renders it correctly
+ * Template for html2pdf.js. Uses page-break-inside avoid logic
+ * to prevent text slicing.
  */
 
 import React from "react";
@@ -17,13 +15,13 @@ interface Props {
 }
 
 // ── NEW BRAND COLORS ─────────────────────────────────────────────────────────
-const BG_DARK = "#101B2A";       // Main background
-const BG_MID = "#16253A";        // Cards/Header background
+const BG_DARK = "#101B2A";       // Header background
 const ACCENT = "#FBC02D";        // Yellow accent
 const WHITE = "#FFFFFF";
-const TEXT_MUTED = "#9CA3AF";    // gray-400
-const TEXT_BODY = "#E2E8F0";     // slate-200
-const BORDER = "#1E2D40";
+const TEXT = "#111827";          // Main text
+const TEXT_MUTED = "#6B7280";    // Muted text
+const BORDER = "#E5E7EB";        // Light borders
+const BG_LIGHT = "#F9FAFB";      // Light cards
 
 function formatUSD(n: number) {
     return new Intl.NumberFormat("es-AR", { style: "currency", currency: "USD", minimumFractionDigits: 0 }).format(n);
@@ -31,7 +29,8 @@ function formatUSD(n: number) {
 
 function Section({ num, title, children }: { num: string; title: string; children: React.ReactNode }) {
     return (
-        <div style={{ marginBottom: 32 }}>
+        // page-break-inside: avoid ensures this block stays in one page, or breaks cleanly
+        <div style={{ marginBottom: 32, pageBreakInside: "avoid" }} className="html2pdf__page-break-avoid">
             <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
                 <div style={{
                     width: 32, height: 32, borderRadius: 4,
@@ -41,7 +40,7 @@ function Section({ num, title, children }: { num: string; title: string; childre
                 }}>
                     {num}
                 </div>
-                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: WHITE, letterSpacing: 0.5 }}>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: BG_DARK, letterSpacing: 0.5 }}>
                     {title}
                 </h2>
             </div>
@@ -56,7 +55,7 @@ function InvestmentTable({ items, total }: { items: CotizacionItem[]; total: num
     return (
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginTop: 8 }}>
             <thead>
-                <tr style={{ background: BG_MID }}>
+                <tr style={{ background: BG_DARK }}>
                     <th style={{ textAlign: "left", padding: "12px 16px", color: WHITE, fontWeight: 600, borderRadius: "6px 0 0 0", borderBottom: `2px solid ${ACCENT}` }}>
                         Ítem / Servicio
                     </th>
@@ -67,20 +66,20 @@ function InvestmentTable({ items, total }: { items: CotizacionItem[]; total: num
             </thead>
             <tbody>
                 {items.map((item, i) => (
-                    <tr key={i} style={{ background: i % 2 === 0 ? "transparent" : BG_MID }}>
-                        <td style={{ padding: "12px 16px", color: TEXT_BODY, borderBottom: `1px solid ${BORDER}` }}>
+                    <tr key={i} style={{ background: i % 2 === 0 ? WHITE : BG_LIGHT }}>
+                        <td style={{ padding: "12px 16px", color: TEXT, borderBottom: `1px solid ${BORDER}` }}>
                             {item.descripcion}
                         </td>
-                        <td style={{ padding: "12px 16px", color: WHITE, fontWeight: 600, textAlign: "right", borderBottom: `1px solid ${BORDER}`, whiteSpace: "nowrap" }}>
+                        <td style={{ padding: "12px 16px", color: TEXT, fontWeight: 600, textAlign: "right", borderBottom: `1px solid ${BORDER}`, whiteSpace: "nowrap" }}>
                             {formatUSD(item.precio)}
                         </td>
                     </tr>
                 ))}
                 <tr>
-                    <td style={{ padding: "16px", color: ACCENT, fontWeight: 700, fontSize: 14 }}>
+                    <td style={{ padding: "16px", color: BG_DARK, fontWeight: 700, fontSize: 14 }}>
                         TOTAL INVERSIÓN
                     </td>
-                    <td style={{ padding: "16px", color: ACCENT, fontWeight: 800, fontSize: 18, textAlign: "right", whiteSpace: "nowrap" }}>
+                    <td style={{ padding: "16px", color: BG_DARK, fontWeight: 800, fontSize: 18, textAlign: "right", whiteSpace: "nowrap" }}>
                         {formatUSD(total)}
                     </td>
                 </tr>
@@ -101,16 +100,16 @@ function TextBody({ text }: { text: string }) {
                 const cleaned = line.trim().replace(/\*\*/g, "").replace(/^[-•*]\s*/, "");
 
                 if (isBold) return (
-                    <p key={i} style={{ margin: "12px 0 4px", fontSize: 13, fontWeight: 700, color: WHITE }}>{cleaned}</p>
+                    <p key={i} style={{ margin: "12px 0 4px", fontSize: 13, fontWeight: 700, color: BG_DARK }}>{cleaned}</p>
                 );
                 if (isBullet) return (
                     <div key={i} style={{ display: "flex", gap: 8, margin: "6px 0", alignItems: "flex-start" }}>
                         <span style={{ color: ACCENT, fontWeight: 700, lineHeight: "1.6" }}>·</span>
-                        <p style={{ margin: 0, fontSize: 13, color: TEXT_BODY, lineHeight: 1.6 }}>{cleaned}</p>
+                        <p style={{ margin: 0, fontSize: 13, color: TEXT, lineHeight: 1.6 }}>{cleaned}</p>
                     </div>
                 );
                 return (
-                    <p key={i} style={{ margin: "0 0 10px 0", fontSize: 13, color: TEXT_BODY, lineHeight: 1.7 }}>{cleaned}</p>
+                    <p key={i} style={{ margin: "0 0 10px 0", fontSize: 13, color: TEXT, lineHeight: 1.7 }}>{cleaned}</p>
                 );
             })}
         </>
@@ -147,84 +146,69 @@ export const CotizacionPDFTemplate = React.forwardRef<HTMLDivElement, Props>(
                 ref={ref}
                 style={{
                     width: 794,               // ~A4 at 96dpi
-                    background: BG_DARK,
-                    // Injecting font via inline style. Note: html2canvas needs the font loaded in the document.
-                    // See the main wrapper (layout/page) importing Montserrat if possible.
+                    background: WHITE,
+                    minHeight: 1122,          // Ensures at least one full A4 vertical page
                     fontFamily: "'Montserrat', sans-serif",
-                    color: TEXT_BODY,
+                    color: TEXT,
                     margin: 0,
                     padding: 0,
+                    display: "flex",
+                    flexDirection: "column",
                 }}
             >
                 {/* ── STYLES INJECTION ───────────────────────────────────── */}
                 <style dangerouslySetInnerHTML={{
                     __html: `
-                        @import url('https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,400;0,500;0,600;0,700;0,800&display=swap');
+                        @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
+                        .html2pdf__page-break-avoid {
+                            page-break-inside: avoid;
+                        }
                     `
                 }} />
 
-                {/* ── HEADER / COVER BAND ─────────────────────────────────── */}
+                {/* ── MAIN HEADER (DARK BACKGROUND) ─────────────────────────────────── */}
                 <div style={{
-                    background: BG_MID,
-                    padding: "40px 48px 32px",
+                    background: BG_DARK,
+                    padding: "48px",
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "flex-start",
-                    borderBottom: `2px solid ${ACCENT}`
+                    borderBottom: `4px solid ${ACCENT}`,
+                    color: WHITE,
+                    pageBreakInside: "avoid"
                 }}>
-                    {/* Logo (White for dark backgrounds) */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+                        {/* Logo (White for dark backgrounds) */}
                         <img
                             src="/icon-512x512.png"
                             alt="Galuweb Logo"
-                            style={{ width: 44, height: 44, objectFit: "contain" }}
+                            style={{ width: 140, objectFit: "contain" }}
                         />
-                        <span style={{ color: WHITE, fontSize: 24, fontWeight: 800, letterSpacing: -0.5 }}>GALUWEB</span>
+
+                        {/* CLIENT CARD */}
+                        <div>
+                            <p style={{ margin: 0, fontSize: 11, color: ACCENT, letterSpacing: 1, textTransform: "uppercase" as const, marginBottom: 8, fontWeight: 600 }}>
+                                {isWebApp ? "Propuesta de Software" : "Propuesta de Diseño Web"}
+                            </p>
+                            <h1 style={{ margin: 0, fontSize: 32, fontWeight: 800, color: WHITE }}>{cliente.nombre}</h1>
+                            <p style={{ margin: "6px 0 0", fontSize: 16, color: "#E2E8F0", fontWeight: 500 }}>{cliente.negocio}</p>
+                        </div>
                     </div>
 
-                    {/* Tipo badge */}
-                    <div style={{
-                        border: `1px solid ${ACCENT}`,
-                        borderRadius: 4,
-                        padding: "8px 16px",
-                        color: ACCENT,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        letterSpacing: 1.5,
-                        textTransform: "uppercase" as const,
-                        marginTop: 4,
-                    }}>
-                        {isWebApp ? "Propuesta de Software" : "Propuesta de Diseño Web"}
-                    </div>
-                </div>
-
-                {/* ── CLIENT CARD ──────────────────────────────────────────── */}
-                <div style={{
-                    padding: "40px 48px 24px",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "flex-end",
-                }}>
-                    <div>
-                        <p style={{ margin: 0, fontSize: 11, color: ACCENT, letterSpacing: 1, textTransform: "uppercase" as const, marginBottom: 8, fontWeight: 600 }}>
-                            Preparado para:
-                        </p>
-                        <h1 style={{ margin: 0, fontSize: 28, fontWeight: 800, color: WHITE }}>{cliente.nombre}</h1>
-                        <p style={{ margin: "4px 0 0", fontSize: 15, color: TEXT_MUTED, fontWeight: 500 }}>{cliente.negocio}</p>
-                    </div>
-                    <div style={{ textAlign: "right" as const }}>
+                    <div style={{ textAlign: "right" as const, alignSelf: "flex-end" }}>
                         {cliente.tel && (
-                            <p style={{ margin: "0 0 6px", fontSize: 12, color: TEXT_MUTED }}>📱 {cliente.tel}</p>
+                            <p style={{ margin: "0 0 6px", fontSize: 12, color: "#9CA3AF" }}>📱 {cliente.tel}</p>
                         )}
                         {cliente.email && (
-                            <p style={{ margin: "0 0 6px", fontSize: 12, color: TEXT_MUTED }}>✉ {cliente.email}</p>
+                            <p style={{ margin: "0 0 6px", fontSize: 12, color: "#9CA3AF" }}>✉ {cliente.email}</p>
                         )}
-                        <p style={{ margin: 0, fontSize: 12, color: TEXT_MUTED }}>📅 Emisión: {fecha}</p>
+                        <p style={{ margin: 0, fontSize: 12, color: "#9CA3AF" }}>📅 Emisión: {fecha}</p>
                     </div>
                 </div>
 
-                {/* ── BODY CONTENT ──────────────────────────────────────────── */}
-                <div style={{ padding: "32px 48px 48px" }}>
+
+                {/* ── BODY CONTENT (WHITE BACKGROUND) ──────────────────────────────────────────── */}
+                <div style={{ padding: "48px", flex: 1 }}>
                     {SECTIONS.map(({ num, key, title }) => {
                         if (key === "investment") {
                             return (
@@ -234,7 +218,7 @@ export const CotizacionPDFTemplate = React.forwardRef<HTMLDivElement, Props>(
                             );
                         }
                         const text = secciones[key as keyof SeccionesPDF] || "";
-                        if (!text && key !== "conclusion" && key !== "arquitectura") return null; // hide if empty, unless it's a key section we want visible even if empty
+                        if (!text && key !== "conclusion" && key !== "arquitectura") return null; // hide if empty
                         return (
                             <Section key={key} num={num} title={title}>
                                 <TextBody text={text} />
@@ -250,10 +234,11 @@ export const CotizacionPDFTemplate = React.forwardRef<HTMLDivElement, Props>(
                     display: "flex",
                     justifyContent: "space-between",
                     alignItems: "center",
-                    background: BG_MID,
+                    background: BG_LIGHT,
+                    pageBreakInside: "avoid"
                 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <img src="/icon-512x512.png" alt="Galuweb" style={{ height: 20, width: 20, objectFit: "contain", opacity: 0.7 }} />
+                        <img src="/3.png" alt="Galuweb" style={{ height: 20, objectFit: "contain", opacity: 0.7 }} />
                         <p style={{ margin: 0, fontSize: 11, color: TEXT_MUTED, fontWeight: 500 }}>© {new Date().getFullYear()} Galuweb — galuweb.com</p>
                     </div>
                     <p style={{ margin: 0, fontSize: 11, color: TEXT_MUTED }}>Propuesta comercial confidencial</p>

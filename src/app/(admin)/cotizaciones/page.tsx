@@ -64,15 +64,12 @@ async function generatePDF(
     secciones: SeccionesPDF,
     onDone?: () => void,
 ) {
-    // Dynamically import heavy libs to avoid SSR issues
-    const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
-        import("html2canvas"),
-        import("jspdf"),
-    ]);
+    // Dynamic import to avoid SSR issues
+    const html2pdf = (await import("html2pdf.js")).default;
 
-    // Mount template into hidden, off-screen div
+    // Mount template into hidden container
     const container = document.createElement("div");
-    container.style.cssText = "position:fixed;left:-9999px;top:0;z-index:-1;";
+    container.style.cssText = "position:absolute;left:-9999px;top:0;width:794px;";
     document.body.appendChild(container);
 
     const root = ReactDOM.createRoot(container);
@@ -84,41 +81,22 @@ async function generatePDF(
         />
     );
 
-    // Wait for React to paint
+    // Wait for React to paint and fonts to load
     await new Promise((r) => setTimeout(r, 600));
 
     const el = container.firstElementChild as HTMLElement;
-    const canvas = await html2canvas(el, {
-        scale: 2,
-        useCORS: true,
-        backgroundColor: "#ffffff",
-        logging: false,
-    });
-
-    const imgData = canvas.toDataURL("image/jpeg", 0.95);
-    const pdf = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
-    const pdfW = pdf.internal.pageSize.getWidth();
-    const pdfH = pdf.internal.pageSize.getHeight();
-
-    const canvasW = canvas.width;
-    const canvasH = canvas.height;
-    const ratio = pdfW / canvasW;
-    const imgH = canvasH * ratio;
-
-    let yPos = 0;
-    let remaining = imgH;
-
-    while (remaining > 0) {
-        pdf.addImage(imgData, "JPEG", 0, -yPos, pdfW, imgH);
-        remaining -= pdfH;
-        if (remaining > 0) {
-            pdf.addPage();
-            yPos += pdfH;
-        }
-    }
-
     const filename = `Cotizacion_${cliente.nombre.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.pdf`;
-    pdf.save(filename);
+
+    const opt = {
+        margin: [0, 0, 0, 0] as [number, number, number, number],
+        filename: filename,
+        image: { type: "jpeg" as const, quality: 0.98 },
+        html2canvas: { scale: 2, useCORS: true, logging: false },
+        jsPDF: { unit: "px", format: "a4", orientation: "portrait" as const },
+        pagebreak: { mode: ["css", "legacy"] }
+    };
+
+    await html2pdf().set(opt).from(el).save();
 
     root.unmount();
     document.body.removeChild(container);
