@@ -85,15 +85,23 @@ async function generatePDF(
     await new Promise((r) => setTimeout(r, 600));
 
     const el = container.firstElementChild as HTMLElement;
+
+    // Check total height of rendered elements to calculate how many A4 pages we need.
+    // A4 ratio: 794px wide -> 1123px high
+    const contentHeight = el.scrollHeight;
+    const a4Height = 1123;
+    const totalPages = Math.max(1, Math.ceil(contentHeight / a4Height));
+    el.style.height = `${totalPages * a4Height}px`; // Force exact multiple
+
     const filename = `Cotizacion_${cliente.nombre.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.pdf`;
 
     const opt = {
-        margin: [0, 0, 0, 0] as [number, number, number, number],
+        margin: 0,
         filename: filename,
         image: { type: "jpeg" as const, quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, logging: false },
-        jsPDF: { unit: "px", format: "a4", orientation: "portrait" as const },
-        pagebreak: { mode: ["css", "legacy"] }
+        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" as const },
+        pagebreak: { mode: ["css", "legacy"], avoid: '.avoid-break' }
     };
 
     await html2pdf().set(opt).from(el).save();
