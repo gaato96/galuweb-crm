@@ -1,15 +1,22 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense, useRef, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import {
     Plus, Trash2, X, FileText, Sparkles, Upload, Link as LinkIcon,
-    Code2, Globe, ChevronDown, ChevronUp
+    Code2, Globe, Download, ChevronDown, ChevronUp, AlignLeft
 } from "lucide-react";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { cotizacionesStore, clientesStore, storageStore } from "@/lib/store";
-import type { Cotizacion, CotizacionItem, EstadoCotizacion, Cliente, EspecificacionesWebApp, TipoCotizacion } from "@/lib/types";
+import { CotizacionPDFTemplate } from "@/components/cotizacion-pdf-template";
+import type {
+    Cotizacion, CotizacionItem, EstadoCotizacion, Cliente,
+    EspecificacionesWebApp, TipoCotizacion, SeccionesPDF
+} from "@/lib/types";
 import { toast } from "sonner";
+import ReactDOM from "react-dom/client";
 
+// ── Helpers ──────────────────────────────────────────────────────────────────
 const ESTADO_BADGE: Record<EstadoCotizacion, string> = {
     borrador: "bg-slate-500/20 text-slate-300 border-slate-500/30",
     enviada: "bg-blue-500/20 text-blue-300 border-blue-500/30",
@@ -28,16 +35,199 @@ const TIPO_LABEL: Record<TipoCotizacion, string> = {
 };
 
 const DEFAULT_WEBAPP_SPECS: EspecificacionesWebApp = {
-    modulos: [],
-    cantidad_usuarios: "",
-    roles: "",
-    integraciones: "",
-    plataforma: "",
-    modelo_negocio: "",
-    notas_tecnicas: "",
+    modulos: [], cantidad_usuarios: "", roles: "",
+    integraciones: "", plataforma: "", modelo_negocio: "", notas_tecnicas: "",
 };
 
-export default function CotizacionesPage() {
+const SECCIONES_WEB_DEFAULT: SeccionesPDF = {
+    descripcion: "",
+    alcance: "",
+    cronograma: "",
+    terminos: "",
+    proximos_pasos: "",
+    conclusion: "",
+};
+
+const SECCIONES_WEBAPP_DEFAULT: SeccionesPDF = {
+    descripcion: "",
+    alcance: "",
+    cronograma: "",
+    terminos: "",
+    proximos_pasos: "",
+};
+
+// ── PDF Generator ─────────────────────────────────────────────────────────────
+async function generatePDF(
+    cotizacion: Cotizacion,
+    cliente: Cliente,
+    secciones: SeccionesPDF,
+    onDone?: () => void,
+) {
+    // Dynamically import heavy libs to avoid SSR issues
+    const [{ default: html2canvas }, { default: jsPDF }] = await Promise.all([
+        import("html2canvas"),
+        import("jspdf"),
+    ]);
+
+    // Mount template into hidden, off-screen div
+    const container = document.createElement("div");
+    container.style.cssText = "position:fixed;left:-9999px;top:0;z-index:-1;";
+    document.body.appendChild(container);
+
+    const root = ReactDOM.createRoot(container);
+    root.render(
+        <CotizacionPDFTemplate
+            cotizacion={cotizacion}
+            cliente={cliente}
+            secciones={secciones}
+        />
+    );
+
+    // Wait for React to paint
+    await new Promise((r) => setTimeout(r, 600));
+
+    const el = container.firstElementChild as HTMLElement;
+    const canvas = await html2canvas(el, {
+        scale: 2,
+        useCORS: true,
+        backgroundColor: "#ffffff",
+        logging: false,
+    });
+
+    const imgData = canvas.toDataURL("image/jpeg", 0.95);
+    const pdf = new jsPDF({ orientation: "portrait", unit: "px", format: "a4" });
+    const pdfW = pdf.internal.pageSize.getWidth();
+    const pdfH = pdf.internal.pageSize.getHeight();
+
+    const canvasW = canvas.width;
+    const canvasH = canvas.height;
+    const ratio = pdfW / canvasW;
+    const imgH = canvasH * ratio;
+
+    let yPos = 0;
+    let remaining = imgH;
+
+    while (remaining > 0) {
+        pdf.addImage(imgData, "JPEG", 0, -yPos, pdfW, imgH);
+        remaining -= pdfH;
+        if (remaining > 0) {
+            pdf.addPage();
+            yPos += pdfH;
+        }
+    }
+
+    const filename = `Cotizacion_${cliente.nombre.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.pdf`;
+    pdf.save(filename);
+
+    root.unmount();
+    document.body.removeChild(container);
+    onDone?.();
+}
+
+// ── Secciones Form ─────────────────────────────────────────────────────────────
+function SeccionesForm({
+    tipo, secciones, onChange,
+}: {
+    tipo: TipoCotizacion;
+    secciones: SeccionesPDF;
+    onChange: (s: SeccionesPDF) => void;
+}) {
+    const [open, setOpen] = useState(false);
+
+    const FIELDS_WEB = [
+        { key: "descripcion", label: "01. Descripción del Proyecto" },
+        { key: "alcance", label: "02. Alcance y Funcionalidades" },
+        { key: "cronograma", label: "03. Cronograma de Trabajo" },
+        { key: "terminos", label: "04. Términos y Modalidad de Pago" },
+        { key: "conclusion", label: "05. Conclusión" },
+        { key: "proximos_pasos", label: "06. Próximos Pasos" },
+    ];
+
+    const FIELDS_WEBAPP = [
+        { key: "descripcion", label: "01. Descripción del Sistema" },
+        { key: "alcance", label: "02. Módulos y Funcionalidades" },
+        { key: "cronograma", label: "03. Plan de Desarrollo" },
+        { key: "terminos", label: "04. Términos y Modelo de Pago" },
+        { key: "proximos_pasos", label: "05. Próximos Pasos" },
+    ];
+
+    const fields = tipo === "webapp" ? FIELDS_WEBAPP : FIELDS_WEB;
+
+    return (
+        <div className="rounded-xl border border-border bg-secondary/20 overflow-hidden">
+            <button
+                type="button"
+                onClick={() => setOpen(!open)}
+                className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-foreground hover:bg-secondary/50 transition-colors"
+            >
+                <span className="flex items-center gap-2">
+                    <AlignLeft className="w-4 h-4 text-primary" />
+                    Textos del PDF (secciones)
+                </span>
+                {open ? <ChevronUp className="w-4 h-4 text-muted-foreground" /> : <ChevronDown className="w-4 h-4 text-muted-foreground" />}
+            </button>
+            {open && (
+                <div className="p-4 pt-0 space-y-3 border-t border-border">
+                    <p className="text-xs text-muted-foreground pt-3">Cada sección aparecerá en el PDF. Podés usar - para listas.</p>
+                    {fields.map(({ key, label }) => (
+                        <div key={key} className="space-y-1">
+                            <label className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">{label}</label>
+                            <textarea
+                                value={(secciones as any)[key] || ""}
+                                onChange={(e) => onChange({ ...secciones, [key]: e.target.value })}
+                                rows={4}
+                                placeholder={`Texto para "${label}"...`}
+                                className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-y"
+                            />
+                        </div>
+                    ))}
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ── PDF Button ─────────────────────────────────────────────────────────────────
+function PDFButton({ cotizacion, cliente }: { cotizacion: Cotizacion; cliente: Cliente }) {
+    const [loading, setLoading] = useState(false);
+
+    const handleClick = async () => {
+        if (loading) return;
+        setLoading(true);
+        toast.loading("Generando PDF…", { id: "pdf" });
+        try {
+            const secciones: SeccionesPDF = cotizacion.secciones_pdf ?? {
+                descripcion: "", alcance: "", cronograma: "", terminos: "", proximos_pasos: "", conclusion: "",
+            };
+            await generatePDF(cotizacion, cliente, secciones, () => {
+                toast.success("PDF descargado", { id: "pdf" });
+            });
+        } catch (err) {
+            console.error(err);
+            toast.error("Error al generar PDF", { id: "pdf" });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    return (
+        <button
+            onClick={handleClick}
+            disabled={loading}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20 disabled:opacity-50 transition-all"
+        >
+            {loading
+                ? <span className="w-3.5 h-3.5 border-2 border-emerald-400/30 border-t-emerald-400 rounded-full animate-spin" />
+                : <Download className="w-3.5 h-3.5" />
+            }
+            {loading ? "Generando…" : "Descargar PDF"}
+        </button>
+    );
+}
+
+// ── Main Page ──────────────────────────────────────────────────────────────────
+function CotizacionesContent() {
+    const searchParams = useSearchParams();
     const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [mounted, setMounted] = useState(false);
@@ -56,6 +246,7 @@ export default function CotizacionesPage() {
     const [pdfUrl, setPdfUrl] = useState("");
     const [webappSpecs, setWebappSpecs] = useState<EspecificacionesWebApp>(DEFAULT_WEBAPP_SPECS);
     const [moduloInput, setModuloInput] = useState("");
+    const [secciones, setSecciones] = useState<SeccionesPDF>(SECCIONES_WEB_DEFAULT);
 
     const reload = async () => {
         try {
@@ -77,6 +268,11 @@ export default function CotizacionesPage() {
         setItems(updated);
     };
     const total = items.reduce((sum, item) => sum + item.precio, 0);
+
+    const handleTipoChange = (t: TipoCotizacion) => {
+        setTipoCotizacion(t);
+        setSecciones(t === "webapp" ? SECCIONES_WEBAPP_DEFAULT : SECCIONES_WEB_DEFAULT);
+    };
 
     const addModulo = () => {
         const m = moduloInput.trim();
@@ -112,6 +308,7 @@ export default function CotizacionesPage() {
                 notas,
                 tipo_cotizacion: tipoCotizacion,
                 especificaciones_webapp: tipoCotizacion === "webapp" ? webappSpecs : null,
+                secciones_pdf: secciones,
             });
             setShowNew(false);
             resetForm();
@@ -128,6 +325,7 @@ export default function CotizacionesPage() {
         setTipoCotizacion("web");
         setWebappSpecs(DEFAULT_WEBAPP_SPECS);
         setModuloInput("");
+        setSecciones(SECCIONES_WEB_DEFAULT);
     };
 
     const handleAIGenerate = async () => {
@@ -162,7 +360,7 @@ export default function CotizacionesPage() {
         try {
             await cotizacionesStore.update(id, { estado });
             await reload();
-            toast.success(`Cotización marcada como ${estado}`);
+            toast.success(`Marcada como ${estado}`);
         } catch { toast.error("Error al actualizar estado"); }
     };
 
@@ -179,7 +377,7 @@ export default function CotizacionesPage() {
         return <div className="space-y-3 animate-pulse">{[...Array(3)].map((_, i) => <div key={i} className="h-24 rounded-xl skeleton" />)}</div>;
     }
 
-    // ── Prompt View ──────────────────────────────────────────────────────────
+    // ── Prompt View ───────────────────────────────────────────────────────────
     if (promptView) {
         const c = clientes.find((cliente) => cliente.id === promptView.cliente_id);
         if (!c) return null;
@@ -215,12 +413,12 @@ Total: ${formatCurrency(promptView.total)}
 --- ESTRUCTURA REQUERIDA ---
 Estructura la propuesta en 6 secciones con tono persuasivo, profesional y claro para pegar en Figma:
 
-01. Descripción general (Resumen ejecutivo del problema y la solución).
-02. Alcance (Descripción detallada de los ítems y su impacto para el negocio).
-03. Cronograma (Estimación de tiempos lógicos para este proyecto web).
-04. Cotización (Presentación elegante de la inversión).
-05. Términos (Condiciones de pago e iteraciones, breve y claro).
-06. Acuerdo (Llamado a la acción final y próximos pasos).`;
+01. Descripción del Proyecto (Resumen ejecutivo del problema y la solución).
+02. Alcance y Funcionalidades (Descripción detallada de los ítems y su impacto).
+03. Cronograma de Trabajo (Estimación de tiempos lógicos).
+04. Términos y Modalidad de Pago.
+05. Conclusión (Cierre persuasivo y llamado a la confianza).
+06. Próximos Pasos (CTA claro).`;
 
         const webAppPrompt = `Actúa como un experto en ventas de software B2B y consultoría tecnológica.
 Redacta una propuesta técnico-comercial completa para un desarrollo de Software a Medida / Web App.
@@ -248,14 +446,11 @@ Total de inversión: ${formatCurrency(promptView.total)}
 --- ESTRUCTURA REQUERIDA ---
 Estructura la propuesta técnico-comercial en las siguientes secciones:
 
-01. Resumen Ejecutivo (Problema del negocio y valor de la solución tecnológica).
-02. Descripción del Sistema (Qué es, cómo funciona, beneficios clave para el cliente).
-03. Módulos y Funcionalidades (Detalle de cada módulo cotizado y su alcance).
-04. Arquitectura y Tecnología (Stack sugerido, seguridad, escalabilidad — en términos accesibles).
-05. Plan de Desarrollo (Fases y cronograma estimado).
-06. Inversión (Detalle de ítems y totales con justificación de valor).
-07. Términos y Modelo de Pago (Hitos, entregables, soporte post-entrega).
-08. Próximos Pasos (Llamado a la acción claro).`;
+01. Descripción del Sistema (Problema del negocio y valor de la solución tecnológica).
+02. Módulos y Funcionalidades (Detalle de cada módulo cotizado y su alcance).
+03. Plan de Desarrollo (Fases y cronograma estimado).
+04. Términos y Modelo de Pago (Hitos, entregables, soporte post-entrega).
+05. Próximos Pasos (CTA claro).`;
 
         const promptText = isWebApp ? webAppPrompt : webPrompt;
 
@@ -263,29 +458,15 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                 <div className="w-full max-w-3xl flex flex-col max-h-[90vh] rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in">
                     <div className="flex items-center justify-between mb-3">
-                        <div>
-                            <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
-                                {isWebApp
-                                    ? <><Code2 className="w-5 h-5 text-violet-400" /> Prompt — Web App / Software a Medida</>
-                                    : <><Sparkles className="w-5 h-5 text-violet-400" /> Prompt — Página Web</>
-                                }
-                            </h3>
-                            <p className="text-xs text-muted-foreground mt-0.5">
-                                {isWebApp
-                                    ? "Propuesta técnico-comercial para software a medida."
-                                    : "Copywriting persuasivo para presentación en Figma."}
-                            </p>
-                        </div>
+                        <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
+                            {isWebApp ? <><Code2 className="w-5 h-5 text-violet-400" /> Prompt — Web App</> : <><Sparkles className="w-5 h-5 text-violet-400" /> Prompt — Página Web</>}
+                        </h3>
                         <button onClick={() => setPromptView(null)} className="p-1 rounded-lg hover:bg-secondary"><X className="w-5 h-5 text-muted-foreground" /></button>
                     </div>
-                    <textarea
-                        readOnly
-                        className="flex-1 w-full p-4 rounded-xl bg-secondary/50 border border-primary/20 text-sm font-mono text-foreground focus:outline-none resize-none mb-4"
-                        value={promptText}
-                    />
-                    <div className="flex justify-end gap-3 shrink-0">
-                        <button onClick={() => setPromptView(null)} className="px-5 py-2.5 bg-secondary text-foreground text-sm font-medium rounded-xl hover:bg-secondary/80">Cerrar</button>
-                        <button onClick={() => { navigator.clipboard.writeText(promptText); toast.success("Prompt copiado"); }} className="px-5 py-2.5 bg-violet-600 text-white font-bold text-sm rounded-xl hover:bg-violet-500 shadow-[0_0_15px_rgba(139,92,246,0.5)]">
+                    <textarea readOnly className="flex-1 w-full p-4 rounded-xl bg-secondary/50 border border-primary/20 text-sm font-mono text-foreground" value={promptText} />
+                    <div className="flex justify-end gap-3 mt-4">
+                        <button onClick={() => setPromptView(null)} className="px-5 py-2.5 bg-secondary text-foreground text-sm font-medium rounded-xl">Cerrar</button>
+                        <button onClick={() => { navigator.clipboard.writeText(promptText); toast.success("Prompt copiado"); }} className="px-5 py-2.5 bg-violet-600 text-white font-bold text-sm rounded-xl hover:bg-violet-500">
                             Copiar Prompt
                         </button>
                     </div>
@@ -294,7 +475,7 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
         );
     }
 
-    // ── Main View ────────────────────────────────────────────────────────────
+    // ── Main View ───────────────────────────────────────────────────────────
     return (
         <div className="space-y-5 animate-fade-in">
             <div className="flex items-center justify-between">
@@ -303,7 +484,7 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                     <p className="text-sm text-muted-foreground">{cotizaciones.length} cotizaciones</p>
                 </div>
                 <div className="flex gap-2">
-                    <button onClick={() => setShowAI(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground hover:border-primary/30 transition-colors">
+                    <button onClick={() => setShowAI(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground hover:border-primary/30">
                         <Sparkles className="w-4 h-4 text-amber-400" /> Generar con IA
                     </button>
                     <button onClick={() => { resetForm(); setShowNew(true); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90">
@@ -317,40 +498,23 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
                     <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in space-y-4">
                         <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-bold text-foreground flex items-center gap-2"><Sparkles className="w-5 h-5 text-amber-400" /> Generar Cotización con IA</h3>
+                            <h3 className="text-lg font-bold text-foreground flex items-center gap-2"><Sparkles className="w-5 h-5 text-amber-400" /> Generar con IA</h3>
                             <button onClick={() => setShowAI(false)} className="p-1 rounded-lg hover:bg-secondary"><X className="w-5 h-5 text-muted-foreground" /></button>
                         </div>
-                        {/* Tipo selector */}
                         <div className="grid grid-cols-2 gap-2">
-                            <button
-                                onClick={() => setTipoCotizacion("web")}
-                                className={cn("flex items-center gap-2 p-3 rounded-xl border text-sm font-medium transition-all", tipoCotizacion === "web" ? "border-primary bg-primary/10 text-primary" : "border-border bg-secondary text-muted-foreground hover:text-foreground")}
-                            >
+                            <button onClick={() => setTipoCotizacion("web")} className={cn("flex items-center gap-2 p-3 rounded-xl border text-sm font-medium", tipoCotizacion === "web" ? "border-primary bg-primary/10 text-primary" : "border-border bg-secondary text-muted-foreground")}>
                                 <Globe className="w-4 h-4" /> Página Web
                             </button>
-                            <button
-                                onClick={() => setTipoCotizacion("webapp")}
-                                className={cn("flex items-center gap-2 p-3 rounded-xl border text-sm font-medium transition-all", tipoCotizacion === "webapp" ? "border-violet-500 bg-violet-500/10 text-violet-400" : "border-border bg-secondary text-muted-foreground hover:text-foreground")}
-                            >
-                                <Code2 className="w-4 h-4" /> Web App / Software
+                            <button onClick={() => setTipoCotizacion("webapp")} className={cn("flex items-center gap-2 p-3 rounded-xl border text-sm font-medium", tipoCotizacion === "webapp" ? "border-violet-500 bg-violet-500/10 text-violet-400" : "border-border bg-secondary text-muted-foreground")}>
+                                <Code2 className="w-4 h-4" /> Web App
                             </button>
                         </div>
-                        <p className="text-sm text-muted-foreground">Pegá la transcripción de la reunión o notas del cliente para generar los ítems.</p>
-                        <textarea
-                            value={transcript}
-                            onChange={(e) => setTranscript(e.target.value)}
-                            rows={7}
-                            placeholder={tipoCotizacion === "webapp"
-                                ? "El cliente necesita un CRM con módulo de clientes, ventas y reportes. Hasta 20 usuarios con roles distintos..."
-                                : "El cliente necesita una landing page para su restaurante, con menú digital, formulario de contacto..."
-                            }
-                            className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-                        />
+                        <textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} rows={7} placeholder="Notas de la reunión..." className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none resize-none" />
                         <div className="flex justify-end gap-2">
                             <button onClick={() => setShowAI(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-secondary">Cancelar</button>
-                            <button onClick={handleAIGenerate} disabled={aiLoading} className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-medium hover:opacity-90 disabled:opacity-50 flex items-center gap-2">
+                            <button onClick={handleAIGenerate} disabled={aiLoading} className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-medium flex items-center gap-2 disabled:opacity-50">
                                 {aiLoading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                                {aiLoading ? "Generando..." : "Generar Ítems"}
+                                Generar Ítems
                             </button>
                         </div>
                     </div>
@@ -365,18 +529,12 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                         <button onClick={() => { setShowNew(false); resetForm(); }} className="p-1 rounded-lg hover:bg-secondary"><X className="w-4 h-4 text-muted-foreground" /></button>
                     </div>
 
-                    {/* Tipo selector */}
+                    {/* Tipo */}
                     <div className="grid grid-cols-2 gap-2">
-                        <button
-                            onClick={() => setTipoCotizacion("web")}
-                            className={cn("flex items-center gap-2 p-3 rounded-xl border text-sm font-medium transition-all", tipoCotizacion === "web" ? "border-primary bg-primary/10 text-primary" : "border-border bg-secondary/50 text-muted-foreground hover:text-foreground")}
-                        >
+                        <button onClick={() => handleTipoChange("web")} className={cn("flex items-center gap-2 p-3 rounded-xl border text-sm font-medium", tipoCotizacion === "web" ? "border-primary bg-primary/10 text-primary" : "border-border bg-secondary/50 text-muted-foreground")}>
                             <Globe className="w-4 h-4" /> Página Web
                         </button>
-                        <button
-                            onClick={() => setTipoCotizacion("webapp")}
-                            className={cn("flex items-center gap-2 p-3 rounded-xl border text-sm font-medium transition-all", tipoCotizacion === "webapp" ? "border-violet-500 bg-violet-500/10 text-violet-400" : "border-border bg-secondary/50 text-muted-foreground hover:text-foreground")}
-                        >
+                        <button onClick={() => handleTipoChange("webapp")} className={cn("flex items-center gap-2 p-3 rounded-xl border text-sm font-medium", tipoCotizacion === "webapp" ? "border-violet-500 bg-violet-500/10 text-violet-400" : "border-border bg-secondary/50 text-muted-foreground")}>
                             <Code2 className="w-4 h-4" /> Web App / Software
                         </button>
                     </div>
@@ -390,42 +548,31 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                     {tipoCotizacion === "webapp" && (
                         <div className="p-4 rounded-xl border border-violet-500/20 bg-violet-500/5 space-y-4">
                             <h4 className="text-sm font-semibold text-violet-400 flex items-center gap-2"><Code2 className="w-4 h-4" /> Especificaciones del Sistema</h4>
-
                             <div className="space-y-2">
                                 <label className="text-xs font-medium text-foreground">Módulos del Sistema</label>
                                 <div className="flex gap-2">
-                                    <input
-                                        value={moduloInput}
-                                        onChange={(e) => setModuloInput(e.target.value)}
-                                        onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addModulo())}
-                                        placeholder="Ej: Gestión de Clientes"
-                                        className="flex-1 h-8 px-3 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none"
-                                    />
+                                    <input value={moduloInput} onChange={(e) => setModuloInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addModulo())} placeholder="Ej: Gestión de Clientes" className="flex-1 h-8 px-3 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none" />
                                     <button onClick={addModulo} className="px-3 h-8 rounded-lg bg-violet-500/20 text-violet-400 text-xs font-medium hover:bg-violet-500/30">+ Agregar</button>
                                 </div>
                                 <div className="flex flex-wrap gap-1.5">
                                     {webappSpecs.modulos.map((m, i) => (
                                         <span key={i} className="flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/20 text-violet-300">
-                                            {m}
-                                            <button onClick={() => removeModulo(i)} className="ml-0.5 hover:text-red-400"><X className="w-2.5 h-2.5" /></button>
+                                            {m}<button onClick={() => removeModulo(i)}><X className="w-2.5 h-2.5" /></button>
                                         </span>
                                     ))}
                                 </div>
                             </div>
-
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                <div>
-                                    <label className="text-xs font-medium text-foreground">Cantidad de usuarios</label>
-                                    <input value={webappSpecs.cantidad_usuarios} onChange={(e) => setWebappSpecs({ ...webappSpecs, cantidad_usuarios: e.target.value })} placeholder="Ej: 1-20 usuarios" className="w-full mt-1 h-8 px-3 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none" />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-medium text-foreground">Roles / Permisos</label>
-                                    <input value={webappSpecs.roles} onChange={(e) => setWebappSpecs({ ...webappSpecs, roles: e.target.value })} placeholder="Ej: Admin, Operador, Cliente" className="w-full mt-1 h-8 px-3 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none" />
-                                </div>
-                                <div>
-                                    <label className="text-xs font-medium text-foreground">Integraciones</label>
-                                    <input value={webappSpecs.integraciones} onChange={(e) => setWebappSpecs({ ...webappSpecs, integraciones: e.target.value })} placeholder="Ej: MercadoPago, WhatsApp API" className="w-full mt-1 h-8 px-3 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none" />
-                                </div>
+                                {[
+                                    { label: "Cantidad de usuarios", key: "cantidad_usuarios", placeholder: "Ej: 1-20 usuarios" },
+                                    { label: "Roles / Permisos", key: "roles", placeholder: "Ej: Admin, Operador, Cliente" },
+                                    { label: "Integraciones", key: "integraciones", placeholder: "Ej: MercadoPago, WhatsApp API" },
+                                ].map(({ label, key, placeholder }) => (
+                                    <div key={key}>
+                                        <label className="text-xs font-medium text-foreground">{label}</label>
+                                        <input value={(webappSpecs as any)[key]} onChange={(e) => setWebappSpecs({ ...webappSpecs, [key]: e.target.value })} placeholder={placeholder} className="w-full mt-1 h-8 px-3 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none" />
+                                    </div>
+                                ))}
                                 <div>
                                     <label className="text-xs font-medium text-foreground">Plataforma objetivo</label>
                                     <select value={webappSpecs.plataforma} onChange={(e) => setWebappSpecs({ ...webappSpecs, plataforma: e.target.value })} className="w-full mt-1 h-8 px-2 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none">
@@ -447,18 +594,16 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                                     </select>
                                 </div>
                                 <div className="sm:col-span-2">
-                                    <label className="text-xs font-medium text-foreground">Notas técnicas adicionales</label>
-                                    <textarea value={webappSpecs.notas_tecnicas} onChange={(e) => setWebappSpecs({ ...webappSpecs, notas_tecnicas: e.target.value })} rows={2} placeholder="Cualquier requerimiento técnico específico..." className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none resize-none" />
+                                    <label className="text-xs font-medium text-foreground">Notas técnicas</label>
+                                    <textarea value={webappSpecs.notas_tecnicas} onChange={(e) => setWebappSpecs({ ...webappSpecs, notas_tecnicas: e.target.value })} rows={2} placeholder="Requerimientos técnicos específicos..." className="w-full mt-1 px-3 py-2 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none resize-none" />
                                 </div>
                             </div>
                         </div>
                     )}
 
-                    {/* Items Table */}
+                    {/* Items */}
                     <div className="space-y-2">
-                        <div className="grid grid-cols-[1fr_120px_40px] gap-2 text-[10px] text-muted-foreground uppercase">
-                            <span>Descripción</span><span>Precio</span><span></span>
-                        </div>
+                        <div className="grid grid-cols-[1fr_120px_40px] gap-2 text-[10px] text-muted-foreground uppercase"><span>Descripción</span><span>Precio</span><span /></div>
                         {items.map((item, i) => (
                             <div key={i} className="grid grid-cols-[1fr_120px_40px] gap-2">
                                 <input value={item.descripcion} onChange={(e) => updateItem(i, "descripcion", e.target.value)} className="h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="Descripción del servicio..." />
@@ -474,24 +619,23 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                         <span className="text-lg font-bold text-primary">{formatCurrency(total)}</span>
                     </div>
 
+                    {/* Secciones PDF */}
+                    <SeccionesForm tipo={tipoCotizacion} secciones={secciones} onChange={setSecciones} />
+
                     {/* PDF Upload */}
                     <div className="flex flex-col gap-3 p-3 rounded-lg border border-border bg-secondary/30">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-2"><FileText className="w-3 h-3" /> Adjuntar PDF</label>
+                        <label className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-2"><FileText className="w-3 h-3" /> Adjuntar PDF externo (opcional)</label>
                         <div className="flex items-center gap-3">
                             <input type="file" accept=".pdf" onChange={handleFileUpload} id="pdf-upload" className="hidden" />
-                            <label htmlFor="pdf-upload" className={cn("flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border-2 border-dashed border-border hover:border-primary/50 cursor-pointer transition-all text-sm", uploading && "opacity-50 pointer-events-none")}>
+                            <label htmlFor="pdf-upload" className={cn("flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border-2 border-dashed border-border hover:border-primary/50 cursor-pointer text-sm", uploading && "opacity-50 pointer-events-none")}>
                                 {uploading ? <span className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" /> : <Upload className="w-4 h-4 text-muted-foreground" />}
                                 {pdfUrl ? "Cambiar PDF" : "Subir archivo PDF"}
                             </label>
-                            {pdfUrl && (
-                                <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="h-10 px-3 flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium hover:bg-emerald-500/20">
-                                    <LinkIcon className="w-3.5 h-3.5" /> Ver PDF
-                                </a>
-                            )}
+                            {pdfUrl && <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="h-10 px-3 flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium"><LinkIcon className="w-3.5 h-3.5" /> Ver PDF</a>}
                         </div>
                     </div>
 
-                    <textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={2} placeholder="Notas adicionales..." className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
+                    <textarea value={notas} onChange={(e) => setNotas(e.target.value)} rows={2} placeholder="Notas internas adicionales..." className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
 
                     <div className="flex justify-end gap-2">
                         <button onClick={handleSave} className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-medium hover:opacity-90">Guardar Cotización</button>
@@ -499,23 +643,24 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                 </div>
             )}
 
-            {/* List */}
+            {/* Quote Cards */}
             <div className="space-y-3">
                 {cotizaciones.map((q) => {
                     const cliente = clientes.find((c) => c.id === q.cliente_id);
+                    if (!cliente) return null;
                     const tipo = (q.tipo_cotizacion || "web") as TipoCotizacion;
                     return (
                         <div key={q.id} className="rounded-xl border border-border bg-card p-4 card-hover">
                             <div className="flex items-start justify-between mb-3">
                                 <div>
                                     <div className="flex items-center gap-2 mb-0.5">
-                                        <h4 className="text-sm font-semibold text-foreground">{cliente?.nombre || "Cliente"}</h4>
+                                        <h4 className="text-sm font-semibold text-foreground">{cliente.nombre}</h4>
                                         <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", TIPO_BADGE[tipo])}>
-                                            {tipo === "webapp" ? <><Code2 className="w-2.5 h-2.5 inline mr-1" /></> : <><Globe className="w-2.5 h-2.5 inline mr-1" /></>}
+                                            {tipo === "webapp" ? <Code2 className="w-2.5 h-2.5 inline mr-1" /> : <Globe className="w-2.5 h-2.5 inline mr-1" />}
                                             {TIPO_LABEL[tipo]}
                                         </span>
                                     </div>
-                                    <p className="text-xs text-muted-foreground">{cliente?.negocio} · {formatDate(q.created_at)}</p>
+                                    <p className="text-xs text-muted-foreground">{cliente.negocio} · {formatDate(q.created_at)}</p>
                                 </div>
                                 <div className="flex items-center gap-2">
                                     <span className={cn("text-[10px] px-2.5 py-1 rounded-full border font-medium capitalize", ESTADO_BADGE[q.estado])}>{q.estado}</span>
@@ -523,7 +668,7 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                                 </div>
                             </div>
 
-                            {/* Modules for webapp */}
+                            {/* Módulos WebApp */}
                             {tipo === "webapp" && (q.especificaciones_webapp?.modulos?.length ?? 0) > 0 && (
                                 <div className="flex flex-wrap gap-1 mb-3">
                                     {q.especificaciones_webapp?.modulos?.map((m, i) => (
@@ -532,6 +677,7 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                                 </div>
                             )}
 
+                            {/* Items */}
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mb-3">
                                 {q.items.map((item, i) => (
                                     <div key={i} className="flex justify-between text-xs px-2 py-1.5 rounded bg-secondary/50">
@@ -541,6 +687,7 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                                 ))}
                             </div>
 
+                            {/* Actions */}
                             <div className="flex items-center justify-between mt-4">
                                 <div className="flex gap-1.5">
                                     {(["borrador", "enviada", "aceptada", "rechazada"] as EstadoCotizacion[]).map((e) => (
@@ -550,11 +697,9 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                                     ))}
                                 </div>
                                 <div className="flex items-center gap-2">
-                                    {q.pdf_url && (
-                                        <a href={q.pdf_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-semibold hover:bg-emerald-500/20">
-                                            <FileText className="w-4 h-4" /> Ver PDF
-                                        </a>
-                                    )}
+                                    {/* PDF Download */}
+                                    <PDFButton cotizacion={q} cliente={cliente} />
+                                    {/* AI Prompt */}
                                     <button onClick={() => setPromptView(q)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-semibold hover:bg-violet-500/20">
                                         <Sparkles className="w-4 h-4" /> Armar Prompt
                                     </button>
@@ -566,7 +711,23 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                         </div>
                     );
                 })}
+                {cotizaciones.length === 0 && (
+                    <div className="py-12 text-center text-muted-foreground">
+                        <FileText className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                        <p className="text-sm">No hay cotizaciones creadas aún</p>
+                    </div>
+                )}
             </div>
         </div>
+    );
+}
+
+export default function CotizacionesPage() {
+    return (
+        <Suspense fallback={
+            <div className="space-y-3 animate-pulse">{[...Array(3)].map((_, i) => <div key={i} className="h-24 rounded-xl bg-secondary/30" />)}</div>
+        }>
+            <CotizacionesContent />
+        </Suspense>
     );
 }

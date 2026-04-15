@@ -62,6 +62,16 @@ export interface EspecificacionesWebApp {
     notas_tecnicas: string;
 }
 
+// --- Secciones del PDF de Cotización (texto libre por sección) ---
+export interface SeccionesPDF {
+    descripcion: string;         // 01. Descripción del proyecto / sistema
+    alcance: string;             // 02. Alcance / Módulos y funcionalidades
+    cronograma: string;          // 03. Cronograma / Plan de desarrollo
+    terminos: string;            // 04. Términos y modelo de pago
+    proximos_pasos: string;      // 05. Próximos pasos
+    conclusion?: string;         // (solo Web) Conclusión / cierre persuasivo
+}
+
 // --- Database Models ---
 export interface Cliente {
     id: string;
@@ -156,6 +166,7 @@ export interface Cotizacion {
     notas: string;
     tipo_cotizacion?: TipoCotizacion;
     especificaciones_webapp?: EspecificacionesWebApp | null;
+    secciones_pdf?: SeccionesPDF | null;
     cliente?: Cliente;
 }
 
