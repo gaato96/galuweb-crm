@@ -224,23 +224,7 @@ export const CotizacionPDFTemplate = React.forwardRef<HTMLDivElement, Props>(
                     })}
                 </div>
 
-                {/* ── FOOTER ───────────────────────────────────────────────── */}
-                <div style={{
-                    borderTop: `1px solid ${BORDER}`,
-                    padding: "24px 48px",
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    background: BG_LIGHT,
-                    pageBreakInside: "avoid"
-                }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <img src="/3.png" alt="Galuweb" style={{ height: 36, objectFit: "contain", opacity: 0.8 }} />
-                        <p style={{ margin: 0, fontSize: 11, color: TEXT_MUTED, fontWeight: 500 }}>© {new Date().getFullYear()} Galuweb — galuweb.com</p>
-                    </div>
-                    <p style={{ margin: 0, fontSize: 11, color: TEXT_MUTED }}>Propuesta comercial confidencial</p>
-                </div>
-            </div >
+            </div>
         );
     }
 );

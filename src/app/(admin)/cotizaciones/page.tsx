@@ -116,6 +116,13 @@ async function generatePDF(
             reader.readAsDataURL(blob);
         });
 
+        // Calculate exact ratio to prevent stretching
+        const img = new Image();
+        img.src = logoB64;
+        await new Promise((r) => img.onload = r);
+        const logoH = 7; // 7mm height
+        const logoW = logoH * (img.width / img.height);
+
         for (let i = 1; i <= totalPages; i++) {
             pdf.setPage(i);
 
@@ -129,7 +136,7 @@ async function generatePDF(
             pdf.line(0, pageHeight - 15, pageWidth, pageHeight - 15);
 
             // Draw Logo
-            pdf.addImage(logoB64, 'PNG', 12, pageHeight - 11, 24, 7);
+            pdf.addImage(logoB64, 'PNG', 12, pageHeight - 11, logoW, logoH);
 
             // Draw texts
             pdf.setFont("helvetica", "normal");
