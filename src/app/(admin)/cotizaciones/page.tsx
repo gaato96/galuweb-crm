@@ -86,14 +86,13 @@ async function generatePDF(
 
     const el = container.firstElementChild as HTMLElement;
 
-    // Remove margin on html2pdf so header and footer touch edges.
-    // Usable A4 height at 96PPI is approx 1123 px
+    // Adjust min-height for complete page fills to keep footer at the bottom.
     const contentHeight = el.scrollHeight;
     const usableHeight = 1123;
     const totalPages = Math.max(1, Math.ceil(contentHeight / usableHeight));
 
-    // Explicitly subtract a tolerance (e.g. 10px) to prevent the container from triggering an extra empty page
-    el.style.height = `${(totalPages * usableHeight) - 10}px`;
+    // Use minHeight instead of height so we don't accidentally crop overflowed content!
+    el.style.minHeight = `${totalPages * usableHeight}px`;
 
     const filename = `Cotizacion_${cliente.nombre.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.pdf`;
 
@@ -225,7 +224,8 @@ function CotizacionesContent() {
     const [showAI, setShowAI] = useState(false);
     const [promptView, setPromptView] = useState<Cotizacion | null>(null);
     const [transcript, setTranscript] = useState("");
-    const [aiLoading, setAiLoading] = useState(false);
+    const [aiClienteId, setAiClienteId] = useState("");
+    const [generatedPrompt, setGeneratedPrompt] = useState("");
 
     // Form state
     const [tipoCotizacion, setTipoCotizacion] = useState<TipoCotizacion>("web");
@@ -319,31 +319,45 @@ function CotizacionesContent() {
     };
 
     const handleAIGenerate = async () => {
+        if (!aiClienteId) { toast.error("Selecciona un cliente"); return; }
         if (!transcript.trim()) { toast.error("Pega una transcripción o notas"); return; }
-        setAiLoading(true);
-        await new Promise((r) => setTimeout(r, 1500));
-        const generated: CotizacionItem[] = tipoCotizacion === "webapp"
-            ? [
-                { descripcion: "Análisis y Arquitectura del Sistema", precio: 1500 },
-                { descripcion: "Diseño UX/UI (Wireframes + Figma)", precio: 2000 },
-                { descripcion: "Desarrollo Backend (API + Base de Datos)", precio: 4000 },
-                { descripcion: "Desarrollo Frontend / Admin Panel", precio: 3000 },
-                { descripcion: "Autenticación y Control de Roles", precio: 800 },
-                { descripcion: "Integraciones y APIs externas", precio: 1200 },
-                { descripcion: "Testing QA + Deploy", precio: 1000 },
-            ]
-            : [
-                { descripcion: "Diseño UI/UX personalizado", precio: 800 },
-                { descripcion: "Desarrollo Frontend Responsive", precio: 1200 },
-                { descripcion: "Integración de funcionalidades", precio: 600 },
-                { descripcion: "Optimización SEO On-Page", precio: 400 },
-                { descripcion: "Hosting y Deploy", precio: 300 },
-            ];
-        setItems(generated);
-        setShowAI(false);
-        setShowNew(true);
-        setAiLoading(false);
-        toast.success("Ítems generados — revisá y ajustá los precios");
+
+        const c = clientes.find(x => x.id === aiClienteId);
+        if (!c) return;
+
+        const isWebApp = tipoCotizacion === "webapp";
+
+        const basePrompt = isWebApp
+            ? `Actúa como un experto en ventas de software B2B. Redacta una propuesta técnico-comercial para un Software a Medida / Web App.`
+            : `Actúa como un experto en ventas para una agencia de diseño web. Redacta una propuesta de servicios (Cotización de Página Web).`;
+
+        const p = `${basePrompt}
+
+--- INFORMACIÓN DEL CLIENTE ---
+Nombre: ${c.nombre}
+Negocio: ${c.negocio}
+Notas del cliente: ${c.notas_seguimiento?.map(n => n.texto).join(" | ") || "Ninguna."}
+
+--- REQUERIMIENTOS SOLICITADOS ---
+${transcript}
+
+--- INSTRUCCIONES ---
+1. Propone una lista de ÍTEMS de servicio/desarrollo y sugiere un PRECIO EN USD realista y justificado para cada uno.
+2. Basándote en esos ítems, estructurá la propuesta en las siguientes secciones para pegar en el PDF:
+
+${isWebApp ? `01. Descripción del Sistema (Problema del negocio y valor).
+02. Módulos y Funcionalidades (Detalle).
+03. Arquitectura y Tecnología.
+04. Plan de Desarrollo (Fases).
+05. Términos y Modelo de Pago.
+06. Próximos Pasos.` : `01. Descripción del Proyecto (Resumen ejecutivo del problema y la solución).
+02. Alcance y Funcionalidades.
+03. Cronograma de Trabajo.
+04. Términos y Modalidad de Pago.
+05. Conclusión (Cierre persuasivo).
+06. Próximos Pasos.`}`;
+
+        setGeneratedPrompt(p);
     };
 
     const updateEstado = async (id: string, estado: EstadoCotizacion) => {
@@ -492,21 +506,37 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                             <button onClick={() => setShowAI(false)} className="p-1 rounded-lg hover:bg-secondary"><X className="w-5 h-5 text-muted-foreground" /></button>
                         </div>
                         <div className="grid grid-cols-2 gap-2">
-                            <button onClick={() => setTipoCotizacion("web")} className={cn("flex items-center gap-2 p-3 rounded-xl border text-sm font-medium", tipoCotizacion === "web" ? "border-primary bg-primary/10 text-primary" : "border-border bg-secondary text-muted-foreground")}>
+                            <button onClick={() => setTipoCotizacion("web")} className={cn("flex items-center justify-center gap-2 p-3 rounded-xl border text-sm font-medium", tipoCotizacion === "web" ? "border-primary bg-primary/10 text-primary" : "border-border bg-secondary text-muted-foreground")}>
                                 <Globe className="w-4 h-4" /> Página Web
                             </button>
-                            <button onClick={() => setTipoCotizacion("webapp")} className={cn("flex items-center gap-2 p-3 rounded-xl border text-sm font-medium", tipoCotizacion === "webapp" ? "border-violet-500 bg-violet-500/10 text-violet-400" : "border-border bg-secondary text-muted-foreground")}>
+                            <button onClick={() => setTipoCotizacion("webapp")} className={cn("flex items-center justify-center gap-2 p-3 rounded-xl border text-sm font-medium", tipoCotizacion === "webapp" ? "border-violet-500 bg-violet-500/10 text-violet-400" : "border-border bg-secondary text-muted-foreground")}>
                                 <Code2 className="w-4 h-4" /> Web App
                             </button>
                         </div>
-                        <textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} rows={7} placeholder="Notas de la reunión..." className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none resize-none" />
-                        <div className="flex justify-end gap-2">
-                            <button onClick={() => setShowAI(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-secondary">Cancelar</button>
-                            <button onClick={handleAIGenerate} disabled={aiLoading} className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-medium flex items-center gap-2 disabled:opacity-50">
-                                {aiLoading ? <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                                Generar Ítems
-                            </button>
-                        </div>
+                        <select value={aiClienteId} onChange={(e) => setAiClienteId(e.target.value)} className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none">
+                            <option value="">Seleccionar cliente...</option>
+                            {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre} — {c.negocio}</option>)}
+                        </select>
+                        <textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} rows={4} placeholder="Notas de la reunión o requerimientos del cliente..." className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none resize-none" />
+
+                        {generatedPrompt ? (
+                            <div className="space-y-3 pt-3 border-t border-border">
+                                <label className="text-xs font-semibold text-primary">Prompt Generado</label>
+                                <textarea readOnly value={generatedPrompt} className="w-full h-48 px-3 py-2 rounded-lg bg-secondary border border-border text-xs font-mono text-foreground focus:outline-none resize-none" />
+                                <div className="flex justify-end gap-2">
+                                    <button onClick={() => { navigator.clipboard.writeText(generatedPrompt); toast.success("Prompt copiado"); }} className="px-4 py-2 rounded-lg text-sm bg-violet-600 text-white font-bold hover:bg-violet-500 flex items-center gap-2">
+                                        Copiar Prompt
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex justify-end gap-2">
+                                <button onClick={() => setShowAI(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-secondary">Cancelar</button>
+                                <button onClick={handleAIGenerate} className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-medium flex items-center gap-2">
+                                    <Sparkles className="w-4 h-4" /> Armar Prompt Cotización
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             )}
@@ -607,6 +637,24 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                     <div className="flex items-center justify-between p-3 rounded-lg bg-primary/5 border border-primary/20">
                         <span className="text-sm font-medium text-foreground">Total</span>
                         <span className="text-lg font-bold text-primary">{formatCurrency(total)}</span>
+                    </div>
+
+                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
+                        <label className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-2">
+                            <Sparkles className="w-3.5 h-3.5 text-violet-400" />
+                            Redacción Inteligente
+                        </label>
+                        <button type="button" onClick={() => {
+                            if (!clienteId) { toast.error("Selecciona un cliente"); return; }
+                            setPromptView({
+                                id: "draft", created_at: new Date().toISOString(), cliente_id: clienteId,
+                                total, items, estado: "borrador", pdf_url: "", notas, tipo_cotizacion: tipoCotizacion,
+                                especificaciones_webapp: tipoCotizacion === "webapp" ? webappSpecs : null,
+                                secciones_pdf: secciones
+                            });
+                        }} className="px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-medium hover:bg-violet-500/20">
+                            Armar Prompt de esta cotización
+                        </button>
                     </div>
 
                     {/* Secciones PDF */}
