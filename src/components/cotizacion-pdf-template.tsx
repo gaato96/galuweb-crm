@@ -30,7 +30,7 @@ function formatUSD(n: number) {
 function Section({ num, title, children }: { num: string; title: string; children: React.ReactNode }) {
     return (
         // page-break-inside: avoid ensures this block stays in one page, or breaks cleanly
-        <div style={{ marginBottom: 32, pageBreakInside: "avoid" }} className="avoid-break">
+        <div style={{ paddingTop: 32, paddingBottom: 16, pageBreakInside: "avoid" }} className="avoid-break">
             <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
                 <div style={{
                     width: 32, height: 32, borderRadius: 4,

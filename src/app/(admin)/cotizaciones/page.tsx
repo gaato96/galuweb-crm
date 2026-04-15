@@ -86,19 +86,19 @@ async function generatePDF(
 
     const el = container.firstElementChild as HTMLElement;
 
-    // Adjust height for complete page fills to keep footer at the bottom.
-    // Usable A4 height with 15mm top/bottom margin: (297 - 30) mm ≈ 267 mm ≈ 1009 px at 96PPI internal
+    // Remove margin on html2pdf so header and footer touch edges.
+    // Usable A4 height at 96PPI is approx 1123 px
     const contentHeight = el.scrollHeight;
-    const usableHeight = 1008;
+    const usableHeight = 1123;
     const totalPages = Math.max(1, Math.ceil(contentHeight / usableHeight));
 
-    // Explicitly subtract a few pixels margin of error to prevent empty page overflow
-    el.style.height = `${(totalPages * usableHeight) - 5}px`;
+    // Explicitly subtract a tolerance (e.g. 10px) to prevent the container from triggering an extra empty page
+    el.style.height = `${(totalPages * usableHeight) - 10}px`;
 
     const filename = `Cotizacion_${cliente.nombre.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.pdf`;
 
     const opt = {
-        margin: [15, 0, 15, 0] as [number, number, number, number],
+        margin: 0,
         filename: filename,
         image: { type: "jpeg" as const, quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, logging: false },
