@@ -86,17 +86,19 @@ async function generatePDF(
 
     const el = container.firstElementChild as HTMLElement;
 
-    // Check total height of rendered elements to calculate how many A4 pages we need.
-    // A4 ratio: 794px wide -> 1123px high
+    // Adjust height for complete page fills to keep footer at the bottom.
+    // Usable A4 height with 15mm top/bottom margin: (297 - 30) mm ≈ 267 mm ≈ 1009 px at 96PPI internal
     const contentHeight = el.scrollHeight;
-    const a4Height = 1123;
-    const totalPages = Math.max(1, Math.ceil(contentHeight / a4Height));
-    el.style.height = `${totalPages * a4Height}px`; // Force exact multiple
+    const usableHeight = 1008;
+    const totalPages = Math.max(1, Math.ceil(contentHeight / usableHeight));
+
+    // Explicitly subtract a few pixels margin of error to prevent empty page overflow
+    el.style.height = `${(totalPages * usableHeight) - 5}px`;
 
     const filename = `Cotizacion_${cliente.nombre.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.pdf`;
 
     const opt = {
-        margin: 0,
+        margin: [15, 0, 15, 0] as [number, number, number, number],
         filename: filename,
         image: { type: "jpeg" as const, quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, logging: false },

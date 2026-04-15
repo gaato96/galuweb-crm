@@ -40,7 +40,7 @@ function Section({ num, title, children }: { num: string; title: string; childre
                 }}>
                     {num}
                 </div>
-                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700, color: BG_DARK, letterSpacing: 0.5 }}>
+                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 900, color: BG_DARK, letterSpacing: 0.5 }}>
                     {title}
                 </h2>
             </div>
