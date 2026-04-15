@@ -238,7 +238,7 @@ export const CotizacionPDFTemplate = React.forwardRef<HTMLDivElement, Props>(
                     pageBreakInside: "avoid"
                 }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                        <img src="/3.png" alt="Galuweb" style={{ height: 20, objectFit: "contain", opacity: 0.7 }} />
+                        <img src="/3.png" alt="Galuweb" style={{ height: 36, objectFit: "contain", opacity: 0.8 }} />
                         <p style={{ margin: 0, fontSize: 11, color: TEXT_MUTED, fontWeight: 500 }}>© {new Date().getFullYear()} Galuweb — galuweb.com</p>
                     </div>
                     <p style={{ margin: 0, fontSize: 11, color: TEXT_MUTED }}>Propuesta comercial confidencial</p>
