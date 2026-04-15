@@ -87,17 +87,11 @@ async function generatePDF(
     const el = container.firstElementChild as HTMLElement;
 
     // Adjust min-height for complete page fills to keep footer at the bottom.
-    const contentHeight = el.scrollHeight;
-    const usableHeight = 1123;
-    const totalPages = Math.max(1, Math.ceil(contentHeight / usableHeight));
-
-    // Use minHeight instead of height so we don't accidentally crop overflowed content!
-    el.style.minHeight = `${totalPages * usableHeight}px`;
-
+    // We don't manually limit the height anymore! Let html2pdf span across as many pages as it needs.
     const filename = `Cotizacion_${cliente.nombre.replace(/\s+/g, "_")}_${new Date().toISOString().slice(0, 10)}.pdf`;
 
     const opt = {
-        margin: 0,
+        margin: [0, 0, 15, 0] as [number, number, number, number], // Give 15mm bottom margin to avoid text overlapping the footer
         filename: filename,
         image: { type: "jpeg" as const, quality: 0.98 },
         html2canvas: { scale: 2, useCORS: true, logging: false },
@@ -105,7 +99,54 @@ async function generatePDF(
         pagebreak: { mode: ["css", "legacy"], avoid: '.avoid-break' }
     };
 
-    await html2pdf().set(opt).from(el).save();
+    const worker = html2pdf().set(opt).from(el);
+
+    // Inject the footer on all pages using jsPDF vectors natively AFTER html rendering captures
+    await worker.toPdf().get('pdf').then(async (pdf: any) => {
+        const totalPages = pdf.internal.getNumberOfPages();
+        const pageWidth = pdf.internal.pageSize.getWidth();
+        const pageHeight = pdf.internal.pageSize.getHeight();
+
+        // Convert logo to base64 for jsPDF
+        const res = await fetch("/3.png");
+        const blob = await res.blob();
+        const reader = new FileReader();
+        const logoB64 = await new Promise<string>((resolve) => {
+            reader.onloadend = () => resolve(reader.result as string);
+            reader.readAsDataURL(blob);
+        });
+
+        for (let i = 1; i <= totalPages; i++) {
+            pdf.setPage(i);
+
+            // Draw gray background
+            pdf.setFillColor(249, 250, 251);
+            pdf.rect(0, pageHeight - 15, pageWidth, 15, "F");
+
+            // Draw top border
+            pdf.setDrawColor(229, 231, 235);
+            pdf.setLineWidth(0.2);
+            pdf.line(0, pageHeight - 15, pageWidth, pageHeight - 15);
+
+            // Draw Logo
+            pdf.addImage(logoB64, 'PNG', 12, pageHeight - 11, 24, 7);
+
+            // Draw texts
+            pdf.setFont("helvetica", "normal");
+            pdf.setFontSize(8);
+            pdf.setTextColor(107, 114, 128);
+
+            // Left link alongside logo
+            pdf.text(`© ${new Date().getFullYear()} Galuweb — galuweb.com`, 40, pageHeight - 6.5);
+
+            // Right confidentiality
+            const rightText = "Propuesta comercial confidencial";
+            // Align to right edge with some padding
+            pdf.text(rightText, pageWidth - 48, pageHeight - 6.5);
+        }
+    });
+
+    await worker.save();
 
     root.unmount();
     document.body.removeChild(container);

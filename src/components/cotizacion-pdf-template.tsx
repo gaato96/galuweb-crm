@@ -147,17 +147,14 @@ export const CotizacionPDFTemplate = React.forwardRef<HTMLDivElement, Props>(
                 style={{
                     width: 794,               // ~A4 at 96dpi
                     background: WHITE,
-                    minHeight: 1122,          // Ensures at least one full A4 vertical page
                     fontFamily: "'Montserrat', sans-serif",
                     color: TEXT,
                     margin: 0,
                     padding: 0,
-                    display: "flex",
-                    flexDirection: "column",
                 }}
             >
                 {/* ── STYLES INJECTION ───────────────────────────────────── */}
-                <style dangerouslySetInnerHTML={{
+                < style dangerouslySetInnerHTML={{
                     __html: `
                         @import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&display=swap');
                         .html2pdf__page-break-avoid {
@@ -243,7 +240,7 @@ export const CotizacionPDFTemplate = React.forwardRef<HTMLDivElement, Props>(
                     </div>
                     <p style={{ margin: 0, fontSize: 11, color: TEXT_MUTED }}>Propuesta comercial confidencial</p>
                 </div>
-            </div>
+            </div >
         );
     }
 );
