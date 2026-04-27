@@ -18,6 +18,7 @@ export type EstadoProyecto = "activo" | "pausado" | "finalizado";
 export type Prioridad = "baja" | "media" | "alta";
 export type EstadoTarea = "pendiente" | "en_progreso" | "completada";
 export type CategoriaTarea = "diseno" | "dev" | "seo" | "otro";
+export type BloqueTarea = "construccion" | "crecimiento";
 
 export type EstadoCotizacion = "borrador" | "enviada" | "aceptada" | "rechazada";
 export type TipoCotizacion = "web" | "webapp";
@@ -137,6 +138,7 @@ export interface Tarea {
     prioridad: Prioridad;
     estado: EstadoTarea;
     categoria: CategoriaTarea;
+    bloque?: BloqueTarea;
     proyecto?: Proyecto;
     // Marketing/Content fields (solo para módulo de marketing)
     idea_contenido?: string;
@@ -263,6 +265,11 @@ export const ESTADO_TAREA_COLORS: Record<EstadoTarea, string> = {
     pendiente: "bg-slate-500/20 text-slate-300",
     en_progreso: "bg-blue-500/20 text-blue-300",
     completada: "bg-emerald-500/20 text-emerald-300",
+};
+
+export const BLOQUE_COLORS: Record<BloqueTarea, string> = {
+    construccion: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+    crecimiento: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
 };
 
 export const TIPO_PROYECTO_LABELS: Record<TipoProyecto, string> = {

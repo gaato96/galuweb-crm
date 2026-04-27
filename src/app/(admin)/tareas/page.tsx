@@ -4,12 +4,12 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
     Plus, CheckCircle2, Circle, Clock, Filter, Trash2,
-    CalendarClock, X, FileText, AlignLeft
+    CalendarClock, X, FileText, AlignLeft, CheckSquare
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { tareasStore, proyectosStore } from "@/lib/store";
-import type { Tarea, Prioridad, EstadoTarea, CategoriaTarea } from "@/lib/types";
-import { PRIORIDAD_COLORS, ESTADO_TAREA_COLORS } from "@/lib/types";
+import type { Tarea, Prioridad, EstadoTarea, CategoriaTarea, BloqueTarea } from "@/lib/types";
+import { PRIORIDAD_COLORS, ESTADO_TAREA_COLORS, BLOQUE_COLORS } from "@/lib/types";
 import { toast } from "sonner";
 
 // ── Modal de Detalle de Tarea ─────────────────────────────────────────────────
@@ -25,14 +25,15 @@ function TareaDetailModal({
     onUpdated: () => void;
 }) {
     const [descripcion, setDescripcion] = useState(tarea.descripcion || "");
+    const [bloque, setBloque] = useState<BloqueTarea | undefined>(tarea.bloque);
     const [saving, setSaving] = useState(false);
     const proyecto = tarea.proyecto_id ? proyectos.find((p) => p.id === tarea.proyecto_id) : null;
 
     const handleSave = async () => {
         setSaving(true);
         try {
-            await tareasStore.update(tarea.id, { descripcion });
-            toast.success("Descripción guardada");
+            await tareasStore.update(tarea.id, { descripcion, bloque });
+            toast.success("Tarea actualizada");
             onUpdated();
             onClose();
         } catch {
@@ -80,6 +81,11 @@ function TareaDetailModal({
                     <span className="text-[10px] px-2.5 py-1 rounded-full bg-secondary text-muted-foreground uppercase">
                         {tarea.categoria}
                     </span>
+                    {bloque && (
+                        <span className={cn("text-[10px] px-2.5 py-1 rounded-full border font-medium uppercase tracking-wide", BLOQUE_COLORS[bloque])}>
+                            {bloque}
+                        </span>
+                    )}
                     {proyecto && (
                         <span className="text-[10px] px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
                             {proyecto.nombre}
@@ -104,6 +110,29 @@ function TareaDetailModal({
                         value={descripcion}
                         onChange={(e) => setDescripcion(e.target.value)}
                     />
+                </div>
+
+                {/* Bloque selector */}
+                <div className="space-y-2">
+                    <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                        Bloque de Tiempo
+                    </label>
+                    <div className="flex gap-2">
+                        {(["construccion", "crecimiento"] as BloqueTarea[]).map((b) => (
+                            <button
+                                key={b}
+                                onClick={() => setBloque(bloque === b ? undefined : b)}
+                                className={cn(
+                                    "flex-1 py-2 rounded-xl border text-[10px] font-bold uppercase tracking-wider transition-all",
+                                    bloque === b
+                                        ? BLOQUE_COLORS[b]
+                                        : "bg-secondary/50 border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                )}
+                            >
+                                {b}
+                            </button>
+                        ))}
+                    </div>
                 </div>
 
                 {/* Actions */}
@@ -161,6 +190,7 @@ function TareasContent() {
         descripcion: "",
         prioridad: "media" as Prioridad,
         categoria: "otro" as CategoriaTarea,
+        bloque: undefined as BloqueTarea | undefined,
         proyecto_id: "",
         fecha_vencimiento: ""
     });
@@ -171,7 +201,7 @@ function TareasContent() {
             const data: any = { ...form, proyecto_id: form.proyecto_id || null, estado: "pendiente" as EstadoTarea };
             if (!data.fecha_vencimiento) delete data.fecha_vencimiento;
             await tareasStore.create(data);
-            setForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "otro", proyecto_id: "", fecha_vencimiento: "" });
+            setForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "otro", bloque: undefined, proyecto_id: "", fecha_vencimiento: "" });
             setShowNew(false);
             await reload();
             toast.success("Tarea creada");
@@ -197,6 +227,24 @@ function TareasContent() {
             toast.success("Tarea eliminada");
         } catch {
             toast.error("Error al eliminar tarea");
+        }
+    };
+
+    const limpiarCompletadas = async () => {
+        const completadasIds = tareas.filter(t => t.estado === "completada").map(t => t.id);
+        if (completadasIds.length === 0) {
+            toast.error("No hay tareas completadas para limpiar");
+            return;
+        }
+
+        if (!confirm(`¿Estás seguro de que quieres borrar ${completadasIds.length} tareas completadas?`)) return;
+
+        try {
+            await Promise.all(completadasIds.map(id => tareasStore.delete(id)));
+            await reload();
+            toast.success("Tareas completadas eliminadas");
+        } catch {
+            toast.error("Error al limpiar tareas");
         }
     };
 
@@ -278,10 +326,15 @@ function TareasContent() {
                         </span>
                     )}
                     <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", PRIORIDAD_COLORS[t.prioridad])}>{t.prioridad}</span>
+                    {t.bloque && (
+                        <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium uppercase", BLOQUE_COLORS[t.bloque])}>
+                            {t.bloque}
+                        </span>
+                    )}
                     <span className="text-[10px] text-muted-foreground uppercase hidden md:block">{t.categoria}</span>
                     <button
                         onClick={(e) => { e.stopPropagation(); deleteTarea(t.id); }}
-                        className="opacity-0 group-hover:opacity-100 p-1 rounded hover:bg-destructive/20 transition-all"
+                        className="p-1 rounded opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-destructive/20 transition-all"
                     >
                         <Trash2 className="w-3.5 h-3.5 text-destructive" />
                     </button>
@@ -299,9 +352,14 @@ function TareasContent() {
                         {tareas.filter((t) => t.estado !== "completada").length} pendientes de {tareas.length}
                     </p>
                 </div>
-                <button onClick={() => setShowNew(!showNew)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90">
-                    <Plus className="w-4 h-4" /> Nueva Tarea
-                </button>
+                <div className="flex gap-2">
+                    <button onClick={limpiarCompletadas} className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-lg border border-red-500/30 text-red-400 text-sm font-medium hover:bg-red-500/10 transition-colors active:scale-95 transition-all">
+                        <Trash2 className="w-4 h-4" /> Limpiar
+                    </button>
+                    <button onClick={() => setShowNew(!showNew)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 active:scale-95 transition-all">
+                        <Plus className="w-4 h-4" /> Nueva Tarea
+                    </button>
+                </div>
             </div>
 
             {/* Filters */}
@@ -327,101 +385,133 @@ function TareasContent() {
             </div>
 
             {/* New Task Form */}
-            {showNew && (
-                <div className="p-4 rounded-xl bg-card border border-primary/30 space-y-3 animate-fade-in">
-                    <input
-                        value={form.titulo}
-                        onChange={(e) => setForm({ ...form, titulo: e.target.value })}
-                        placeholder="Título de la tarea..."
-                        className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                        onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-                    />
-                    <textarea
-                        value={form.descripcion}
-                        onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
-                        placeholder="Descripción o notas (opcional)..."
-                        rows={2}
-                        className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-                    />
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                        <select value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value as Prioridad })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground">
-                            <option value="baja">Baja</option>
-                            <option value="media">Media</option>
-                            <option value="alta">Alta</option>
-                        </select>
-                        <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value as CategoriaTarea })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground">
-                            <option value="diseno">Diseño</option>
-                            <option value="dev">Desarrollo</option>
-                            <option value="seo">SEO</option>
-                            <option value="otro">Otro</option>
-                        </select>
-                        <select value={form.proyecto_id} onChange={(e) => setForm({ ...form, proyecto_id: e.target.value })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground">
-                            <option value="">Sin proyecto</option>
-                            {proyectos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                        </select>
-                        <input type="date" value={form.fecha_vencimiento} onChange={(e) => setForm({ ...form, fecha_vencimiento: e.target.value })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground focus:outline-none" />
+            {
+                showNew && (
+                    <div className="p-4 rounded-xl bg-card border border-primary/30 space-y-3 animate-fade-in">
+                        <input
+                            value={form.titulo}
+                            onChange={(e) => setForm({ ...form, titulo: e.target.value })}
+                            placeholder="Título de la tarea..."
+                            className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+                        />
+                        <textarea
+                            value={form.descripcion}
+                            onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
+                            placeholder="Descripción o notas (opcional)..."
+                            rows={2}
+                            className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
+                        />
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                            <select value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value as Prioridad })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground">
+                                <option value="baja">Baja</option>
+                                <option value="media">Media</option>
+                                <option value="alta">Alta</option>
+                            </select>
+                            <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value as CategoriaTarea })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground">
+                                <option value="diseno">Diseño</option>
+                                <option value="dev">Desarrollo</option>
+                                <option value="seo">SEO</option>
+                                <option value="otro">Otro</option>
+                            </select>
+                            <select value={form.proyecto_id} onChange={(e) => setForm({ ...form, proyecto_id: e.target.value })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground">
+                                <option value="">Sin proyecto</option>
+                                {proyectos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                            </select>
+                            <input type="date" value={form.fecha_vencimiento} onChange={(e) => setForm({ ...form, fecha_vencimiento: e.target.value })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground focus:outline-none" />
+                        </div>
+                        {/* New Task Bloque Selection */}
+                        <div className="flex gap-3">
+                            <div className="flex-1 space-y-1.5">
+                                <label className="text-[10px] font-semibold text-muted-foreground uppercase px-1">Bloque</label>
+                                <div className="flex gap-2">
+                                    {(["construccion", "crecimiento"] as BloqueTarea[]).map((b) => (
+                                        <button
+                                            key={b}
+                                            onClick={() => setForm({ ...form, bloque: form.bloque === b ? undefined : b })}
+                                            className={cn(
+                                                "flex-1 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all",
+                                                form.bloque === b
+                                                    ? BLOQUE_COLORS[b]
+                                                    : "bg-secondary/50 border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                            )}
+                                        >
+                                            {b}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2">
+                            <button onClick={() => setShowNew(false)} className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary">Cancelar</button>
+                            <button onClick={handleCreate} className="px-3 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground hover:opacity-90">Guardar</button>
+                        </div>
                     </div>
-                    <div className="flex justify-end gap-2">
-                        <button onClick={() => setShowNew(false)} className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary">Cancelar</button>
-                        <button onClick={handleCreate} className="px-3 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground hover:opacity-90">Guardar</button>
-                    </div>
-                </div>
-            )}
+                )
+            }
 
             {/* Task Groups */}
-            {enProgreso.length > 0 && (
-                <div>
-                    <h3 className="text-sm font-semibold text-blue-400 mb-2 flex items-center gap-2"><Clock className="w-4 h-4" /> En Progreso ({enProgreso.length})</h3>
-                    <div className="space-y-1.5">{enProgreso.map(renderTarea)}</div>
-                </div>
-            )}
-            {pendientes.length > 0 && (
-                <div>
-                    <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2"><Circle className="w-4 h-4" /> Pendientes ({pendientes.length})</h3>
-                    <div className="space-y-1.5">{pendientes.map(renderTarea)}</div>
-                </div>
-            )}
-            {completadas.length > 0 && (
-                <div>
-                    <div className="flex items-center justify-between mb-2">
-                        <h3 className="text-sm font-semibold text-emerald-400 flex items-center gap-2">
-                            <CheckCircle2 className="w-4 h-4" /> Completadas ({completadas.length})
-                        </h3>
-                        {completadas.length > 3 && (
-                            <button onClick={() => setShowHistory(!showHistory)} className="text-xs text-muted-foreground hover:text-foreground underline">
-                                {showHistory ? "Ocultar historial" : `Ver historial (${completadas.length - 3} más)`}
-                            </button>
-                        )}
+            {
+                enProgreso.length > 0 && (
+                    <div>
+                        <h3 className="text-sm font-semibold text-blue-400 mb-2 flex items-center gap-2"><Clock className="w-4 h-4" /> En Progreso ({enProgreso.length})</h3>
+                        <div className="space-y-1.5">{enProgreso.map(renderTarea)}</div>
                     </div>
-                    <div className="space-y-1.5">
-                        {(showHistory ? completadas : completadas.slice(0, 3)).map(renderTarea)}
+                )
+            }
+            {
+                pendientes.length > 0 && (
+                    <div>
+                        <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2"><Circle className="w-4 h-4" /> Pendientes ({pendientes.length})</h3>
+                        <div className="space-y-1.5">{pendientes.map(renderTarea)}</div>
                     </div>
-                </div>
-            )}
+                )
+            }
+            {
+                completadas.length > 0 && (
+                    <div>
+                        <div className="flex items-center justify-between mb-2">
+                            <h3 className="text-sm font-semibold text-emerald-400 flex items-center gap-2">
+                                <CheckCircle2 className="w-4 h-4" /> Completadas ({completadas.length})
+                            </h3>
+                            {completadas.length > 3 && (
+                                <button onClick={() => setShowHistory(!showHistory)} className="text-xs text-muted-foreground hover:text-foreground underline">
+                                    {showHistory ? "Ocultar historial" : `Ver historial (${completadas.length - 3} más)`}
+                                </button>
+                            )}
+                        </div>
+                        <div className="space-y-1.5">
+                            {(showHistory ? completadas : completadas.slice(0, 3)).map(renderTarea)}
+                        </div>
+                    </div>
+                )
+            }
 
             {/* Empty state */}
-            {filtered.length === 0 && (
-                <div className="py-16 text-center text-muted-foreground">
-                    <CheckSquare className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                    <p className="text-sm">No hay tareas que mostrar</p>
-                    <p className="text-xs mt-1 opacity-60">Creá una nueva tarea para empezar</p>
-                </div>
-            )}
+            {
+                filtered.length === 0 && (
+                    <div className="py-16 text-center text-muted-foreground">
+                        <CheckSquare className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                        <p className="text-sm">No hay tareas que mostrar</p>
+                        <p className="text-xs mt-1 opacity-60">Creá una nueva tarea para empezar</p>
+                    </div>
+                )
+            }
 
             {/* Detail Modal */}
-            {detailTarea && (
-                <TareaDetailModal
-                    tarea={detailTarea}
-                    proyectos={proyectos}
-                    onClose={() => setDetailTarea(null)}
-                    onUpdated={reload}
-                />
-            )}
-        </div>
+            {
+                detailTarea && (
+                    <TareaDetailModal
+                        tarea={detailTarea}
+                        proyectos={proyectos}
+                        onClose={() => setDetailTarea(null)}
+                        onUpdated={reload}
+                    />
+                )
+            }
+        </div >
     );
 }
-
-import { CheckSquare } from "lucide-react";
 
 export default function TareasPage() {
     return (

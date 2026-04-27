@@ -32,9 +32,10 @@ export default function Header() {
                 <div className="flex items-center gap-3">
                     <button
                         onClick={() => setMobileMenuOpen(true)}
-                        className="lg:hidden p-2 rounded-lg hover:bg-secondary text-muted-foreground transition-colors"
+                        className="lg:hidden p-3 -ml-2 rounded-xl hover:bg-secondary text-muted-foreground transition-colors active:scale-95"
+                        aria-label="Abrir menú"
                     >
-                        <Menu className="w-5 h-5" />
+                        <Menu className="w-6 h-6" />
                     </button>
                     <h2 className="text-lg lg:text-xl font-bold text-foreground">{title}</h2>
                 </div>
