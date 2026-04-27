@@ -162,6 +162,7 @@ function TareasContent() {
     const [filterPrioridad, setFilterPrioridad] = useState<string>("todas");
     const [filterProyecto, setFilterProyecto] = useState<string>("todos");
     const [filterEstado, setFilterEstado] = useState<string>("todos");
+    const [filterBloque, setFilterBloque] = useState<BloqueTarea | "todos">("todos");
     const [showHistory, setShowHistory] = useState(false);
     const [detailTarea, setDetailTarea] = useState<Tarea | null>(null);
 
@@ -255,6 +256,7 @@ function TareasContent() {
         else filtered = filtered.filter((t) => t.proyecto_id === filterProyecto);
     }
     if (filterEstado !== "todos") filtered = filtered.filter((t) => t.estado === filterEstado);
+    if (filterBloque !== "todos") filtered = filtered.filter((t) => t.bloque === filterBloque);
 
     const pendientes = filtered.filter((t) => t.estado === "pendiente");
     const enProgreso = filtered.filter((t) => t.estado === "en_progreso");
@@ -382,6 +384,23 @@ function TareasContent() {
                     <option value="en_progreso">En Progreso</option>
                     <option value="completada">Completada</option>
                 </select>
+
+                <div className="flex gap-2 ml-auto sm:ml-0">
+                    {(["construccion", "crecimiento"] as BloqueTarea[]).map((b) => (
+                        <button
+                            key={b}
+                            onClick={() => setFilterBloque(filterBloque === b ? "todos" : b)}
+                            className={cn(
+                                "h-8 px-3 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all",
+                                filterBloque === b
+                                    ? BLOQUE_COLORS[b]
+                                    : "bg-secondary/50 border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
+                            )}
+                        >
+                            {b}
+                        </button>
+                    ))}
+                </div>
             </div>
 
             {/* New Task Form */}
