@@ -5,7 +5,7 @@ import { useSearchParams } from "next/navigation";
 import {
     ExternalLink, Eye, X, CheckCircle2, Circle, Plus, Copy,
     Layers, ScrollText, Zap, Globe, Users, Tag,
-    ChevronRight, Trash2, CalendarDays, Clock, CheckSquare
+    ChevronRight, Trash2, CalendarDays, Clock, CheckSquare, FileText
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { proyectosStore, tareasStore, clientesStore, logsProyectoStore } from "@/lib/store";
@@ -160,6 +160,16 @@ function ProyectoDetailModal({
             reload();
         } catch { toast.error("Error al crear tarea"); }
         finally { setSavingTarea(false); }
+    };
+
+    const handleSaveContrato = async (url: string) => {
+        try {
+            await proyectosStore.update(proyecto.id, { contrato_url: url });
+            toast.success("Contrato guardado");
+            reload();
+        } catch {
+            toast.error("Error al guardar contrato");
+        }
     };
 
     const handleAddAcceso = async () => {
@@ -323,6 +333,31 @@ function ProyectoDetailModal({
                                     </div>
                                 </div>
                             )}
+
+                            {/* Contrato */}
+                            <div className="p-4 rounded-xl border border-border bg-secondary/30">
+                                <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2"><FileText className="w-4 h-4 text-primary" /> Contrato de Servicios</h4>
+                                {proyecto.contrato_url ? (
+                                    <div className="flex items-center gap-2">
+                                        <a href={proyecto.contrato_url} target="_blank" rel="noopener" className="flex-1 flex justify-center items-center gap-2 px-3 py-2 rounded-lg bg-background border border-border text-xs text-primary font-medium hover:border-primary/50 transition-colors">
+                                            <ExternalLink className="w-4 h-4" /> Ver Contrato Actual
+                                        </a>
+                                        <button onClick={() => {
+                                            const url = prompt("Nueva URL del contrato (PDF/Drive):", proyecto.contrato_url);
+                                            if (url !== null && url !== "") handleSaveContrato(url);
+                                        }} className="px-4 py-2 rounded-lg bg-secondary border border-border text-xs hover:bg-secondary/80 font-semibold transition-colors">
+                                            Cambiar
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button onClick={() => {
+                                        const url = prompt("URL del contrato (Google Drive, PDF, etc):");
+                                        if (url) handleSaveContrato(url);
+                                    }} className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-dashed border-primary/40 text-xs font-semibold text-primary hover:bg-primary/5 transition-colors">
+                                        <Plus className="w-4 h-4" /> Adjuntar Contrato
+                                    </button>
+                                )}
+                            </div>
 
                             {/* Descripción */}
                             <div>

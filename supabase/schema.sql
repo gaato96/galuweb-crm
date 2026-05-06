@@ -41,6 +41,7 @@ CREATE TABLE proyectos (
   figma_url TEXT NOT NULL DEFAULT '',
   calendly_url TEXT NOT NULL DEFAULT '',
   slug_portal TEXT NOT NULL UNIQUE,
+  contrato_url TEXT NOT NULL DEFAULT '',
   estado estado_proyecto NOT NULL DEFAULT 'activo',
   descripcion TEXT NOT NULL DEFAULT '',
   fecha_entrega DATE,

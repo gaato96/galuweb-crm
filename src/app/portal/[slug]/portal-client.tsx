@@ -3,15 +3,14 @@
 import { useEffect, useState } from "react";
 import { CheckCircle2, Circle, Clock, ExternalLink, MessageCircle, Calendar, FileText, Zap, LifeBuoy, Check, XCircle, X as XIcon } from "lucide-react";
 import { cn, formatCurrency } from "@/lib/utils";
-import { proyectosStore, tareasStore, clientesStore, cotizacionesStore, ticketsStore } from "@/lib/store";
+import { proyectosStore, tareasStore, clientesStore, ticketsStore } from "@/lib/store";
 import { toast } from "sonner";
-import type { Proyecto, Tarea, Cliente, Cotizacion } from "@/lib/types";
+import type { Proyecto, Tarea, Cliente } from "@/lib/types";
 
 export default function PortalClient({ slug }: { slug: string }) {
     const [proyecto, setProyecto] = useState<Proyecto | null>(null);
     const [tareas, setTareas] = useState<Tarea[]>([]);
     const [cliente, setCliente] = useState<Cliente | null>(null);
-    const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
     const [mounted, setMounted] = useState(false);
     const [notFound, setNotFound] = useState(false);
     const [showTicketModal, setShowTicketModal] = useState(false);
@@ -37,11 +36,6 @@ export default function PortalClient({ slug }: { slug: string }) {
 
                 setTareas(pts);
                 setCliente(foundCliente || null);
-
-                if (foundCliente) {
-                    const quotes = await cotizacionesStore.getByCliente(foundCliente.id);
-                    setCotizaciones(quotes);
-                }
             } catch (error) {
                 console.error("Error loading portal data:", error);
             } finally {
@@ -269,17 +263,18 @@ export default function PortalClient({ slug }: { slug: string }) {
                         </a>
                     )}
 
-                    {/* Cotización */}
-                    {cotizaciones.length > 0 && (
-                        <div className="flex items-center gap-4 p-5 rounded-2xl border border-border bg-card">
+                    {/* Contrato */}
+                    {proyecto.contrato_url && (
+                        <a href={proyecto.contrato_url} target="_blank" rel="noopener"
+                            className="flex items-center gap-4 p-5 rounded-2xl border border-border bg-card card-hover group">
                             <div className="w-12 h-12 rounded-xl bg-amber-500/20 flex items-center justify-center">
                                 <FileText className="w-5 h-5 text-amber-400" />
                             </div>
                             <div>
-                                <h3 className="text-sm font-semibold text-foreground">Cotización</h3>
-                                <p className="text-xs text-muted-foreground">{formatCurrency(cotizaciones[0].total)} · {cotizaciones[0].items.length} ítems</p>
+                                <h3 className="text-sm font-semibold text-foreground group-hover:text-amber-400 transition-colors">Contrato de Servicios</h3>
+                                <p className="text-xs text-muted-foreground">Ver documento firmado</p>
                             </div>
-                        </div>
+                        </a>
                     )}
 
                     {/* Technical Support */}
@@ -294,24 +289,7 @@ export default function PortalClient({ slug }: { slug: string }) {
                     </button>
                 </div>
 
-                {/* Cotización Detail */}
-                {cotizaciones.length > 0 && (
-                    <div className="rounded-2xl border border-border bg-card p-6">
-                        <h2 className="text-lg font-semibold text-foreground mb-4">Detalle de Cotización</h2>
-                        <div className="space-y-2 mb-4">
-                            {cotizaciones[0].items.map((item, i) => (
-                                <div key={i} className="flex justify-between p-3 rounded-lg bg-secondary/50 border border-border">
-                                    <span className="text-sm text-foreground">{item.descripcion}</span>
-                                    <span className="text-sm font-semibold text-foreground">{formatCurrency(item.precio)}</span>
-                                </div>
-                            ))}
-                        </div>
-                        <div className="flex justify-between p-3 rounded-lg bg-primary/5 border border-primary/20">
-                            <span className="text-sm font-semibold text-foreground">Total</span>
-                            <span className="text-lg font-bold text-primary">{formatCurrency(cotizaciones[0].total)}</span>
-                        </div>
-                    </div>
-                )}
+
 
                 {/* Tickets Modal */}
                 {showTicketModal && (

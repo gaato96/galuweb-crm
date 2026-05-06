@@ -164,6 +164,7 @@ export interface Proyecto {
     figma_url: string;
     calendly_url: string;
     slug_portal: string;
+    contrato_url?: string;
     estado: EstadoProyecto;
     descripcion: string;
     fecha_entrega?: string;
