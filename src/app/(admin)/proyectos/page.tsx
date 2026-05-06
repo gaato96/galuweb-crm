@@ -5,13 +5,13 @@ import { useSearchParams } from "next/navigation";
 import {
     ExternalLink, Eye, X, CheckCircle2, Circle, Plus, Copy,
     Layers, ScrollText, Zap, Globe, Users, Tag,
-    ChevronRight, Trash2, CalendarDays, Clock
+    ChevronRight, Trash2, CalendarDays, Clock, CheckSquare
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { proyectosStore, tareasStore, clientesStore, logsProyectoStore } from "@/lib/store";
 import { toast } from "sonner";
 import type { Proyecto, Tarea, Cliente, FaseProyecto, LogProyecto } from "@/lib/types";
-import { FASES_POR_TIPO, TIPO_PROYECTO_LABELS } from "@/lib/types";
+import { FASES_POR_TIPO, TIPO_PROYECTO_LABELS, ESTADO_TAREA_COLORS, PRIORIDAD_COLORS } from "@/lib/types";
 import Link from "next/link";
 
 // ── Utilities ────────────────────────────────────────────────────────────────
@@ -21,7 +21,7 @@ const ESTADO_BADGE: Record<string, string> = {
     finalizado: "bg-slate-500/20 text-slate-400 border-slate-500/30",
 };
 
-type ModalTab = "general" | "fases" | "novedades" | "saas";
+type ModalTab = "general" | "fases" | "novedades" | "saas" | "tareas";
 
 // ── Project Card ─────────────────────────────────────────────────────────────
 function ProyectoCard({
@@ -87,6 +87,12 @@ function ProyectoDetailModal({
     const [showNewLog, setShowNewLog] = useState(false);
     const [logForm, setLogForm] = useState({ titulo: "", descripcion: "", fecha: new Date().toISOString().slice(0, 10) });
     const [savingLog, setSavingLog] = useState(false);
+    // Tareas form
+    const [showNewTarea, setShowNewTarea] = useState(false);
+    const [tareaForm, setTareaForm] = useState<Partial<Tarea>>({
+        titulo: "", descripcion: "", prioridad: "media", categoria: "dev"
+    });
+    const [savingTarea, setSavingTarea] = useState(false);
     // SaaS fields
     const [saasForm, setSaasForm] = useState({
         saas_url: "", version: "", usuarios_activos: 0,
@@ -180,6 +186,28 @@ function ProyectoDetailModal({
         } catch { toast.error("Error al eliminar"); }
     };
 
+    const handleAddTarea = async () => {
+        if (!tareaForm.titulo?.trim()) { toast.error("El título es requerido"); return; }
+        setSavingTarea(true);
+        try {
+            await tareasStore.create({
+                proyecto_id: proyecto.id,
+                titulo: tareaForm.titulo,
+                descripcion: tareaForm.descripcion || "",
+                prioridad: tareaForm.prioridad as any,
+                estado: "pendiente",
+                categoria: tareaForm.categoria as any,
+            });
+            const updated = await tareasStore.getByProyecto(proyecto.id);
+            setTareas(updated);
+            setTareaForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "dev" });
+            setShowNewTarea(false);
+            toast.success("Tarea creada");
+            reload();
+        } catch { toast.error("Error al crear tarea"); }
+        finally { setSavingTarea(false); }
+    };
+
     const handleSaveSaas = async () => {
         setSavingSaas(true);
         try {
@@ -197,6 +225,7 @@ function ProyectoDetailModal({
     const TABS: { id: ModalTab; label: string; icon: any }[] = [
         { id: "general", label: "General", icon: Globe },
         { id: "fases", label: "Fases", icon: Layers },
+        { id: "tareas", label: "Tareas", icon: CheckSquare },
         { id: "novedades", label: "Novedades", icon: ScrollText },
         ...(proyecto.es_interno ? [{ id: "saas" as ModalTab, label: "SaaS", icon: Zap }] : []),
     ];
@@ -448,6 +477,101 @@ function ProyectoDetailModal({
                                         </div>
                                         <h4 className="text-sm font-semibold text-foreground mb-1">{log.titulo}</h4>
                                         {log.descripcion && <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{log.descripcion}</p>}
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── TAB: TAREAS ────────────────────────────────── */}
+                    {activeTab === "tareas" && (
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <p className="text-xs text-muted-foreground">Listado de tareas de este proyecto</p>
+                                <button
+                                    onClick={() => setShowNewTarea(!showNewTarea)}
+                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-all"
+                                >
+                                    <Plus className="w-3.5 h-3.5" /> Nueva tarea
+                                </button>
+                            </div>
+
+                            {/* New tarea form */}
+                            {showNewTarea && (
+                                <div className="p-4 rounded-xl border border-primary/30 bg-primary/5 space-y-3 animate-fade-in">
+                                    <input
+                                        value={tareaForm.titulo}
+                                        onChange={(e) => setTareaForm({ ...tareaForm, titulo: e.target.value })}
+                                        placeholder="Título de la tarea..."
+                                        className="w-full h-9 px-3 rounded-lg bg-background border border-border text-sm text-foreground focus:outline-none"
+                                    />
+                                    <textarea
+                                        value={tareaForm.descripcion}
+                                        onChange={(e) => setTareaForm({ ...tareaForm, descripcion: e.target.value })}
+                                        placeholder="Descripción o detalles..."
+                                        rows={3}
+                                        className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm text-foreground focus:outline-none resize-none"
+                                    />
+                                    <div className="flex gap-2">
+                                        <select
+                                            value={tareaForm.prioridad}
+                                            onChange={e => setTareaForm({ ...tareaForm, prioridad: e.target.value as any })}
+                                            className="h-8 px-2 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none flex-1 font-medium capitalize"
+                                        >
+                                            <option value="baja">Prioridad Baja</option>
+                                            <option value="media">Prioridad Media</option>
+                                            <option value="alta">Prioridad Alta</option>
+                                        </select>
+                                        <select
+                                            value={tareaForm.categoria}
+                                            onChange={e => setTareaForm({ ...tareaForm, categoria: e.target.value as any })}
+                                            className="h-8 px-2 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none flex-1 font-medium capitalize"
+                                        >
+                                            <option value="diseno">Diseño</option>
+                                            <option value="dev">Desarrollo</option>
+                                            <option value="seo">SEO</option>
+                                            <option value="otro">Otro</option>
+                                        </select>
+                                    </div>
+                                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-primary/10">
+                                        <button onClick={() => setShowNewTarea(false)} className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary">Cancelar</button>
+                                        <button onClick={handleAddTarea} disabled={savingTarea} className="px-3 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground font-semibold hover:opacity-90 disabled:opacity-50">
+                                            {savingTarea ? "Guardando..." : "Guardar"}
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Tareas list */}
+                            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
+                                {tareas.length === 0 && !showNewTarea && (
+                                    <div className="py-10 text-center text-muted-foreground">
+                                        <CheckSquare className="w-8 h-8 mx-auto mb-2 opacity-20" />
+                                        <p className="text-sm">Sin tareas registradas</p>
+                                        <p className="text-xs opacity-60">Lista de tareas específicas del proyecto</p>
+                                    </div>
+                                )}
+                                {tareas.map((tarea) => (
+                                    <div key={tarea.id} className="p-3.5 rounded-xl border border-border bg-secondary/30 flex items-start gap-3 transition-colors hover:border-border/80">
+                                        <div className={cn("w-5 h-5 mt-0.5 rounded flex items-center justify-center shrink-0 border",
+                                            tarea.estado === "completada" ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : "bg-background border-border"
+                                        )}>
+                                            {tarea.estado === "completada" && <CheckSquare className="w-3.5 h-3.5" />}
+                                        </div>
+                                        <div className="flex-1 min-w-0">
+                                            <h4 className={cn("text-sm font-semibold truncate transition-colors", tarea.estado === "completada" ? "text-foreground/40 line-through" : "text-foreground")}>
+                                                {tarea.titulo}
+                                            </h4>
+                                            {tarea.descripcion && (
+                                                <p className={cn("text-xs line-clamp-2 mt-1", tarea.estado === "completada" ? "text-muted-foreground/50" : "text-muted-foreground")}>{tarea.descripcion}</p>
+                                            )}
+                                            <div className={cn("flex items-center gap-2 mt-2", tarea.estado === "completada" && "opacity-50")}>
+                                                <span className={cn("text-[10px] px-1.5 py-0.5 rounded border uppercase font-bold", PRIORIDAD_COLORS[tarea.prioridad] || "bg-secondary text-muted-foreground")}>
+                                                    {tarea.prioridad}
+                                                </span>
+                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground uppercase">{tarea.categoria}</span>
+                                            </div>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
