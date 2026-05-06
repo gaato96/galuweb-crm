@@ -125,7 +125,7 @@ function ProyectoDetailModal({
     // Derive fases (init default if empty)
     const currentFases: FaseProyecto[] = proyecto.fases && proyecto.fases.length > 0
         ? proyecto.fases
-        : FASES_POR_TIPO[proyecto.tipo_proyecto].map((n) => ({ nombre: n, completada: false }));
+        : FASES_POR_TIPO[proyecto.tipo_proyecto].map((c) => ({ nombre: c.nombre, completada: false }));
     const completedFases = currentFases.filter((f) => f.completada).length;
     const fasesProgress = currentFases.length > 0 ? Math.round((completedFases / currentFases.length) * 100) : 0;
 
