@@ -143,6 +143,25 @@ function ProyectoDetailModal({
         }
     };
 
+    const addRecommendedTask = async (t: { titulo: string; categoria: string; prioridad: string; descripcion?: string }) => {
+        setSavingTarea(true);
+        try {
+            await tareasStore.create({
+                proyecto_id: proyecto.id,
+                titulo: t.titulo,
+                descripcion: t.descripcion || "",
+                prioridad: t.prioridad as any,
+                estado: "pendiente",
+                categoria: t.categoria as any,
+            });
+            const updated = await tareasStore.getByProyecto(proyecto.id);
+            setTareas(updated);
+            toast.success("Tarea recomendada agregada");
+            reload();
+        } catch { toast.error("Error al crear tarea"); }
+        finally { setSavingTarea(false); }
+    };
+
     const handleAddAcceso = async () => {
         if (!newAcceso.servicio || !newAcceso.usuario) return;
         const updated = [...(proyecto.accesos || []), newAcceso];
@@ -375,33 +394,64 @@ function ProyectoDetailModal({
                             </div>
 
                             {/* Fase checklist */}
-                            <div className="space-y-2">
-                                {currentFases.map((fase, i) => (
-                                    <button
-                                        key={i}
-                                        onClick={() => !savingFase && toggleFase(i)}
-                                        disabled={savingFase}
-                                        className={cn(
-                                            "w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left group",
-                                            fase.completada
-                                                ? "bg-emerald-500/8 border-emerald-500/25 hover:border-emerald-500/40"
-                                                : "bg-secondary/30 border-border hover:border-primary/40"
-                                        )}
-                                    >
-                                        <div className={cn("w-6 h-6 rounded-full flex items-center justify-center shrink-0 transition-all",
-                                            fase.completada ? "bg-emerald-500/20 text-emerald-400" : "bg-secondary text-muted-foreground"
-                                        )}>
-                                            {fase.completada
-                                                ? <CheckCircle2 className="w-4 h-4" />
-                                                : <span className="text-[10px] font-bold">{i + 1}</span>
-                                            }
+                            <div className="space-y-3">
+                                {currentFases.map((fase, i) => {
+                                    const configFase = FASES_POR_TIPO[proyecto.tipo_proyecto]?.find((c) => c.nombre === fase.nombre);
+
+                                    return (
+                                        <div key={i} className={cn("flex flex-col gap-2 p-3.5 rounded-xl border transition-all", fase.completada ? "bg-emerald-500/5 border-emerald-500/20" : "bg-card border-border hover:border-primary/40")}>
+                                            <div className="flex items-start gap-3">
+                                                <button
+                                                    onClick={() => !savingFase && toggleFase(i)}
+                                                    disabled={savingFase}
+                                                    className={cn("mt-0.5 w-6 h-6 rounded flex items-center justify-center shrink-0 transition-all border", fase.completada ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : "bg-secondary text-muted-foreground border-border")}
+                                                >
+                                                    {fase.completada
+                                                        ? <CheckCircle2 className="w-4 h-4" />
+                                                        : <span className="text-[10px] font-bold">{i + 1}</span>
+                                                    }
+                                                </button>
+                                                <div className="flex-1">
+                                                    <button onClick={() => !savingFase && toggleFase(i)} className={cn("text-sm font-semibold text-left transition-colors", fase.completada ? "text-emerald-400/80 line-through" : "text-foreground")}>
+                                                        {fase.nombre}
+                                                    </button>
+                                                    {configFase?.descripcion && (
+                                                        <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{configFase.descripcion}</p>
+                                                    )}
+
+                                                    {!fase.completada && configFase?.tareas && configFase.tareas.length > 0 && (
+                                                        <div className="mt-4 bg-secondary/30 rounded-lg border border-border/50 p-2.5">
+                                                            <p className="text-[10px] uppercase font-bold text-muted-foreground mb-2.5 flex items-center gap-1.5"><CheckSquare className="w-3 h-3 text-primary" /> Tareas Sugeridas</p>
+                                                            <div className="space-y-2">
+                                                                {configFase.tareas.map((t, idx) => {
+                                                                    const isAdded = tareas.some(tarea => tarea.titulo === t.titulo);
+                                                                    return (
+                                                                        <div key={idx} className="flex flex-col xl:flex-row xl:items-center justify-between p-2 rounded-md bg-background border border-border/50 text-xs gap-2">
+                                                                            <span className="truncate flex-1 font-medium">{t.titulo}</span>
+                                                                            <div className="flex items-center justify-between xl:justify-end gap-2">
+                                                                                <span className="text-[9px] px-1.5 py-0.5 rounded border border-border bg-secondary uppercase text-muted-foreground font-bold">{t.categoria}</span>
+                                                                                {isAdded ? (
+                                                                                    <span className="text-[9px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Agregada</span>
+                                                                                ) : (
+                                                                                    <button
+                                                                                        onClick={() => addRecommendedTask(t)}
+                                                                                        className="text-[10px] font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-colors px-2 py-1 rounded"
+                                                                                    >
+                                                                                        + Agregar
+                                                                                    </button>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
+                                                                    )
+                                                                })}
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
                                         </div>
-                                        <span className={cn("text-sm flex-1", fase.completada ? "text-emerald-400 line-through opacity-80" : "text-foreground")}>
-                                            {fase.nombre}
-                                        </span>
-                                        {!fase.completada && <ChevronRight className="w-4 h-4 text-muted-foreground/40 group-hover:text-muted-foreground transition-colors" />}
-                                    </button>
-                                ))}
+                                    )
+                                })}
                             </div>
                         </div>
                     )}
@@ -679,7 +729,7 @@ function NuevoProyectoModal({
         e.preventDefault();
         setSubmitting(true);
         try {
-            const fasesIniciales = FASES_POR_TIPO[form.tipo_proyecto].map((n) => ({ nombre: n, completada: false }));
+            const fasesIniciales = FASES_POR_TIPO[form.tipo_proyecto].map((c) => ({ nombre: c.nombre, completada: false }));
             const data: any = {
                 nombre: form.nombre,
                 tipo_proyecto: form.tipo_proyecto,
@@ -777,8 +827,8 @@ function NuevoProyectoModal({
                         </p>
                         <div className="flex flex-wrap gap-1.5">
                             {previewFases.map((f, i) => (
-                                <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary border border-border text-muted-foreground">
-                                    {i + 1}. {f}
+                                <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary border border-border text-foreground font-medium">
+                                    {i + 1}. {f.nombre}
                                 </span>
                             ))}
                         </div>

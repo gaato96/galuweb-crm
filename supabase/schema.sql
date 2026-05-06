@@ -7,7 +7,7 @@ CREATE TYPE etapa_cliente AS ENUM (
   'contacto', 'investigando', 'calificado', 
   'contactado', 'cotizado', 'cliente_actual', 'cliente_finalizado'
 );
-CREATE TYPE tipo_proyecto AS ENUM ('landing', 'institucional', 'ecommerce');
+CREATE TYPE tipo_proyecto AS ENUM ('landing', 'institucional', 'ecommerce', 'webapp', 'saas');
 CREATE TYPE estado_proyecto AS ENUM ('activo', 'pausado', 'finalizado');
 CREATE TYPE prioridad AS ENUM ('baja', 'media', 'alta');
 CREATE TYPE estado_tarea AS ENUM ('pendiente', 'en_progreso', 'completada');
