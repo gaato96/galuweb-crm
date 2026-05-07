@@ -254,11 +254,14 @@ function ClienteDetailModal({
 
     if (!open || !cliente) return null;
 
-    const generateWAMessage = () => {
-        const msg = `Hola ${cliente.nombre}! 👋\n\nEstuve investigando sobre ${cliente.negocio} y me pareció muy interesante lo que hacen: ${inv.que_hace}.\n\nCreo que podrían mejorar en: ${inv.puntos_debiles}.\n\nTengo algunas ideas que podrían ayudarles: ${inv.soluciones}.\n\n¿Te gustaría que agendemos una reunión para conversarlo?`;
+    const generateClientSummary = () => {
+        const msg = `RESUMEN DE CLIENTE: ${cliente.nombre} (${cliente.negocio})\n\n` +
+                    `A QUÉ SE DEDICA:\n${inv.que_hace}\n\n` +
+                    `PUNTOS DÉBILES:\n${inv.puntos_debiles}\n\n` +
+                    `IDEAS DE SOLUCIÓN:\n${inv.soluciones}`;
         setWaMsg(msg);
         onUpdate(cliente.id, { msg_whatsapp: msg });
-        toast.success("Mensaje WA generado");
+        toast.success("Resumen generado");
     };
 
     const saveInvestigation = () => {
@@ -352,19 +355,30 @@ function ClienteDetailModal({
                                 <button onClick={saveInvestigation} className="px-3 py-2 rounded-lg text-xs bg-secondary border border-border text-foreground hover:bg-accent transition-colors">
                                     Guardar Investigación
                                 </button>
-                                <button onClick={generateWAMessage} className="px-3 py-2 rounded-lg text-xs bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-1.5">
-                                    <MessageCircle className="w-3.5 h-3.5" /> Generar Mensaje WA
+                                <button onClick={generateClientSummary} className="px-3 py-2 rounded-lg text-xs bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-1.5">
+                                    <FileText className="w-3.5 h-3.5" /> Generar Resumen
                                 </button>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {/* WA Message Preview */}
+                {/* Resumen Preview */}
                 {waMsg && (
-                    <div className="mb-5 p-3 rounded-lg bg-emerald-500/5 border border-emerald-500/20">
-                        <p className="text-xs text-emerald-400 font-medium mb-1">Mensaje WhatsApp</p>
-                        <pre className="text-sm text-foreground whitespace-pre-wrap font-sans">{waMsg}</pre>
+                    <div className="mb-5 p-3 rounded-lg bg-primary/10 border border-primary/20 relative group">
+                        <div className="flex justify-between items-center mb-2">
+                            <p className="text-xs text-primary font-medium">Resumen del Cliente</p>
+                            <button 
+                                onClick={() => {
+                                    navigator.clipboard.writeText(waMsg);
+                                    toast.success("Resumen copiado al portapapeles");
+                                }}
+                                className="text-[10px] bg-primary/20 hover:bg-primary/30 text-primary px-2 py-1 rounded transition-colors font-medium"
+                            >
+                                Copiar
+                            </button>
+                        </div>
+                        <pre className="text-sm text-foreground whitespace-pre-wrap font-sans bg-card p-3 rounded border border-border">{waMsg}</pre>
                     </div>
                 )}
 
