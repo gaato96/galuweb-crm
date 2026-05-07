@@ -10,7 +10,8 @@ export type EtapaCliente =
     | "contactado"
     | "cotizado"
     | "cliente_actual"
-    | "cliente_finalizado";
+    | "cliente_finalizado"
+    | "no_interesado";
 
 export type TipoProyecto = "landing" | "institucional" | "ecommerce" | "webapp" | "saas";
 export type EstadoProyecto = "activo" | "pausado" | "finalizado";
@@ -296,6 +297,7 @@ export const ETAPA_LABELS: Record<EtapaCliente, string> = {
     cotizado: "Cotizado",
     cliente_actual: "Cliente Actual",
     cliente_finalizado: "Finalizado",
+    no_interesado: "No Interesado",
 };
 
 export const ETAPA_COLORS: Record<EtapaCliente, string> = {
@@ -306,6 +308,7 @@ export const ETAPA_COLORS: Record<EtapaCliente, string> = {
     cotizado: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
     cliente_actual: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
     cliente_finalizado: "bg-gray-500/20 text-gray-400 border-gray-500/30",
+    no_interesado: "bg-rose-500/20 text-rose-300 border-rose-500/30",
 };
 
 export const PRIORIDAD_COLORS: Record<Prioridad, string> = {
@@ -336,5 +339,5 @@ export const TIPO_PROYECTO_LABELS: Record<TipoProyecto, string> = {
 export const FASES_PIPELINE = {
     prospeccion: ["contacto", "investigando"] as EtapaCliente[],
     clasificacion: ["calificado", "contactado", "cotizado"] as EtapaCliente[],
-    cierre: ["cliente_actual", "cliente_finalizado"] as EtapaCliente[],
+    cierre: ["cliente_actual", "cliente_finalizado", "no_interesado"] as EtapaCliente[],
 };

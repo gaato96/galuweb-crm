@@ -5,10 +5,10 @@ import { useSearchParams } from "next/navigation";
 import {
     ExternalLink, Eye, X, CheckCircle2, Circle, Plus, Copy,
     Layers, ScrollText, Zap, Globe, Users, Tag,
-    ChevronRight, Trash2, CalendarDays, Clock, CheckSquare, FileText
+    ChevronRight, Trash2, CalendarDays, Clock, CheckSquare, FileText, Upload
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
-import { proyectosStore, tareasStore, clientesStore, logsProyectoStore } from "@/lib/store";
+import { proyectosStore, tareasStore, clientesStore, logsProyectoStore, storageStore } from "@/lib/store";
 import { toast } from "sonner";
 import type { Proyecto, Tarea, Cliente, FaseProyecto, LogProyecto } from "@/lib/types";
 import { FASES_POR_TIPO, TIPO_PROYECTO_LABELS, ESTADO_TAREA_COLORS, PRIORIDAD_COLORS } from "@/lib/types";
@@ -297,7 +297,7 @@ function ProyectoDetailModal({
                     ))}
                 </div>
 
-                <div className="p-6">
+                <div className="p-6 max-h-[60vh] overflow-y-auto">
                     {/* ── TAB: GENERAL ──────────────────────────────────── */}
                     {activeTab === "general" && (
                         <div className="space-y-5">
@@ -338,24 +338,79 @@ function ProyectoDetailModal({
                             <div className="p-4 rounded-xl border border-border bg-secondary/30">
                                 <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2"><FileText className="w-4 h-4 text-primary" /> Contrato de Servicios</h4>
                                 {proyecto.contrato_url ? (
-                                    <div className="flex items-center gap-2">
-                                        <a href={proyecto.contrato_url} target="_blank" rel="noopener" className="flex-1 flex justify-center items-center gap-2 px-3 py-2 rounded-lg bg-background border border-border text-xs text-primary font-medium hover:border-primary/50 transition-colors">
-                                            <ExternalLink className="w-4 h-4" /> Ver Contrato Actual
-                                        </a>
-                                        <button onClick={() => {
-                                            const url = prompt("Nueva URL del contrato (PDF/Drive):", proyecto.contrato_url);
-                                            if (url !== null && url !== "") handleSaveContrato(url);
-                                        }} className="px-4 py-2 rounded-lg bg-secondary border border-border text-xs hover:bg-secondary/80 font-semibold transition-colors">
-                                            Cambiar
-                                        </button>
+                                    <div className="space-y-3">
+                                        <div className="flex items-center justify-between p-3 rounded-lg bg-background border border-primary/30">
+                                            <div className="flex items-center gap-2">
+                                                <FileText className="w-5 h-5 text-primary" />
+                                                <span className="text-sm font-medium text-foreground">Contrato adjunto</span>
+                                            </div>
+                                            <a
+                                                href={proyecto.contrato_url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity"
+                                            >
+                                                Ver PDF
+                                            </a>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <input
+                                                type="file"
+                                                accept=".pdf"
+                                                id={`contrato-upload-${proyecto.id}`}
+                                                className="hidden"
+                                                onChange={async (e) => {
+                                                    const file = e.target.files?.[0];
+                                                    if (file) {
+                                                        const toastId = toast.loading("Subiendo PDF...");
+                                                        try {
+                                                            const url = await storageStore.uploadContrato(file);
+                                                            await proyectosStore.update(proyecto.id, { contrato_url: url });
+                                                            toast.success("Contrato actualizado", { id: toastId });
+                                                            reload();
+                                                        } catch {
+                                                            toast.error("Error al subir", { id: toastId });
+                                                        }
+                                                    }
+                                                }}
+                                            />
+                                            <label
+                                                htmlFor={`contrato-upload-${proyecto.id}`}
+                                                className="flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border-2 border-dashed border-primary/30 hover:border-primary/50 cursor-pointer transition-all text-sm text-primary hover:bg-primary/5"
+                                            >
+                                                <Upload className="w-4 h-4" /> Reemplazar PDF
+                                            </label>
+                                        </div>
                                     </div>
                                 ) : (
-                                    <button onClick={() => {
-                                        const url = prompt("URL del contrato (Google Drive, PDF, etc):");
-                                        if (url) handleSaveContrato(url);
-                                    }} className="w-full flex items-center justify-center gap-2 px-3 py-2.5 rounded-lg border border-dashed border-primary/40 text-xs font-semibold text-primary hover:bg-primary/5 transition-colors">
-                                        <Plus className="w-4 h-4" /> Adjuntar Contrato
-                                    </button>
+                                    <div className="flex items-center gap-3">
+                                        <input
+                                            type="file"
+                                            accept=".pdf"
+                                            id={`contrato-upload-${proyecto.id}`}
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (file) {
+                                                    const toastId = toast.loading("Subiendo contrato...");
+                                                    try {
+                                                        const url = await storageStore.uploadContrato(file);
+                                                        await proyectosStore.update(proyecto.id, { contrato_url: url });
+                                                        toast.success("Contrato guardado", { id: toastId });
+                                                        reload();
+                                                    } catch {
+                                                        toast.error("Error al subir", { id: toastId });
+                                                    }
+                                                }
+                                            }}
+                                        />
+                                        <label
+                                            htmlFor={`contrato-upload-${proyecto.id}`}
+                                            className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-primary/40 text-xs font-semibold text-primary hover:bg-primary/5 cursor-pointer transition-colors"
+                                        >
+                                            <Upload className="w-4 h-4" /> Subir PDF del Contrato
+                                        </label>
+                                    </div>
                                 )}
                             </div>
 

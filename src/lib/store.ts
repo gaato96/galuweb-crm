@@ -332,6 +332,23 @@ export const storageStore = {
 
         return data.publicUrl;
     },
+    uploadContrato: async (file: File): Promise<string> => {
+        const fileExt = file.name.split(".").pop();
+        const fileName = `${Math.random().toString(36).slice(2)}.${fileExt}`;
+        const filePath = `contratos/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from("galu-assets")
+            .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        const { data } = supabase.storage
+            .from("galu-assets")
+            .getPublicUrl(filePath);
+
+        return data.publicUrl;
+    },
 };
 
 // --- Logs de Proyecto (Changelog / Seguimiento) ---
