@@ -5,7 +5,7 @@
 -- Enums
 CREATE TYPE etapa_cliente AS ENUM (
   'contacto', 'investigando', 'calificado', 
-  'contactado', 'cotizado', 'cliente_actual', 'cliente_finalizado'
+  'contactado', 'cotizado', 'cliente_actual', 'cliente_finalizado', 'no_interesado'
 );
 CREATE TYPE tipo_proyecto AS ENUM ('landing', 'institucional', 'ecommerce', 'webapp', 'saas');
 CREATE TYPE estado_proyecto AS ENUM ('activo', 'pausado', 'finalizado');
