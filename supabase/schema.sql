@@ -59,7 +59,8 @@ CREATE TABLE tareas (
   prioridad prioridad NOT NULL DEFAULT 'media',
   estado estado_tarea NOT NULL DEFAULT 'pendiente',
   categoria categoria_tarea NOT NULL DEFAULT 'otro',
-  fecha_vencimiento DATE
+  fecha_vencimiento DATE,
+  hora_recordatorio TEXT
 );
 
 -- Cotizaciones

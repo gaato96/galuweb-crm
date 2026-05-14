@@ -205,6 +205,7 @@ export interface Tarea {
     editado?: boolean;
     publicado?: boolean;
     fecha_vencimiento?: string;
+    hora_recordatorio?: string;
 }
 
 export interface CotizacionItem {
