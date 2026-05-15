@@ -66,8 +66,15 @@ function TareaDetailModal({
     const handleSave = async () => {
         setSaving(true);
         try {
-            const updateData: any = { descripcion, bloque, fecha_vencimiento: fechaVenc || null, hora_recordatorio: horaRec || null };
-            await tareasStore.update(tarea.id, updateData);
+            const updateData: any = {};
+            if (descripcion !== (tarea.descripcion || "")) updateData.descripcion = descripcion;
+            if (bloque !== tarea.bloque) updateData.bloque = bloque;
+            if (fechaVenc !== (tarea.fecha_vencimiento || "")) updateData.fecha_vencimiento = fechaVenc || null;
+            if (horaRec !== (tarea.hora_recordatorio || "")) updateData.hora_recordatorio = horaRec || null;
+
+            if (Object.keys(updateData).length > 0) {
+                await tareasStore.update(tarea.id, updateData);
+            }
             toast.success("Tarea actualizada");
             onUpdated();
             onClose();
