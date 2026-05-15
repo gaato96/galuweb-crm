@@ -59,6 +59,7 @@ CREATE TABLE tareas (
   prioridad prioridad NOT NULL DEFAULT 'media',
   estado estado_tarea NOT NULL DEFAULT 'pendiente',
   categoria categoria_tarea NOT NULL DEFAULT 'otro',
+  bloque TEXT,
   fecha_vencimiento DATE,
   hora_recordatorio TEXT
 );
