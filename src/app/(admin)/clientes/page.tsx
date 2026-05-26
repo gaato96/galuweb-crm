@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Plus, MessageCircle, ArrowRight, X, GripVertical, Search, ShieldCheck } from "lucide-react";
+import { Plus, MessageCircle, ArrowRight, X, GripVertical, Search, ShieldCheck, ChevronDown, ChevronUp, Eye, Trash2, LayoutGrid, List, Filter } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { clientesStore, proyectosStore, tareasStore } from "@/lib/store";
 import type { Cliente, EtapaCliente, TipoProyecto } from "@/lib/types";
@@ -21,6 +21,8 @@ import {
 } from "@dnd-kit/core";
 import { storageStore } from "@/lib/store";
 import { Upload, FileText } from "lucide-react";
+
+const MAX_VISIBLE_CARDS = 3;
 
 // --- Nuevo Cliente Modal ---
 function NuevoClienteModal({
@@ -558,10 +560,14 @@ function DraggableClienteCard({ cliente, onClick }: { cliente: Cliente; onClick:
     );
 }
 
-function DroppableEtapaColumn({ etapa, children, count }: { etapa: EtapaCliente; children: React.ReactNode; count: number }) {
+function DroppableEtapaColumn({ etapa, children, count, isExpanded, onToggleExpand }: { etapa: EtapaCliente; children: React.ReactNode; count: number; isExpanded: boolean; onToggleExpand: () => void }) {
     const { setNodeRef, isOver } = useDroppable({
         id: etapa,
     });
+
+    const childArray = Array.isArray(children) ? children : children ? [children] : [];
+    const visibleChildren = isExpanded ? childArray : childArray.slice(0, MAX_VISIBLE_CARDS);
+    const hiddenCount = childArray.length - MAX_VISIBLE_CARDS;
 
     return (
         <div
@@ -578,8 +584,20 @@ function DroppableEtapaColumn({ etapa, children, count }: { etapa: EtapaCliente;
                 <span className="text-xs text-muted-foreground">{count}</span>
             </div>
             <div className="space-y-2">
-                {children}
+                {visibleChildren}
             </div>
+            {hiddenCount > 0 && (
+                <button
+                    onClick={onToggleExpand}
+                    className="w-full mt-2 flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium transition-all border border-border/50 backdrop-blur-sm bg-secondary/30 hover:bg-secondary/60 text-muted-foreground hover:text-foreground"
+                >
+                    {isExpanded ? (
+                        <><ChevronUp className="w-3.5 h-3.5" /> Mostrar menos</>
+                    ) : (
+                        <><ChevronDown className="w-3.5 h-3.5" /> Mostrar +{hiddenCount} contactos</>
+                    )}
+                </button>
+            )}
         </div>
     );
 }
@@ -595,6 +613,10 @@ function ClientesContent() {
     const [showProject, setShowProject] = useState(false);
     const [selected, setSelected] = useState<Cliente | null>(null);
     const [search, setSearch] = useState("");
+    const [viewMode, setViewMode] = useState<"pipeline" | "table">("pipeline");
+    const [expandedColumns, setExpandedColumns] = useState<Record<string, boolean>>({});
+    const [etapaFilter, setEtapaFilter] = useState<EtapaCliente | "all">("all");
+    const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -685,11 +707,29 @@ function ClientesContent() {
         }
     };
 
+    const handleDelete = async (id: string) => {
+        try {
+            await clientesStore.delete(id);
+            await reload();
+            setDeleteConfirm(null);
+            toast.success("Contacto eliminado");
+        } catch {
+            toast.error("Error al eliminar contacto");
+        }
+    };
+
+    const toggleColumn = (etapa: string) => {
+        setExpandedColumns((prev) => ({ ...prev, [etapa]: !prev[etapa] }));
+    };
 
     const filtered = clientes.filter(
         (c) =>
             c.nombre.toLowerCase().includes(search.toLowerCase()) ||
             c.negocio.toLowerCase().includes(search.toLowerCase())
+    );
+
+    const tableFiltered = filtered.filter(
+        (c) => etapaFilter === "all" || c.etapa === etapaFilter
     );
 
     if (!mounted) {
@@ -709,12 +749,33 @@ function ClientesContent() {
     return (
         <div className="space-y-5 animate-fade-in">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between flex-wrap gap-3">
                 <div>
                     <h2 className="text-2xl font-bold text-foreground">Pipeline de Clientes</h2>
                     <p className="text-sm text-muted-foreground">{clientes.length} contactos en total</p>
                 </div>
                 <div className="flex items-center gap-3">
+                    {/* View Mode Toggle */}
+                    <div className="flex items-center rounded-lg border border-border bg-secondary/50 p-0.5">
+                        <button
+                            onClick={() => setViewMode("pipeline")}
+                            className={cn(
+                                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                                viewMode === "pipeline" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            <LayoutGrid className="w-3.5 h-3.5" /> Pipeline
+                        </button>
+                        <button
+                            onClick={() => setViewMode("table")}
+                            className={cn(
+                                "flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all",
+                                viewMode === "table" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                            )}
+                        >
+                            <List className="w-3.5 h-3.5" /> Tabla
+                        </button>
+                    </div>
                     <div className="relative">
                         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                         <input
@@ -734,37 +795,189 @@ function ClientesContent() {
             </div>
 
             {/* Pipeline Board */}
-            <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
-                <div className="space-y-6">
-                    {FASES.map((fase) => (
-                        <div key={fase.key}>
-                            <div className="flex items-center gap-2 mb-3">
-                                <div className={cn("w-3 h-3 rounded-full bg-gradient-to-r", fase.color)} />
-                                <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">{fase.label}</h3>
+            {viewMode === "pipeline" && (
+                <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
+                    <div className="space-y-6">
+                        {FASES.map((fase) => (
+                            <div key={fase.key}>
+                                <div className="flex items-center gap-2 mb-3">
+                                    <div className={cn("w-3 h-3 rounded-full bg-gradient-to-r", fase.color)} />
+                                    <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">{fase.label}</h3>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
+                                    {FASES_PIPELINE[fase.key].map((etapa) => {
+                                        const etapaClientes = filtered.filter((c) => c.etapa === etapa);
+                                        return (
+                                            <DroppableEtapaColumn
+                                                key={etapa}
+                                                etapa={etapa}
+                                                count={etapaClientes.length}
+                                                isExpanded={!!expandedColumns[etapa]}
+                                                onToggleExpand={() => toggleColumn(etapa)}
+                                            >
+                                                {etapaClientes.map((c) => (
+                                                    <DraggableClienteCard
+                                                        key={c.id}
+                                                        cliente={c}
+                                                        onClick={() => { setSelected(c); setShowDetail(true); }}
+                                                    />
+                                                ))}
+                                                {etapaClientes.length === 0 && (
+                                                    <p className="text-xs text-muted-foreground text-center py-3 opacity-50">Sin contactos</p>
+                                                )}
+                                            </DroppableEtapaColumn>
+                                        );
+                                    })}
+                                </div>
                             </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
-                                {FASES_PIPELINE[fase.key].map((etapa) => {
-                                    const etapaClientes = filtered.filter((c) => c.etapa === etapa);
-                                    return (
-                                        <DroppableEtapaColumn key={etapa} etapa={etapa} count={etapaClientes.length}>
-                                            {etapaClientes.map((c) => (
-                                                <DraggableClienteCard
-                                                    key={c.id}
-                                                    cliente={c}
-                                                    onClick={() => { setSelected(c); setShowDetail(true); }}
-                                                />
-                                            ))}
-                                            {etapaClientes.length === 0 && (
-                                                <p className="text-xs text-muted-foreground text-center py-3 opacity-50">Sin contactos</p>
-                                            )}
-                                        </DroppableEtapaColumn>
-                                    );
-                                })}
-                            </div>
+                        ))}
+                    </div>
+                </DndContext>
+            )}
+
+            {/* Table View */}
+            {viewMode === "table" && (
+                <div className="space-y-4">
+                    {/* Etapa Filter Chips */}
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <Filter className="w-4 h-4 text-muted-foreground" />
+                        <button
+                            onClick={() => setEtapaFilter("all")}
+                            className={cn(
+                                "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
+                                etapaFilter === "all" ? "bg-primary text-primary-foreground border-primary shadow-sm" : "bg-secondary/50 text-muted-foreground border-border hover:border-primary/30 hover:text-foreground"
+                            )}
+                        >
+                            Todos ({filtered.length})
+                        </button>
+                        {(Object.keys(ETAPA_LABELS) as EtapaCliente[]).map((etapa) => {
+                            const count = filtered.filter((c) => c.etapa === etapa).length;
+                            if (count === 0) return null;
+                            return (
+                                <button
+                                    key={etapa}
+                                    onClick={() => setEtapaFilter(etapa)}
+                                    className={cn(
+                                        "px-3 py-1.5 rounded-full text-xs font-medium border transition-all",
+                                        etapaFilter === etapa ? cn(ETAPA_COLORS[etapa], "shadow-sm") : "bg-secondary/50 text-muted-foreground border-border hover:border-primary/30 hover:text-foreground"
+                                    )}
+                                >
+                                    {ETAPA_LABELS[etapa]} ({count})
+                                </button>
+                            );
+                        })}
+                    </div>
+
+                    {/* Table */}
+                    <div className="rounded-xl border border-border bg-card/50 overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full">
+                                <thead>
+                                    <tr className="border-b border-border bg-secondary/30">
+                                        <th className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Cliente</th>
+                                        <th className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Etapa</th>
+                                        <th className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden md:table-cell">Canal</th>
+                                        <th className="text-left text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden lg:table-cell">Contacto</th>
+                                        <th className="text-center text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3 hidden sm:table-cell">Mant.</th>
+                                        <th className="text-center text-[11px] font-semibold text-muted-foreground uppercase tracking-wider px-4 py-3">Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-border/50">
+                                    {tableFiltered.length === 0 && (
+                                        <tr>
+                                            <td colSpan={6} className="text-center py-12 text-muted-foreground text-sm">
+                                                No se encontraron contactos{etapaFilter !== "all" ? ` en ${ETAPA_LABELS[etapaFilter]}` : ""}.
+                                            </td>
+                                        </tr>
+                                    )}
+                                    {tableFiltered.map((c) => (
+                                        <tr key={c.id} className="group hover:bg-secondary/20 transition-colors">
+                                            {/* Cliente */}
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center gap-3">
+                                                    <div className="w-9 h-9 rounded-full bg-gradient-to-br from-primary/40 to-cyan-500/40 flex items-center justify-center text-[11px] font-bold text-foreground shrink-0">
+                                                        {getInitials(c.nombre)}
+                                                    </div>
+                                                    <div className="min-w-0">
+                                                        <p className="text-sm font-medium text-foreground truncate">{c.nombre}</p>
+                                                        <p className="text-[11px] text-muted-foreground truncate">{c.negocio || "—"}</p>
+                                                    </div>
+                                                </div>
+                                            </td>
+                                            {/* Etapa */}
+                                            <td className="px-4 py-3">
+                                                <span className={cn("text-[11px] px-2.5 py-1 rounded-full border font-medium whitespace-nowrap", ETAPA_COLORS[c.etapa])}>
+                                                    {ETAPA_LABELS[c.etapa]}
+                                                </span>
+                                            </td>
+                                            {/* Canal */}
+                                            <td className="px-4 py-3 hidden md:table-cell">
+                                                <span className="text-xs text-muted-foreground">{c.canal || "—"}</span>
+                                            </td>
+                                            {/* Contacto */}
+                                            <td className="px-4 py-3 hidden lg:table-cell">
+                                                <div className="space-y-0.5">
+                                                    {c.email && (
+                                                        <a href={`mailto:${c.email}`} className="text-xs text-primary hover:underline block truncate max-w-[200px]">{c.email}</a>
+                                                    )}
+                                                    {c.tel && (
+                                                        <a href={`tel:${c.tel}`} className="text-xs text-muted-foreground hover:text-foreground block">{c.tel}</a>
+                                                    )}
+                                                    {!c.email && !c.tel && <span className="text-xs text-muted-foreground">—</span>}
+                                                </div>
+                                            </td>
+                                            {/* Mantenimiento */}
+                                            <td className="px-4 py-3 text-center hidden sm:table-cell">
+                                                {c.mantenimiento_mensual ? (
+                                                    <ShieldCheck className="w-4 h-4 text-emerald-500 mx-auto" />
+                                                ) : (
+                                                    <span className="text-xs text-muted-foreground/40">—</span>
+                                                )}
+                                            </td>
+                                            {/* Acciones */}
+                                            <td className="px-4 py-3">
+                                                <div className="flex items-center justify-center gap-1">
+                                                    <button
+                                                        onClick={() => { setSelected(c); setShowDetail(true); }}
+                                                        className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all"
+                                                        title="Ver detalle"
+                                                    >
+                                                        <Eye className="w-4 h-4" />
+                                                    </button>
+                                                    {deleteConfirm === c.id ? (
+                                                        <div className="flex items-center gap-1">
+                                                            <button
+                                                                onClick={() => handleDelete(c.id)}
+                                                                className="px-2 py-1 rounded-md text-[10px] font-bold bg-rose-500/20 text-rose-400 hover:bg-rose-500/30 transition-colors"
+                                                            >
+                                                                Sí
+                                                            </button>
+                                                            <button
+                                                                onClick={() => setDeleteConfirm(null)}
+                                                                className="px-2 py-1 rounded-md text-[10px] font-bold bg-secondary text-muted-foreground hover:bg-secondary/80 transition-colors"
+                                                            >
+                                                                No
+                                                            </button>
+                                                        </div>
+                                                    ) : (
+                                                        <button
+                                                            onClick={() => setDeleteConfirm(c.id)}
+                                                            className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-all opacity-0 group-hover:opacity-100"
+                                                            title="Eliminar"
+                                                        >
+                                                            <Trash2 className="w-4 h-4" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
                         </div>
-                    ))}
+                    </div>
                 </div>
-            </DndContext>
+            )}
 
             {/* Modals */}
             <NuevoClienteModal open={showNew} onClose={() => setShowNew(false)} onSave={handleCreate} />
