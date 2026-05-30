@@ -98,9 +98,9 @@ export default function IdeasPage() {
             }
             resetForm();
             await reload();
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            toast.error("Error al guardar la idea");
+            toast.error("Error al guardar la idea: " + (error?.message || error?.details || JSON.stringify(error)));
         }
     };
 
