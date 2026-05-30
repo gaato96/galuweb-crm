@@ -4,7 +4,7 @@
 import { supabase } from "./supabase";
 import {
     Cliente, Proyecto, Tarea, Cotizacion, Finanza, Brief, Recurso,
-    EtapaCliente, Infraestructura, TicketSoporte, LogProyecto
+    EtapaCliente, Infraestructura, TicketSoporte, LogProyecto, Idea
 } from "./types";
 
 // ============================================================
@@ -374,6 +374,34 @@ export const logsProyectoStore = {
     },
     delete: async (id: string): Promise<void> => {
         const { error } = await supabase.from("logs_proyecto").delete().eq("id", id);
+        if (error) throw error;
+    },
+};
+
+// --- Ideas ---
+export const ideasStore = {
+    getAll: async (): Promise<Idea[]> => {
+        const { data, error } = await supabase.from("ideas").select("*").order("created_at", { ascending: false });
+        if (error) throw error;
+        return data || [];
+    },
+    getById: async (id: string): Promise<Idea | null> => {
+        const { data, error } = await supabase.from("ideas").select("*").eq("id", id).single();
+        if (error) return null;
+        return data;
+    },
+    create: async (data: Omit<Idea, "id" | "created_at">): Promise<Idea> => {
+        const { data: created, error } = await supabase.from("ideas").insert(data).select().single();
+        if (error) throw error;
+        return created;
+    },
+    update: async (id: string, data: Partial<Idea>): Promise<Idea> => {
+        const { data: updated, error } = await supabase.from("ideas").update(data).eq("id", id).select().single();
+        if (error) throw error;
+        return updated;
+    },
+    delete: async (id: string): Promise<void> => {
+        const { error } = await supabase.from("ideas").delete().eq("id", id);
         if (error) throw error;
     },
 };

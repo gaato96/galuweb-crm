@@ -15,12 +15,14 @@ import {
     BookOpen,
     ChevronLeft,
     Server,
-    LifeBuoy
+    LifeBuoy,
+    Lightbulb
 } from "lucide-react";
 import { useState } from "react";
 
 export const NAV_ITEMS = [
     { label: "Dashboard", href: "/", icon: LayoutDashboard },
+    { label: "Ideas", href: "/ideas", icon: Lightbulb },
     { label: "Clientes", href: "/clientes", icon: Users },
     { label: "Proyectos", href: "/proyectos", icon: FolderKanban },
     { label: "Tareas", href: "/tareas", icon: CheckSquare },

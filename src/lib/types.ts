@@ -342,3 +342,51 @@ export const FASES_PIPELINE = {
     clasificacion: ["calificado", "contactado", "cotizado"] as EtapaCliente[],
     cierre: ["cliente_actual", "cliente_finalizado", "no_interesado"] as EtapaCliente[],
 };
+
+// --- Ideas ---
+export type CategoriaIdea = "cliente_potencial" | "servicio" | "saas" | "software_rubro" | "otro";
+export type EstadoIdea = "borrador" | "investigando" | "aprobada" | "descartada";
+
+export interface Idea {
+    id: string;
+    created_at: string;
+    titulo: string;
+    categoria: CategoriaIdea;
+    descripcion: string;
+    rubro?: string;
+    cliente_potencial?: string;
+    impacto: number; // 1 a 5
+    dificultad: number; // 1 a 5
+    estado: EstadoIdea;
+    notas_adicionales?: string;
+}
+
+export const CATEGORIA_IDEA_LABELS: Record<CategoriaIdea, string> = {
+    cliente_potencial: "Cliente Potencial",
+    servicio: "Idea de Servicio",
+    saas: "Idea SaaS",
+    software_rubro: "Software para Rubro",
+    otro: "Otro",
+};
+
+export const CATEGORIA_IDEA_COLORS: Record<CategoriaIdea, string> = {
+    cliente_potencial: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+    servicio: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+    saas: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+    software_rubro: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+    otro: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+};
+
+export const ESTADO_IDEA_LABELS: Record<EstadoIdea, string> = {
+    borrador: "Borrador",
+    investigando: "Investigando",
+    aprobada: "Aprobada",
+    descartada: "Descartada",
+};
+
+export const ESTADO_IDEA_COLORS: Record<EstadoIdea, string> = {
+    borrador: "bg-slate-500/20 text-slate-400 border-slate-500/30",
+    investigando: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+    aprobada: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+    descartada: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+};

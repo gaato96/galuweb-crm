@@ -119,3 +119,25 @@ CREATE INDEX idx_cotizaciones_cliente ON cotizaciones(cliente_id);
 CREATE INDEX idx_finanzas_proyecto ON finanzas(proyecto_id);
 CREATE INDEX idx_finanzas_fecha ON finanzas(fecha_cobro);
 CREATE INDEX idx_briefs_cliente ON briefs(cliente_id);
+
+-- Ideas
+CREATE TYPE categoria_idea AS ENUM ('cliente_potencial', 'servicio', 'saas', 'software_rubro', 'otro');
+CREATE TYPE estado_idea AS ENUM ('borrador', 'investigando', 'aprobada', 'descartada');
+
+CREATE TABLE ideas (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at TIMESTAMPTZ DEFAULT now() NOT NULL,
+  titulo TEXT NOT NULL,
+  categoria categoria_idea NOT NULL DEFAULT 'otro',
+  descripcion TEXT NOT NULL DEFAULT '',
+  rubro TEXT NOT NULL DEFAULT '',
+  cliente_potencial TEXT NOT NULL DEFAULT '',
+  impacto INTEGER NOT NULL DEFAULT 3 CHECK (impacto >= 1 AND impacto <= 5),
+  dificultad INTEGER NOT NULL DEFAULT 3 CHECK (dificultad >= 1 AND dificultad <= 5),
+  estado estado_idea NOT NULL DEFAULT 'borrador',
+  notas_adicionales TEXT NOT NULL DEFAULT ''
+);
+
+CREATE INDEX idx_ideas_categoria ON ideas(categoria);
+CREATE INDEX idx_ideas_estado ON ideas(estado);
+
