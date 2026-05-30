@@ -141,3 +141,7 @@ CREATE TABLE ideas (
 CREATE INDEX idx_ideas_categoria ON ideas(categoria);
 CREATE INDEX idx_ideas_estado ON ideas(estado);
 
+-- Disable Row Level Security (RLS) for ideas to match other CRM tables
+ALTER TABLE ideas DISABLE ROW LEVEL SECURITY;
+
+
