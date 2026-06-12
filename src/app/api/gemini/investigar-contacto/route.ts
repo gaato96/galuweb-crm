@@ -257,13 +257,13 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown
         let success = false;
         const maxAttempts = 3;
 
-        // We use gemini-1.5-flash here. It is highly stable, multimodal, and has much higher limits on the free tier.
+        // We use gemini-2.5-flash as requested by the user.
         while (attempt < maxAttempts && !success) {
             attempt++;
             try {
-                console.log(`[Gemini API] Llamando a gemini-1.5-flash (Intento ${attempt}/${maxAttempts})...`);
+                console.log(`[Gemini API] Llamando a gemini-2.5-flash (Intento ${attempt}/${maxAttempts})...`);
                 response = await fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
                     {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
