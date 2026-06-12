@@ -20,7 +20,7 @@ import {
     useDroppable,
 } from "@dnd-kit/core";
 import { storageStore } from "@/lib/store";
-import { Upload, FileText } from "lucide-react";
+import { Upload, FileText, Sparkles, Loader2 } from "lucide-react";
 
 const MAX_VISIBLE_CARDS = 3;
 
@@ -40,13 +40,15 @@ function NuevoClienteModal({
         email: "",
         tel: "",
         canal: "",
+        enlace: "",
+        contexto: "",
         mantenimiento_mensual: false,
     });
 
     if (!open) return null;
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in">
+            <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between mb-5">
                     <h3 className="text-lg font-bold text-foreground">Nuevo Contacto</h3>
                     <button onClick={onClose} className="p-1 rounded-lg hover:bg-secondary">
@@ -74,18 +76,28 @@ function NuevoClienteModal({
                             <input value={form.tel} onChange={(e) => setForm({ ...form, tel: e.target.value })} className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
                         </div>
                     </div>
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <label className="text-xs text-muted-foreground mb-1 block">Canal de Contacto</label>
+                            <select value={form.canal} onChange={(e) => setForm({ ...form, canal: e.target.value })} className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50">
+                                <option value="">Seleccionar...</option>
+                                <option value="Instagram">Instagram</option>
+                                <option value="WhatsApp">WhatsApp</option>
+                                <option value="Google">Google</option>
+                                <option value="LinkedIn">LinkedIn</option>
+                                <option value="Referido">Referido</option>
+                                <option value="Email">Email</option>
+                                <option value="Otro">Otro</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-xs text-muted-foreground mb-1 block">Enlace del Negocio</label>
+                            <input placeholder="Web, Instagram, etc." value={form.enlace} onChange={(e) => setForm({ ...form, enlace: e.target.value })} className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                        </div>
+                    </div>
                     <div>
-                        <label className="text-xs text-muted-foreground mb-1 block">Canal de Contacto</label>
-                        <select value={form.canal} onChange={(e) => setForm({ ...form, canal: e.target.value })} className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50">
-                            <option value="">Seleccionar...</option>
-                            <option value="Instagram">Instagram</option>
-                            <option value="WhatsApp">WhatsApp</option>
-                            <option value="Google">Google</option>
-                            <option value="LinkedIn">LinkedIn</option>
-                            <option value="Referido">Referido</option>
-                            <option value="Email">Email</option>
-                            <option value="Otro">Otro</option>
-                        </select>
+                        <label className="text-xs text-muted-foreground mb-1 block">Contexto / Notas adicionales</label>
+                        <textarea placeholder="Rubro, observaciones, o puntos débiles detectados..." value={form.contexto} onChange={(e) => setForm({ ...form, contexto: e.target.value })} rows={2} className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
                     </div>
                     <div className="flex items-center gap-2 mt-2 p-3 bg-secondary/50 rounded-lg border border-border">
                         <input
@@ -108,8 +120,26 @@ function NuevoClienteModal({
                     <button
                         onClick={() => {
                             if (!form.nombre.trim()) { toast.error("El nombre es obligatorio"); return; }
-                            onSave({ ...form, etapa: "contacto" as EtapaCliente, info_investigacion: null, msg_whatsapp: "", notas_seguimiento: [] });
-                            setForm({ nombre: "", negocio: "", email: "", tel: "", canal: "", mantenimiento_mensual: false });
+                            const info_investigacion = {
+                                que_hace: "",
+                                puntos_debiles: "",
+                                soluciones: "",
+                                enlace: form.enlace,
+                                contexto: form.contexto
+                            };
+                            onSave({
+                                nombre: form.nombre,
+                                negocio: form.negocio,
+                                email: form.email,
+                                tel: form.tel,
+                                canal: form.canal,
+                                mantenimiento_mensual: form.mantenimiento_mensual,
+                                etapa: "contacto" as EtapaCliente,
+                                info_investigacion,
+                                msg_whatsapp: "",
+                                notas_seguimiento: []
+                            });
+                            setForm({ nombre: "", negocio: "", email: "", tel: "", canal: "", enlace: "", contexto: "", mantenimiento_mensual: false });
                             onClose();
                         }}
                         className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity"
@@ -241,20 +271,112 @@ function ClienteDetailModal({
     onUpdate: (id: string, data: Partial<Cliente>) => void;
     onAdvance: (cliente: Cliente) => void;
 }) {
-    const [inv, setInv] = useState({ que_hace: "", puntos_debiles: "", soluciones: "" });
+    const [inv, setInv] = useState({ que_hace: "", puntos_debiles: "", soluciones: "", enlace: "", contexto: "" });
     const [seguimiento, setSeguimiento] = useState("");
     const [waMsg, setWaMsg] = useState("");
+    const [loadingInvestigar, setLoadingInvestigar] = useState(false);
+    const [loadingGenerarMsg, setLoadingGenerarMsg] = useState(false);
+    const [servicioSeleccionado, setServicioSeleccionado] = useState("Landing Page");
 
     useEffect(() => {
         if (cliente?.info_investigacion) {
-            setInv(cliente.info_investigacion);
+            setInv({
+                que_hace: cliente.info_investigacion.que_hace || "",
+                puntos_debiles: cliente.info_investigacion.puntos_debiles || "",
+                soluciones: cliente.info_investigacion.soluciones || "",
+                enlace: cliente.info_investigacion.enlace || "",
+                contexto: cliente.info_investigacion.contexto || "",
+            });
         } else {
-            setInv({ que_hace: "", puntos_debiles: "", soluciones: "" });
+            setInv({ que_hace: "", puntos_debiles: "", soluciones: "", enlace: "", contexto: "" });
         }
         setWaMsg(cliente?.msg_whatsapp || "");
     }, [cliente]);
 
     if (!open || !cliente) return null;
+
+    const handleInvestigarIA = async () => {
+        setLoadingInvestigar(true);
+        try {
+            const res = await fetch("/api/gemini/investigar-contacto", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    nombre: cliente.nombre,
+                    negocio: cliente.negocio,
+                    link: inv.enlace,
+                    contexto: inv.contexto
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Error al investigar con IA");
+
+            const newInv = {
+                ...inv,
+                que_hace: data.que_hace || "",
+                puntos_debiles: data.puntos_debiles || "",
+                soluciones: data.soluciones || ""
+            };
+            setInv(newInv);
+            onUpdate(cliente.id, { info_investigacion: newInv });
+            toast.success("Investigación completada y guardada");
+        } catch (error: any) {
+            console.error(error);
+            toast.error(error.message || "Error al investigar lead");
+        } finally {
+            setLoadingInvestigar(false);
+        }
+    };
+
+    const handleGenerarWhatsappIA = async () => {
+        setLoadingGenerarMsg(true);
+        try {
+            const res = await fetch("/api/gemini/generar-whatsapp", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    nombre: cliente.nombre,
+                    negocio: cliente.negocio,
+                    que_hace: inv.que_hace,
+                    puntos_debiles: inv.puntos_debiles,
+                    soluciones: inv.soluciones,
+                    servicio: servicioSeleccionado
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Error al generar mensaje");
+
+            setWaMsg(data.mensaje);
+            onUpdate(cliente.id, { msg_whatsapp: data.mensaje });
+            toast.success("Mensaje de WhatsApp generado");
+        } catch (error: any) {
+            console.error(error);
+            toast.error(error.message || "Error al generar mensaje de WhatsApp");
+        } finally {
+            setLoadingGenerarMsg(false);
+        }
+    };
+
+    const handleEnviarWhatsapp = () => {
+        if (!cliente.tel) {
+            toast.error("El contacto no tiene un teléfono registrado");
+            return;
+        }
+        const cleanTel = cliente.tel.replace(/\D/g, "");
+        if (!cleanTel) {
+            toast.error("El número de teléfono no es válido");
+            return;
+        }
+        const url = `https://api.whatsapp.com/send?phone=${cleanTel}&text=${encodeURIComponent(waMsg)}`;
+        window.open(url, "_blank");
+
+        if (cliente.etapa === "contacto" || cliente.etapa === "investigando" || cliente.etapa === "calificado") {
+            const confirmAdvance = confirm("¿Deseas marcar la etapa de este contacto como 'Contactado'?");
+            if (confirmAdvance) {
+                onUpdate(cliente.id, { etapa: "contactado" });
+            }
+        }
+    };
 
     const generateClientSummary = () => {
         const msg = `RESUMEN DE CLIENTE: ${cliente.nombre} (${cliente.negocio})\n\n` +
@@ -288,9 +410,11 @@ function ClienteDetailModal({
         cliente_actual: "cliente_finalizado",
     };
 
+    const clientHasInvestigation = cliente.info_investigacion?.que_hace || cliente.info_investigacion?.puntos_debiles;
+
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-8">
-            <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in">
+            <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in max-h-[90vh] overflow-y-auto">
                 <div className="flex items-center justify-between mb-5">
                     <div className="flex items-center gap-3">
                         <div className="flex items-center justify-center w-11 h-11 rounded-full bg-gradient-to-br from-primary to-cyan-400 text-sm font-bold text-white">
@@ -338,49 +462,188 @@ function ClienteDetailModal({
 
                 {/* Fase Investigación */}
                 {(cliente.etapa === "investigando" || cliente.etapa === "contacto") && (
-                    <div className="mb-5">
-                        <h4 className="text-sm font-semibold text-foreground mb-3">Investigación del Negocio</h4>
-                        <div className="space-y-3">
+                    <div className="mb-5 space-y-4">
+                        <h4 className="text-sm font-semibold text-foreground border-b border-border/40 pb-2 flex items-center gap-1.5">
+                            <Sparkles className="w-4 h-4 text-primary" /> Investigación del Negocio
+                        </h4>
+                        
+                        {/* Enriquecer con IA Card */}
+                        <div className="p-3.5 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
+                            <div className="flex items-center justify-between">
+                                <h5 className="text-[11px] font-bold text-primary flex items-center gap-1.5 uppercase tracking-wider">
+                                    <Sparkles className="w-3.5 h-3.5 animate-pulse-soft" /> Investigar y Analizar con IA
+                                </h5>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground mb-1 block font-semibold uppercase">Enlace del Negocio</label>
+                                    <input
+                                        type="text"
+                                        value={inv.enlace}
+                                        onChange={(e) => setInv({ ...inv, enlace: e.target.value })}
+                                        placeholder="Ej: instagram.com/negocio, web.com..."
+                                        className="w-full h-9 px-3 rounded-lg bg-card border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                                        disabled={loadingInvestigar}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground mb-1 block font-semibold uppercase">Contexto / Notas adicionales</label>
+                                    <textarea
+                                        value={inv.contexto}
+                                        onChange={(e) => setInv({ ...inv, contexto: e.target.value })}
+                                        placeholder="Rubro del negocio, competidores o dolores observados..."
+                                        rows={1}
+                                        className="w-full px-3 py-1.5 rounded-lg bg-card border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none h-9"
+                                        disabled={loadingInvestigar}
+                                    />
+                                </div>
+                            </div>
+                            <div className="flex justify-end pt-1">
+                                <button
+                                    onClick={handleInvestigarIA}
+                                    disabled={loadingInvestigar}
+                                    className="px-3.5 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity flex items-center gap-1.5 disabled:opacity-50"
+                                >
+                                    {loadingInvestigar ? (
+                                        <>
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Analizando...
+                                        </>
+                                    ) : (
+                                        <>
+                                            <Sparkles className="w-3.5 h-3.5" /> Investigar con IA
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Campos Manuales / Resultados de IA */}
+                        <div className="space-y-3 pt-2">
                             <div>
-                                <label className="text-xs text-muted-foreground mb-1 block">¿Qué hace el negocio?</label>
+                                <label className="text-xs text-muted-foreground mb-1 block font-semibold">¿Qué hace el negocio?</label>
                                 <textarea value={inv.que_hace} onChange={(e) => setInv({ ...inv, que_hace: e.target.value })} rows={2} className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
                             </div>
                             <div>
-                                <label className="text-xs text-muted-foreground mb-1 block">Puntos Débiles</label>
-                                <textarea value={inv.puntos_debiles} onChange={(e) => setInv({ ...inv, puntos_debiles: e.target.value })} rows={2} className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
+                                <label className="text-xs text-muted-foreground mb-1 block font-semibold">Puntos Débiles</label>
+                                <textarea value={inv.puntos_debiles} onChange={(e) => setInv({ ...inv, puntos_debiles: e.target.value })} rows={3} className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
                             </div>
                             <div>
-                                <label className="text-xs text-muted-foreground mb-1 block">Soluciones Propuestas</label>
-                                <textarea value={inv.soluciones} onChange={(e) => setInv({ ...inv, soluciones: e.target.value })} rows={2} className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
+                                <label className="text-xs text-muted-foreground mb-1 block font-semibold">Soluciones Propuestas</label>
+                                <textarea value={inv.soluciones} onChange={(e) => setInv({ ...inv, soluciones: e.target.value })} rows={3} className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
                             </div>
                             <div className="flex gap-2">
-                                <button onClick={saveInvestigation} className="px-3 py-2 rounded-lg text-xs bg-secondary border border-border text-foreground hover:bg-accent transition-colors">
+                                <button onClick={saveInvestigation} className="px-3.5 py-2 rounded-lg text-xs bg-secondary border border-border text-foreground hover:bg-accent transition-colors font-medium">
                                     Guardar Investigación
                                 </button>
-                                <button onClick={generateClientSummary} className="px-3 py-2 rounded-lg text-xs bg-emerald-600 text-white hover:bg-emerald-700 transition-colors flex items-center gap-1.5">
-                                    <FileText className="w-3.5 h-3.5" /> Generar Resumen
+                                <button onClick={generateClientSummary} className="px-3.5 py-2 rounded-lg text-xs bg-secondary border border-border text-foreground hover:bg-accent transition-colors flex items-center gap-1.5 font-medium">
+                                    <FileText className="w-3.5 h-3.5" /> Resumen Clásico
                                 </button>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {/* Resumen Preview */}
+                {/* Calificado - Resumen visual */}
+                {cliente.etapa === "calificado" && cliente.info_investigacion && (
+                    <div className="mb-5">
+                        <h4 className="text-sm font-semibold text-foreground mb-3">Resumen de Investigación</h4>
+                        <div className="grid grid-cols-1 gap-3">
+                            {[
+                                { label: "Qué hace", value: cliente.info_investigacion.que_hace },
+                                { label: "Puntos Débiles", value: cliente.info_investigacion.puntos_debiles },
+                                { label: "Soluciones", value: cliente.info_investigacion.soluciones },
+                            ].map((item) => (
+                                <div key={item.label} className="p-3 rounded-lg bg-secondary/50 border border-border">
+                                    <p className="text-[10px] text-primary uppercase font-medium mb-0.5">{item.label}</p>
+                                    <p className="text-sm text-foreground whitespace-pre-line">{item.value || "—"}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
+                {/* Generador de Mensajes WhatsApp con IA */}
+                {(cliente.etapa === "contacto" || cliente.etapa === "investigando" || cliente.etapa === "calificado") && (inv.que_hace || clientHasInvestigation) && (
+                    <div className="mb-5 pt-4 border-t border-border/60 space-y-3">
+                        <h4 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
+                            <MessageCircle className="w-4 h-4 text-emerald-500" /> Mensaje de Prospección (IA)
+                        </h4>
+                        <div className="p-3.5 rounded-xl border border-emerald-500/20 bg-emerald-500/5 space-y-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 items-end">
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground mb-1 block font-semibold uppercase">Servicio a ofrecer</label>
+                                    <select
+                                        value={servicioSeleccionado}
+                                        onChange={(e) => setServicioSeleccionado(e.target.value)}
+                                        className="w-full h-9 px-2 rounded-lg bg-card border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-emerald-500/50 cursor-pointer"
+                                        disabled={loadingGenerarMsg}
+                                    >
+                                        <option value="Landing Page">Landing Page (Conversión)</option>
+                                        <option value="Web Institucional">Web Institucional (Marca/Catálogo)</option>
+                                        <option value="E-Commerce">E-Commerce (Tienda Online)</option>
+                                        <option value="Web App a medida">Web App a medida (Plataforma/Portal)</option>
+                                        <option value="SaaS">SaaS (Software como servicio)</option>
+                                    </select>
+                                </div>
+                                <div className="flex justify-end">
+                                    <button
+                                        onClick={handleGenerarWhatsappIA}
+                                        disabled={loadingGenerarMsg}
+                                        className="w-full md:w-auto h-9 px-4 rounded-lg text-xs bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 disabled:opacity-50"
+                                    >
+                                        {loadingGenerarMsg ? (
+                                            <>
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin" /> Redactando...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <Sparkles className="w-3.5 h-3.5" /> Generar Mensaje IA
+                                            </>
+                                        )}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
+                {/* Previsualización del Mensaje de WhatsApp (Editable) */}
                 {waMsg && (
-                    <div className="mb-5 p-3 rounded-lg bg-primary/10 border border-primary/20 relative group">
-                        <div className="flex justify-between items-center mb-2">
-                            <p className="text-xs text-primary font-medium">Resumen del Cliente</p>
-                            <button 
+                    <div className="mb-5 p-4 rounded-xl bg-primary/5 border border-primary/20 space-y-3 relative group">
+                        <div className="flex justify-between items-center">
+                            <p className="text-xs text-primary font-bold uppercase tracking-wider">Mensaje a Enviar por WhatsApp</p>
+                            <button
                                 onClick={() => {
                                     navigator.clipboard.writeText(waMsg);
-                                    toast.success("Resumen copiado al portapapeles");
+                                    toast.success("Mensaje copiado al portapapeles");
                                 }}
-                                className="text-[10px] bg-primary/20 hover:bg-primary/30 text-primary px-2 py-1 rounded transition-colors font-medium"
+                                className="text-[10px] bg-secondary border border-border hover:bg-accent text-foreground px-2 py-1 rounded transition-colors font-semibold"
                             >
                                 Copiar
                             </button>
                         </div>
-                        <pre className="text-sm text-foreground whitespace-pre-wrap font-sans bg-card p-3 rounded border border-border">{waMsg}</pre>
+                        <textarea
+                            value={waMsg}
+                            onChange={(e) => {
+                                setWaMsg(e.target.value);
+                                onUpdate(cliente.id, { msg_whatsapp: e.target.value });
+                            }}
+                            rows={5}
+                            className="w-full px-3.5 py-2.5 rounded-xl bg-card border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none font-sans leading-relaxed"
+                            placeholder="Mensaje de WhatsApp..."
+                        />
+                        <div className="flex justify-end gap-2">
+                            {cliente.tel ? (
+                                <button
+                                    onClick={handleEnviarWhatsapp}
+                                    className="px-4 py-2 rounded-lg text-xs bg-emerald-600 text-white hover:bg-emerald-700 transition-colors font-bold flex items-center gap-1.5"
+                                >
+                                    <MessageCircle className="w-4 h-4" /> Enviar por WhatsApp
+                                </button>
+                            ) : (
+                                <p className="text-[11px] text-amber-500 italic mt-1">Completa el campo Teléfono en el CRM para poder enviar por WhatsApp.</p>
+                            )}
+                        </div>
                     </div>
                 )}
 

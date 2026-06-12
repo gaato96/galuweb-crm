@@ -148,6 +148,8 @@ export interface InfoInvestigacion {
     que_hace: string;
     puntos_debiles: string;
     soluciones: string;
+    enlace?: string;
+    contexto?: string;
 }
 
 export interface NotaSeguimiento {
