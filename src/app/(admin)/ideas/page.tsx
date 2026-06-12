@@ -149,6 +149,11 @@ export default function IdeasPage() {
                     que_hace: idea.descripcion,
                     puntos_debiles: "Idea originada del banco de ideas. Notas: " + (idea.notas_adicionales || "Ninguna"),
                     soluciones: "Propuesta de servicio/software: " + idea.titulo,
+                    enlace: "",
+                    contexto: "",
+                    colores: "",
+                    tipografia: "",
+                    logo_url: ""
                 },
                 msg_whatsapp: "",
                 notas_seguimiento: [

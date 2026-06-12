@@ -142,6 +142,7 @@ export interface Cliente {
     notas_seguimiento: NotaSeguimiento[];
     pdf_cotizacion_url?: string;
     mantenimiento_mensual?: boolean;
+    link_demo?: string;
 }
 
 export interface InfoInvestigacion {
@@ -150,6 +151,9 @@ export interface InfoInvestigacion {
     soluciones: string;
     enlace?: string;
     contexto?: string;
+    colores?: string;
+    tipografia?: string;
+    logo_url?: string;
 }
 
 export interface NotaSeguimiento {

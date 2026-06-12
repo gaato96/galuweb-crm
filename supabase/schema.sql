@@ -28,6 +28,7 @@ CREATE TABLE clientes (
   etapa etapa_cliente NOT NULL DEFAULT 'contacto',
   info_investigacion JSONB DEFAULT NULL,
   msg_whatsapp TEXT NOT NULL DEFAULT '',
+  link_demo TEXT NOT NULL DEFAULT '',
   notas_seguimiento JSONB DEFAULT '[]'::jsonb
 );
 

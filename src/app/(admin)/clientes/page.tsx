@@ -20,7 +20,7 @@ import {
     useDroppable,
 } from "@dnd-kit/core";
 import { storageStore } from "@/lib/store";
-import { Upload, FileText, Sparkles, Loader2 } from "lucide-react";
+import { Upload, FileText, Sparkles, Loader2, ExternalLink } from "lucide-react";
 
 const MAX_VISIBLE_CARDS = 3;
 
@@ -271,7 +271,16 @@ function ClienteDetailModal({
     onUpdate: (id: string, data: Partial<Cliente>) => void;
     onAdvance: (cliente: Cliente) => void;
 }) {
-    const [inv, setInv] = useState({ que_hace: "", puntos_debiles: "", soluciones: "", enlace: "", contexto: "" });
+    const [inv, setInv] = useState({
+        que_hace: "",
+        puntos_debiles: "",
+        soluciones: "",
+        enlace: "",
+        contexto: "",
+        colores: "",
+        tipografia: "",
+        logo_url: ""
+    });
     const [seguimiento, setSeguimiento] = useState("");
     const [waMsg, setWaMsg] = useState("");
     const [loadingInvestigar, setLoadingInvestigar] = useState(false);
@@ -286,9 +295,21 @@ function ClienteDetailModal({
                 soluciones: cliente.info_investigacion.soluciones || "",
                 enlace: cliente.info_investigacion.enlace || "",
                 contexto: cliente.info_investigacion.contexto || "",
+                colores: cliente.info_investigacion.colores || "",
+                tipografia: cliente.info_investigacion.tipografia || "",
+                logo_url: cliente.info_investigacion.logo_url || "",
             });
         } else {
-            setInv({ que_hace: "", puntos_debiles: "", soluciones: "", enlace: "", contexto: "" });
+            setInv({
+                que_hace: "",
+                puntos_debiles: "",
+                soluciones: "",
+                enlace: "",
+                contexto: "",
+                colores: "",
+                tipografia: "",
+                logo_url: ""
+            });
         }
         setWaMsg(cliente?.msg_whatsapp || "");
     }, [cliente]);
@@ -315,7 +336,10 @@ function ClienteDetailModal({
                 ...inv,
                 que_hace: data.que_hace || "",
                 puntos_debiles: data.puntos_debiles || "",
-                soluciones: data.soluciones || ""
+                soluciones: data.soluciones || "",
+                colores: data.colores || "",
+                tipografia: data.tipografia || "",
+                logo_url: data.logo_url || ""
             };
             setInv(newInv);
             onUpdate(cliente.id, { info_investigacion: newInv });
@@ -340,7 +364,8 @@ function ClienteDetailModal({
                     que_hace: inv.que_hace,
                     puntos_debiles: inv.puntos_debiles,
                     soluciones: inv.soluciones,
-                    servicio: servicioSeleccionado
+                    servicio: servicioSeleccionado,
+                    link_demo: cliente.link_demo
                 })
             });
             const data = await res.json();
@@ -367,7 +392,13 @@ function ClienteDetailModal({
             toast.error("El número de teléfono no es válido");
             return;
         }
-        const url = `https://api.whatsapp.com/send?phone=${cleanTel}&text=${encodeURIComponent(waMsg)}`;
+        
+        let finalMsg = waMsg;
+        if (cliente.link_demo) {
+            finalMsg = finalMsg.replace(/\[LINK DE LA DEMO EN VERCEL\]/g, cliente.link_demo);
+        }
+
+        const url = `https://api.whatsapp.com/send?phone=${cleanTel}&text=${encodeURIComponent(finalMsg)}`;
         window.open(url, "_blank");
 
         if (cliente.etapa === "contacto" || cliente.etapa === "investigando" || cliente.etapa === "calificado") {
@@ -382,7 +413,11 @@ function ClienteDetailModal({
         const msg = `RESUMEN DE CLIENTE: ${cliente.nombre} (${cliente.negocio})\n\n` +
                     `A QUÉ SE DEDICA:\n${inv.que_hace}\n\n` +
                     `PUNTOS DÉBILES:\n${inv.puntos_debiles}\n\n` +
-                    `IDEAS DE SOLUCIÓN:\n${inv.soluciones}`;
+                    `IDEAS DE SOLUCIÓN:\n${inv.soluciones}\n\n` +
+                    `IDENTIDAD VISUAL:\n` +
+                    `- Paleta de colores: ${inv.colores || "No especificada"}\n` +
+                    `- Tipografía: ${inv.tipografia || "No especificada"}\n` +
+                    `- Logo: ${inv.logo_url || "No especificado"}`;
         setWaMsg(msg);
         onUpdate(cliente.id, { msg_whatsapp: msg });
         toast.success("Resumen generado");
@@ -439,7 +474,7 @@ function ClienteDetailModal({
                 </div>
 
                 {/* Datos Básicos */}
-                <div className="grid grid-cols-4 gap-3 mb-5 p-3 rounded-lg bg-secondary/50 border border-border">
+                <div className="grid grid-cols-4 gap-3 mb-4 p-3 rounded-lg bg-secondary/50 border border-border">
                     <div><p className="text-[10px] text-muted-foreground uppercase">Email</p><p className="text-sm text-foreground truncate">{cliente.email || "—"}</p></div>
                     <div><p className="text-[10px] text-muted-foreground uppercase">Teléfono</p><p className="text-sm text-foreground">{cliente.tel || "—"}</p></div>
                     <div><p className="text-[10px] text-muted-foreground uppercase">Canal</p><p className="text-sm text-foreground">{cliente.canal || "—"}</p></div>
@@ -458,6 +493,30 @@ function ClienteDetailModal({
                             <ShieldCheck className="w-4 h-4" /> {cliente.mantenimiento_mensual ? "Abona Mantenimiento" : "Sin Mantenimiento"}
                         </button>
                     </div>
+                </div>
+
+                {/* Link de Demo en Vercel */}
+                <div className="mb-5 p-3 rounded-lg bg-secondary/50 border border-border flex items-center justify-between gap-3">
+                    <div className="flex-1">
+                        <label className="text-[10px] text-muted-foreground uppercase font-bold block mb-1">Link de Demo en Vercel</label>
+                        <input
+                            type="text"
+                            value={cliente.link_demo || ""}
+                            onChange={(e) => onUpdate(cliente.id, { link_demo: e.target.value })}
+                            placeholder="Ej: https://tu-demo.vercel.app"
+                            className="w-full h-8 px-3 rounded-lg bg-card border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                        />
+                    </div>
+                    {cliente.link_demo && (
+                        <a
+                            href={cliente.link_demo}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mt-5 px-3 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary text-xs font-bold border border-primary/30 transition-colors flex items-center gap-1.5 animate-fade-in"
+                        >
+                            <ExternalLink className="w-3.5 h-3.5" /> Probar Demo
+                        </a>
+                    )}
                 </div>
 
                 {/* Fase Investigación */}
@@ -531,7 +590,28 @@ function ClienteDetailModal({
                                 <label className="text-xs text-muted-foreground mb-1 block font-semibold">Soluciones Propuestas</label>
                                 <textarea value={inv.soluciones} onChange={(e) => setInv({ ...inv, soluciones: e.target.value })} rows={3} className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none" />
                             </div>
-                            <div className="flex gap-2">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <div>
+                                    <label className="text-xs text-muted-foreground mb-1 block font-semibold">Paleta de Colores</label>
+                                    <input type="text" value={inv.colores || ""} onChange={(e) => setInv({ ...inv, colores: e.target.value })} className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="Ej: #0F172A Oscuro, #10B981 Acento..." />
+                                </div>
+                                <div>
+                                    <label className="text-xs text-muted-foreground mb-1 block font-semibold">Tipografías</label>
+                                    <input type="text" value={inv.tipografia || ""} onChange={(e) => setInv({ ...inv, tipografia: e.target.value })} className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="Ej: Inter + Sora..." />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="text-xs text-muted-foreground mb-1 block font-semibold">URL del Logo</label>
+                                <div className="flex gap-2">
+                                    <input type="text" value={inv.logo_url || ""} onChange={(e) => setInv({ ...inv, logo_url: e.target.value })} className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 flex-1" placeholder="Ej: https://negocio.com/logo.png" />
+                                    {inv.logo_url && inv.logo_url.startsWith("http") && (
+                                        <div className="w-10 h-10 rounded-lg border border-border bg-secondary flex items-center justify-center overflow-hidden p-1">
+                                            <img src={inv.logo_url} alt="Logo" className="max-w-full max-h-full object-contain" />
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <div className="flex gap-2 pt-2">
                                 <button onClick={saveInvestigation} className="px-3.5 py-2 rounded-lg text-xs bg-secondary border border-border text-foreground hover:bg-accent transition-colors font-medium">
                                     Guardar Investigación
                                 </button>
@@ -545,19 +625,34 @@ function ClienteDetailModal({
 
                 {/* Calificado - Resumen visual */}
                 {cliente.etapa === "calificado" && cliente.info_investigacion && (
-                    <div className="mb-5">
+                    <div className="mb-5 space-y-3">
                         <h4 className="text-sm font-semibold text-foreground mb-3">Resumen de Investigación</h4>
                         <div className="grid grid-cols-1 gap-3">
                             {[
                                 { label: "Qué hace", value: cliente.info_investigacion.que_hace },
                                 { label: "Puntos Débiles", value: cliente.info_investigacion.puntos_debiles },
                                 { label: "Soluciones", value: cliente.info_investigacion.soluciones },
+                                { label: "Colores de Identidad", value: cliente.info_investigacion.colores },
+                                { label: "Tipografía Recomendada", value: cliente.info_investigacion.tipografia },
                             ].map((item) => (
                                 <div key={item.label} className="p-3 rounded-lg bg-secondary/50 border border-border">
                                     <p className="text-[10px] text-primary uppercase font-medium mb-0.5">{item.label}</p>
                                     <p className="text-sm text-foreground whitespace-pre-line">{item.value || "—"}</p>
                                 </div>
                             ))}
+                            {cliente.info_investigacion.logo_url && (
+                                <div className="p-3 rounded-lg bg-secondary/50 border border-border flex items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-[10px] text-primary uppercase font-medium mb-0.5">Logo</p>
+                                        <p className="text-xs text-muted-foreground break-all">{cliente.info_investigacion.logo_url}</p>
+                                    </div>
+                                    {cliente.info_investigacion.logo_url.startsWith("http") && (
+                                        <div className="w-12 h-12 rounded-lg border border-border bg-card flex items-center justify-center overflow-hidden p-1 shrink-0">
+                                            <img src={cliente.info_investigacion.logo_url} alt="Logo" className="max-w-full max-h-full object-contain" />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}
@@ -649,19 +744,34 @@ function ClienteDetailModal({
 
                 {/* Calificado - Resumen visual */}
                 {cliente.etapa === "calificado" && cliente.info_investigacion && (
-                    <div className="mb-5">
+                    <div className="mb-5 space-y-3">
                         <h4 className="text-sm font-semibold text-foreground mb-3">Resumen de Investigación</h4>
                         <div className="grid grid-cols-1 gap-3">
                             {[
                                 { label: "Qué hace", value: cliente.info_investigacion.que_hace },
                                 { label: "Puntos Débiles", value: cliente.info_investigacion.puntos_debiles },
                                 { label: "Soluciones", value: cliente.info_investigacion.soluciones },
+                                { label: "Colores de Identidad", value: cliente.info_investigacion.colores },
+                                { label: "Tipografía Recomendada", value: cliente.info_investigacion.tipografia },
                             ].map((item) => (
                                 <div key={item.label} className="p-3 rounded-lg bg-secondary/50 border border-border">
                                     <p className="text-[10px] text-primary uppercase font-medium mb-0.5">{item.label}</p>
-                                    <p className="text-sm text-foreground">{item.value || "—"}</p>
+                                    <p className="text-sm text-foreground whitespace-pre-line">{item.value || "—"}</p>
                                 </div>
                             ))}
+                            {cliente.info_investigacion.logo_url && (
+                                <div className="p-3 rounded-lg bg-secondary/50 border border-border flex items-center justify-between gap-4">
+                                    <div>
+                                        <p className="text-[10px] text-primary uppercase font-medium mb-0.5">Logo</p>
+                                        <p className="text-xs text-muted-foreground break-all">{cliente.info_investigacion.logo_url}</p>
+                                    </div>
+                                    {cliente.info_investigacion.logo_url.startsWith("http") && (
+                                        <div className="w-12 h-12 rounded-lg border border-border bg-card flex items-center justify-center overflow-hidden p-1 shrink-0">
+                                            <img src={cliente.info_investigacion.logo_url} alt="Logo" className="max-w-full max-h-full object-contain" />
+                                        </div>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

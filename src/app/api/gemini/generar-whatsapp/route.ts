@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 
 export async function POST(req: Request) {
     try {
-        const { nombre, negocio, que_hace, puntos_debiles, soluciones, servicio } = await req.json();
+        const { nombre, negocio, que_hace, puntos_debiles, soluciones, servicio, link_demo } = await req.json();
 
         if (!nombre) {
             return NextResponse.json({ error: "El nombre del contacto es requerido" }, { status: 400 });
@@ -15,7 +15,7 @@ export async function POST(req: Request) {
             }, { status: 500 });
         }
 
-        const prompt = `Actúa como un experto en prospección y ventas digitales para la agencia Galuweb. 
+        const prompt = `Actúa como un copywriter de prospección B2B de alto nivel para Galuweb, especializado en captación de clientes de manera altamente profesional y directa.
 Redacta un mensaje de primer contacto personalizado para enviar por WhatsApp al siguiente lead:
 
 --- INFORMACIÓN DEL LEAD ---
@@ -24,18 +24,25 @@ Negocio: ${negocio || "Su negocio"}
 Qué hace el negocio: ${que_hace || "No especificado"}
 Puntos débiles identificados: ${puntos_debiles || "No especificados"}
 Soluciones propuestas: ${soluciones || "No especificadas"}
-Servicio específico a ofrecer: ${servicio || "desarrollo web a medida"}
+Servicio específico a ofrecer: ${servicio || "desarrollo de solución a medida"}
+Link de la demo interactiva (Vercel) si existe: ${link_demo || "No provisto"}
 
---- DIRECTRICES PARA EL MENSAJE ---
-1. Tono: Muy profesional pero a la vez cercano, humano y natural. Evita sonar a bot o spam de venta agresiva.
-2. Estructura:
-   - Saludo personalizado con su nombre (ej: "Hola ${nombre}, ¿cómo estás?").
-   - Gancho rápido: Mencionar de forma directa que estuvimos analizando el sitio/redes de ${negocio || "su negocio"} y vimos una gran oportunidad de crecimiento.
-   - Dolor/Solución: Mencionar sutilmente uno de los puntos débiles identificados (ej: falta de embudo de venta, lentitud, falta de catálogo web) y cómo la solución de ${servicio} que creamos en Galuweb les ayudaría directamente a captar más clientes o ahorrar tiempo.
-   - Llamado a la acción (CTA) de baja fricción: Proponer una llamada corta de 5 minutos o enviarles una propuesta rápida, por ejemplo: "¿Te vendría bien una breve charla de 5 minutos esta semana para ver si te cuadra?" o "¿Te gustaría que te envíe una propuesta preliminar?".
-3. Extensión: Corto y al grano (máximo 120 palabras). Dividido en 2 o 3 párrafos pequeños separados por saltos de línea para facilitar la lectura en WhatsApp.
-4. Emojis: Usa un par de emojis relacionados (ej: 👋, 🚀, 📈) de forma muy sutil.
-5. NO incluyas placeholders en corchetes como "[Tu Nombre]" ni "[Galuweb]". Habla en nombre de la agencia o de forma directa.
+--- DIRECTRICES OBLIGATORIAS PARA EL MENSAJE ---
+1. Tono: Profesional, directo y clínico. No debes vender "diseño web" o "páginas web". Vende la solución al dolor principal del negocio (como la saturación operativa, la pérdida de clientes, la mala reputación o procesos manuales ineficientes).
+2. Estructura Obligatoria:
+   - Saludo personalizado: (ej: "Hola ${nombre}, ¿cómo estás?").
+   - El Gancho: Mención directa al problema específico detectado en su sistema actual o presencia digital (referenciando los puntos débiles del lead).
+   - La Empatía: Validar la frustración o costo operativo del proceso manual o ineficiente que tienen actualmente.
+   - La Propuesta de Valor (Usa exactamente esta estructura adaptada): "Para mostrarte cómo solucionarlo de raíz, armé una versión interactiva y funcional de cómo debería verse y operar el sistema de ${negocio || "tu negocio"}".
+   - Los Entregables: Incluir explícitamente los placeholders o enlaces para los entregables.
+     * Si el link de la demo (Vercel) provisto arriba NO es "No provisto", coloca el enlace real de la demo: ${link_demo}.
+     * Si el link de la demo es "No provisto", escribe literalmente "[LINK DE LA DEMO EN VERCEL]".
+     * Escribe siempre el placeholder literal: "[LINK DEL VIDEO EXPLICATIVO DE 2 MINUTOS]".
+   - El CTA de Baja Fricción: Invitación a una charla corta de 15 minutos por llamada para analizar si les sirve implementarlo, sin ningún tipo de compromiso.
+3. REGLA DE ORO:
+   - Está terminantemente PROHIBIDO usar palabras cliché de marketing (ej: "innovador", "revolucionario", "soluciones integrales", "transformar tu negocio", "líderes en el sector").
+   - Utiliza términos de negocio reales y clínicos: "automatizar reservas", "liberar líneas de atención", "captación orgánica", "tasa de rebote de pacientes", "saturación de WhatsApp", "tiempos de espera", etc.
+4. Formato: Corto, al grano. Dividido en 3 o 4 párrafos cortos separados por saltos de línea para facilitar la lectura en WhatsApp. Usa negritas muy sutiles en palabras clave. No uses más de 1 o 2 emojis discretos.
 
 Debes responder ÚNICAMENTE con un objeto JSON válido. El JSON debe tener exactamente la siguiente clave y no debe incluir bloques de código como \`\`\`json:
 {
@@ -75,7 +82,7 @@ No agregues ninguna explicación fuera de este objeto JSON.`;
         } catch (parseError) {
             console.error("Error al parsear respuesta de WhatsApp de Gemini:", text);
             return NextResponse.json({
-                mensaje: `Hola ${nombre}, ¿cómo estás? Te escribo de Galuweb. Estuve analizando la presencia online de ${negocio || "tu negocio"} y veo una gran oportunidad de optimización con un ${servicio || "desarrollo web"}. ¿Te interesaría que charlemos 5 minutos esta semana para contarte mi propuesta? ¡Un saludo!`
+                mensaje: `Hola ${nombre}, ¿cómo estás? Analizando el sistema actual de ${negocio || "tu negocio"} noté cuellos de botella en la gestión manual de reservas. Comprendo la frustración de perder tiempo valioso en tareas repetitivas.\n\nPara mostrarte cómo solucionarlo de raíz, armé una versión interactiva y funcional de cómo debería verse y operar el sistema de ${negocio || "tu negocio"}.\n\nAquí tienes el acceso:\nDemo: ${link_demo || "[LINK DE LA DEMO EN VERCEL]"}\nVideo de 2 minutos: [LINK DEL VIDEO EXPLICATIVO DE 2 MINUTOS]\n\n¿Te interesaría una charla de 15 minutos por llamada para analizar si te sirve implementarlo, sin compromisos? ¡Un saludo!`
             });
         }
     } catch (error: any) {
