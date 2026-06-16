@@ -216,7 +216,7 @@ async function callGemini(contents: any[], options: GeminiCallOptions = {}): Pro
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error("GEMINI_API_KEY no está configurada");
 
-    const models = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
+    const models = ["gemini-2.5-flash-lite", "gemini-2.5-flash"];
     let lastError = "";
 
     for (const model of models) {
@@ -315,35 +315,12 @@ export async function POST(req: Request) {
                     }
                 }
                 
-                // Fallback smart: Search if this business has a website
-                const resolvedWebsite = await searchBusinessWebsite(negocio || username || "");
-                
-                if (resolvedWebsite) {
-                    targetWebsiteUrl = resolvedWebsite;
-                    
-                    if (!logoUrl) {
-                        // Fetch logo via Microlink
-                        const microlinkLogo = await fetchMicrolinkLogo(targetWebsiteUrl);
-                        const domain = extractDomain(targetWebsiteUrl);
-                        logoUrl = microlinkLogo || `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
-                    }
-                    
-                    // Fetch screenshot via Microlink of their website
-                    const screenshotUrl = `https://api.microlink.io/?url=${encodeURIComponent(targetWebsiteUrl)}&screenshot=true&embed=screenshot.url`;
-                    imageDescription = `Captura de pantalla del sitio web oficial (${targetWebsiteUrl}) del negocio, obtenido buscando el perfil de Instagram.`;
-                    
-                    const base64Result = await fetchImageBase64(screenshotUrl);
-                    if (base64Result) {
-                        imageBase64 = base64Result;
-                        isScreenshotSuccessful = true;
-                    }
-                } else {
-                    // Instagram only, no website found.
-                    if (!logoUrl) {
-                        logoUrl = "";
-                    }
-                    imageDescription = "Perfil de Instagram sin sitio web detectado. La investigación se realizará mediante búsqueda integrada.";
+                // For Instagram profiles, we bypass searching for their website and taking screenshots
+                // to optimize latency and prevent Vercel Serverless timeouts (10s on hobby plan).
+                if (!logoUrl) {
+                    logoUrl = "";
                 }
+                imageDescription = "Perfil de Instagram. La investigación se realizará mediante búsqueda integrada.";
             } else {
                 // Website: screenshot and logo via Microlink
                 targetWebsiteUrl = normalizedLink;
