@@ -156,6 +156,9 @@ export interface InfoInvestigacion {
     logo_url?: string;
     prompt_maestro?: string;
     tipo_pagina?: TipoProyecto;
+    analisis_impacto?: string;
+    solucion_tecnica?: string;
+    guion_demo?: string;
 }
 
 export interface NotaSeguimiento {

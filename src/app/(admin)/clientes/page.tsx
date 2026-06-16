@@ -281,7 +281,10 @@ function ClienteDetailModal({
         tipografia: "",
         logo_url: "",
         prompt_maestro: "",
-        tipo_pagina: "landing" as TipoProyecto
+        tipo_pagina: "landing" as TipoProyecto,
+        analisis_impacto: "",
+        solucion_tecnica: "",
+        guion_demo: ""
     });
     const [seguimiento, setSeguimiento] = useState("");
     const [waMsg, setWaMsg] = useState("");
@@ -302,7 +305,10 @@ function ClienteDetailModal({
                 tipografia: cliente.info_investigacion.tipografia || "",
                 logo_url: cliente.info_investigacion.logo_url || "",
                 prompt_maestro: cliente.info_investigacion.prompt_maestro || "",
-                tipo_pagina: cliente.info_investigacion.tipo_pagina || "landing"
+                tipo_pagina: cliente.info_investigacion.tipo_pagina || "landing",
+                analisis_impacto: cliente.info_investigacion.analisis_impacto || "",
+                solucion_tecnica: cliente.info_investigacion.solucion_tecnica || "",
+                guion_demo: cliente.info_investigacion.guion_demo || ""
             });
         } else {
             setInv({
@@ -315,7 +321,10 @@ function ClienteDetailModal({
                 tipografia: "",
                 logo_url: "",
                 prompt_maestro: "",
-                tipo_pagina: "landing"
+                tipo_pagina: "landing",
+                analisis_impacto: "",
+                solucion_tecnica: "",
+                guion_demo: ""
             });
         }
         setWaMsg(cliente?.msg_whatsapp || "");
@@ -374,16 +383,27 @@ function ClienteDetailModal({
                     que_hace: inv.que_hace,
                     puntos_debiles: inv.puntos_debiles,
                     soluciones: inv.soluciones,
-                    servicio: servicioSeleccionado,
-                    link_demo: cliente.link_demo
+                    tipo_pagina: inv.tipo_pagina,
+                    link_demo: cliente.link_demo,
+                    prompt_maestro: inv.prompt_maestro
                 })
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || "Error al generar mensaje");
 
             setWaMsg(data.mensaje);
-            onUpdate(cliente.id, { msg_whatsapp: data.mensaje });
-            toast.success("Mensaje de WhatsApp generado");
+            const updatedInv = {
+                ...inv,
+                analisis_impacto: data.analisis_impacto || inv.analisis_impacto,
+                solucion_tecnica: data.solucion_tecnica || inv.solucion_tecnica,
+                guion_demo: data.guion_demo || inv.guion_demo
+            };
+            setInv(updatedInv);
+            onUpdate(cliente.id, { 
+                msg_whatsapp: data.mensaje,
+                info_investigacion: updatedInv
+            });
+            toast.success("Mensaje de WhatsApp, Análisis y Guion generados");
         } catch (error: any) {
             console.error(error);
             toast.error(error.message || "Error al generar mensaje de WhatsApp");
@@ -724,6 +744,59 @@ function ClienteDetailModal({
                                     </div>
                                 </div>
                             )}
+
+                            {/* Análisis de Impacto y Solución Técnica */}
+                            {(inv.analisis_impacto || inv.solucion_tecnica) && (
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-4 p-4 rounded-xl border border-border bg-secondary/20">
+                                    <div>
+                                        <label className="text-xs text-primary font-bold uppercase tracking-wider block mb-2">📊 Análisis de Impacto</label>
+                                        <textarea
+                                            value={inv.analisis_impacto}
+                                            onChange={(e) => setInv({ ...inv, analisis_impacto: e.target.value })}
+                                            rows={3}
+                                            className="w-full px-3 py-2 rounded-lg bg-card border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none"
+                                            placeholder="Dinero/tiempo perdido..."
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="text-xs text-primary font-bold uppercase tracking-wider block mb-2">⚙️ Solución Técnica</label>
+                                        <textarea
+                                            value={inv.solucion_tecnica}
+                                            onChange={(e) => setInv({ ...inv, solucion_tecnica: e.target.value })}
+                                            rows={3}
+                                            className="w-full px-3 py-2 rounded-lg bg-card border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none"
+                                            placeholder="Herramienta recomendada..."
+                                        />
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Guion de la Demo */}
+                            {inv.guion_demo && (
+                                <div className="p-4 rounded-xl border border-blue-500/20 bg-blue-500/5 space-y-3 mt-4">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2 text-blue-400 font-bold text-xs">
+                                            🎬 GUION DE VIDEO EXPLICATIVO (2 MIN)
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(inv.guion_demo || "");
+                                                toast.success("Guion copiado al portapapeles");
+                                            }}
+                                            className="px-3 py-1 rounded-lg text-xs bg-blue-600 text-white font-bold hover:bg-blue-700 transition-colors"
+                                        >
+                                            Copiar Guion
+                                        </button>
+                                    </div>
+                                    <textarea
+                                        value={inv.guion_demo}
+                                        onChange={(e) => setInv({ ...inv, guion_demo: e.target.value })}
+                                        rows={6}
+                                        className="w-full p-3 rounded-lg bg-secondary text-xs font-sans text-muted-foreground whitespace-pre-wrap select-all border border-border focus:outline-none focus:ring-1 focus:ring-blue-500/50 leading-relaxed"
+                                    />
+                                </div>
+                            )}
                             <div className="flex gap-2 pt-2">
                                 <button onClick={saveInvestigation} className="px-3.5 py-2 rounded-lg text-xs bg-secondary border border-border text-foreground hover:bg-accent transition-colors font-medium">
                                     Guardar Investigación
@@ -747,6 +820,9 @@ function ClienteDetailModal({
                                 { label: "Soluciones", value: cliente.info_investigacion.soluciones },
                                 { label: "Colores de Identidad", value: cliente.info_investigacion.colores },
                                 { label: "Tipografía Recomendada", value: cliente.info_investigacion.tipografia },
+                                ...(cliente.info_investigacion.analisis_impacto ? [{ label: "📊 Análisis de Impacto", value: cliente.info_investigacion.analisis_impacto }] : []),
+                                ...(cliente.info_investigacion.solucion_tecnica ? [{ label: "⚙️ Solución Técnica", value: cliente.info_investigacion.solucion_tecnica }] : []),
+                                ...(cliente.info_investigacion.guion_demo ? [{ label: "🎬 Guion de la Demo", value: cliente.info_investigacion.guion_demo }] : []),
                             ].map((item) => (
                                 <div key={item.label} className="p-3 rounded-lg bg-secondary/50 border border-border">
                                     <p className="text-[10px] text-primary uppercase font-medium mb-0.5">{item.label}</p>
