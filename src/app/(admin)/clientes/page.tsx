@@ -287,6 +287,7 @@ function ClienteDetailModal({
     const [waMsg, setWaMsg] = useState("");
     const [loadingInvestigar, setLoadingInvestigar] = useState(false);
     const [loadingGenerarMsg, setLoadingGenerarMsg] = useState(false);
+    const [loadingRegistrarDemo, setLoadingRegistrarDemo] = useState(false);
     const [servicioSeleccionado, setServicioSeleccionado] = useState("Landing Page");
 
     useEffect(() => {
@@ -441,6 +442,35 @@ function ClienteDetailModal({
         toast.success("Investigación guardada");
     };
 
+    const handleRegistrarDemo = async () => {
+        if (!cliente.link_demo) {
+            toast.error("Primero pegá el link de la demo en Vercel");
+            return;
+        }
+        setLoadingRegistrarDemo(true);
+        try {
+            const res = await fetch("/api/clientes/actualizar-demo", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    clienteId: cliente.id,
+                    linkDemo: cliente.link_demo
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "Error al registrar demo");
+            if (data.cliente?.msg_whatsapp) {
+                setWaMsg(data.cliente.msg_whatsapp);
+            }
+            toast.success("✅ Demo registrada y mensaje de WhatsApp generado");
+        } catch (error: any) {
+            console.error(error);
+            toast.error(error.message || "Error al registrar demo");
+        } finally {
+            setLoadingRegistrarDemo(false);
+        }
+    };
+
     const addSeguimiento = () => {
         if (!seguimiento.trim()) return;
         const notas = [...(cliente.notas_seguimiento || []), { id: crypto.randomUUID(), fecha: new Date().toISOString(), texto: seguimiento }];
@@ -509,26 +539,42 @@ function ClienteDetailModal({
                 </div>
 
                 {/* Link de Demo en Vercel */}
-                <div className="mb-5 p-3 rounded-lg bg-secondary/50 border border-border flex items-center justify-between gap-3">
-                    <div className="flex-1">
-                        <label className="text-[10px] text-muted-foreground uppercase font-bold block mb-1">Link de Demo en Vercel</label>
-                        <input
-                            type="text"
-                            value={cliente.link_demo || ""}
-                            onChange={(e) => onUpdate(cliente.id, { link_demo: e.target.value })}
-                            placeholder="Ej: https://tu-demo.vercel.app"
-                            className="w-full h-8 px-3 rounded-lg bg-card border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
-                        />
+                <div className="mb-5 p-3 rounded-lg bg-secondary/50 border border-border space-y-2">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="flex-1">
+                            <label className="text-[10px] text-muted-foreground uppercase font-bold block mb-1">Link de Demo en Vercel</label>
+                            <input
+                                type="text"
+                                value={cliente.link_demo || ""}
+                                onChange={(e) => onUpdate(cliente.id, { link_demo: e.target.value })}
+                                placeholder="Ej: https://tu-demo.vercel.app"
+                                className="w-full h-8 px-3 rounded-lg bg-card border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                            />
+                        </div>
+                        {cliente.link_demo && (
+                            <a
+                                href={cliente.link_demo}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="mt-5 px-3 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary text-xs font-bold border border-primary/30 transition-colors flex items-center gap-1.5 animate-fade-in"
+                            >
+                                <ExternalLink className="w-3.5 h-3.5" /> Probar Demo
+                            </a>
+                        )}
                     </div>
                     {cliente.link_demo && (
-                        <a
-                            href={cliente.link_demo}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="mt-5 px-3 py-1.5 rounded-lg bg-primary/20 hover:bg-primary/30 text-primary text-xs font-bold border border-primary/30 transition-colors flex items-center gap-1.5 animate-fade-in"
+                        <button
+                            type="button"
+                            onClick={handleRegistrarDemo}
+                            disabled={loadingRegistrarDemo}
+                            className="w-full px-3 py-2 rounded-lg text-xs font-bold bg-green-600 hover:bg-green-700 text-white transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
                         >
-                            <ExternalLink className="w-3.5 h-3.5" /> Probar Demo
-                        </a>
+                            {loadingRegistrarDemo ? (
+                                <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Registrando y generando mensaje...</>
+                            ) : (
+                                <><Sparkles className="w-3.5 h-3.5" /> Registrar Demo y Generar WhatsApp</>
+                            )}
+                        </button>
                     )}
                 </div>
 
@@ -660,18 +706,21 @@ function ClienteDetailModal({
                                     <div className="max-h-48 overflow-y-auto p-3 rounded-lg bg-secondary text-xs font-mono text-muted-foreground whitespace-pre-wrap select-all border border-border">
                                         {inv.prompt_maestro}
                                     </div>
-                                    <div className="flex items-center justify-between text-[10px] text-muted-foreground bg-secondary/30 p-2 rounded-lg border border-border/40">
-                                        <span className="font-semibold">Comando para auto-desplegar y registrar en CRM:</span>
+                                    <div className="space-y-1.5 text-[10px] text-muted-foreground bg-secondary/30 p-2 rounded-lg border border-border/40">
+                                        <span className="font-semibold block">Comando para auto-desplegar y registrar en CRM:</span>
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                navigator.clipboard.writeText(`node deploy-demo.js --client=${cliente.id}`);
-                                                toast.success("Comando de despliegue copiado");
+                                                const scriptPath = `${window.location.origin.includes('localhost') ? 'D:/Gutmark/Diseño Web/SaaS/Galuweb CRM/galuweb-crm' : '.'}/scripts/deploy-demo.js`;
+                                                const cmd = `node "${scriptPath}" --client=${cliente.id}`;
+                                                navigator.clipboard.writeText(cmd);
+                                                toast.success("Comando de despliegue copiado (con ruta completa al script)");
                                             }}
-                                            className="font-mono text-[9px] hover:text-foreground underline transition-colors"
+                                            className="font-mono text-[9px] hover:text-foreground underline transition-colors block w-full text-left"
                                         >
-                                            node deploy-demo.js --client={cliente.id} (Copiar)
+                                            📋 Copiar comando de deploy
                                         </button>
+                                        <p className="text-[8px] opacity-70">Ejecutalo desde la carpeta del proyecto demo generado.</p>
                                     </div>
                                 </div>
                             )}

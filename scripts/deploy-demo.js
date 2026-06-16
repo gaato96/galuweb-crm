@@ -28,8 +28,8 @@ if (!clientArg) {
 
 const clienteId = clientArg.split('=')[1];
 
-// Puedes cambiar esto a la URL de producción de tu CRM en Vercel
-const CRM_BASE_URL = process.env.CRM_URL || "http://localhost:3000";
+// URL de producción del CRM en Vercel — sobreescribible con la variable CRM_URL
+const CRM_BASE_URL = process.env.CRM_URL || "https://core-cluster.vercel.app";
 
 console.log(`\n\x1b[36m🚀 Iniciando despliegue de demo interactiva en Vercel...\x1b[0m`);
 
