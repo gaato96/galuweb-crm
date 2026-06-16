@@ -445,7 +445,7 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown
 
         // --- Extract text from ALL parts (grounding returns multiple parts) ---
         const allParts = data.candidates?.[0]?.content?.parts || [];
-        let text = allParts
+        const text = allParts
             .filter((p: any) => typeof p.text === "string")
             .map((p: any) => p.text)
             .join("\n");
