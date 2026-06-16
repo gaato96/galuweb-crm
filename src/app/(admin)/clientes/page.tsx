@@ -280,7 +280,8 @@ function ClienteDetailModal({
         colores: "",
         tipografia: "",
         logo_url: "",
-        prompt_maestro: ""
+        prompt_maestro: "",
+        tipo_pagina: "landing" as TipoProyecto
     });
     const [seguimiento, setSeguimiento] = useState("");
     const [waMsg, setWaMsg] = useState("");
@@ -299,7 +300,8 @@ function ClienteDetailModal({
                 colores: cliente.info_investigacion.colores || "",
                 tipografia: cliente.info_investigacion.tipografia || "",
                 logo_url: cliente.info_investigacion.logo_url || "",
-                prompt_maestro: cliente.info_investigacion.prompt_maestro || ""
+                prompt_maestro: cliente.info_investigacion.prompt_maestro || "",
+                tipo_pagina: cliente.info_investigacion.tipo_pagina || "landing"
             });
         } else {
             setInv({
@@ -311,7 +313,8 @@ function ClienteDetailModal({
                 colores: "",
                 tipografia: "",
                 logo_url: "",
-                prompt_maestro: ""
+                prompt_maestro: "",
+                tipo_pagina: "landing"
             });
         }
         setWaMsg(cliente?.msg_whatsapp || "");
@@ -329,7 +332,8 @@ function ClienteDetailModal({
                     nombre: cliente.nombre,
                     negocio: cliente.negocio,
                     link: inv.enlace,
-                    contexto: inv.contexto
+                    contexto: inv.contexto,
+                    tipo_pagina: inv.tipo_pagina || "landing"
                 })
             });
             const data = await res.json();
@@ -343,7 +347,8 @@ function ClienteDetailModal({
                 colores: data.colores || "",
                 tipografia: data.tipografia || "",
                 logo_url: data.logo_url || "",
-                prompt_maestro: data.prompt_maestro || ""
+                prompt_maestro: data.prompt_maestro || "",
+                tipo_pagina: data.tipo_pagina || inv.tipo_pagina || "landing"
             };
             setInv(newInv);
             onUpdate(cliente.id, { info_investigacion: newInv });
@@ -401,6 +406,10 @@ function ClienteDetailModal({
         if (cliente.link_demo) {
             finalMsg = finalMsg.replace(/\[LINK DE LA DEMO EN VERCEL\]/g, cliente.link_demo);
         }
+
+        // Copy message to clipboard automatically before opening WhatsApp
+        navigator.clipboard.writeText(finalMsg);
+        toast.success("Mensaje copiado al portapapeles");
 
         const url = `https://api.whatsapp.com/send?phone=${cleanTel}&text=${encodeURIComponent(finalMsg)}`;
         window.open(url, "_blank");
@@ -537,7 +546,7 @@ function ClienteDetailModal({
                                     <Sparkles className="w-3.5 h-3.5 animate-pulse-soft" /> Investigar y Analizar con IA
                                 </h5>
                             </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                                 <div>
                                     <label className="text-[10px] text-muted-foreground mb-1 block font-semibold uppercase">Enlace del Negocio</label>
                                     <input
@@ -559,6 +568,21 @@ function ClienteDetailModal({
                                         className="w-full px-3 py-1.5 rounded-lg bg-card border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 resize-none h-9"
                                         disabled={loadingInvestigar}
                                     />
+                                </div>
+                                <div>
+                                    <label className="text-[10px] text-muted-foreground mb-1 block font-semibold uppercase">Tipo de Proyecto</label>
+                                    <select
+                                        value={inv.tipo_pagina || "landing"}
+                                        onChange={(e) => setInv({ ...inv, tipo_pagina: e.target.value as any })}
+                                        className="w-full h-9 px-2 rounded-lg bg-card border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50 cursor-pointer"
+                                        disabled={loadingInvestigar}
+                                    >
+                                        <option value="landing">Landing Page (Conversión)</option>
+                                        <option value="institucional">Web Institucional (Marca/Catálogo)</option>
+                                        <option value="ecommerce">E-Commerce (Tienda Online)</option>
+                                        <option value="webapp">Web App a medida</option>
+                                        <option value="saas">SaaS / Producto</option>
+                                    </select>
                                 </div>
                             </div>
                             <div className="flex justify-end pt-1">

@@ -153,7 +153,8 @@ export default function IdeasPage() {
                     contexto: "",
                     colores: "",
                     tipografia: "",
-                    logo_url: ""
+                    logo_url: "",
+                    tipo_pagina: "landing"
                 },
                 msg_whatsapp: "",
                 notas_seguimiento: [

@@ -103,6 +103,50 @@ async function fetchMicrolinkLogo(url: string): Promise<string | null> {
     }
 }
 
+async function getInstagramProfilePic(username: string): Promise<string | null> {
+    try {
+        console.log(`[getInstagramProfilePic] Searching DDG image for Instagram avatar of: ${username}`);
+        const mainUrl = `https://duckduckgo.com/?q=${encodeURIComponent('site:instagram.com "' + username + '" profile pic')}`;
+        const mainRes = await fetch(mainUrl, {
+            signal: AbortSignal.timeout(6000),
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+        });
+        if (!mainRes.ok) return null;
+        const html = await mainRes.text();
+        const regexVqd = /vqd=([^&'"]+)/;
+        const match = html.match(regexVqd);
+        if (!match) return null;
+        const vqd = match[1];
+        
+        const imagesUrl = `https://duckduckgo.com/i.js?q=${encodeURIComponent('site:instagram.com "' + username + '" profile pic')}&o=json&vqd=${vqd}`;
+        const imagesRes = await fetch(imagesUrl, {
+            signal: AbortSignal.timeout(6000),
+            headers: {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Referer": "https://duckduckgo.com/"
+            }
+        });
+        if (!imagesRes.ok) return null;
+        const data: any = await imagesRes.json();
+        if (data.results && data.results.length > 0) {
+            const candidates = data.results.filter((item: any) => {
+                const title = item.title.toLowerCase();
+                const image = item.image.toLowerCase();
+                return image.includes("profile") || image.includes("avatar") || title.includes("profile") || title.includes("avatar") || image.includes("lookaside.fbsbx.com/lookaside/crawler/instagram");
+            });
+            if (candidates.length > 0) {
+                return candidates[0].thumbnail || candidates[0].image;
+            }
+            return data.results[0].thumbnail || data.results[0].image;
+        }
+    } catch (e: any) {
+        console.error(`[getInstagramProfilePic] Error:`, e.message);
+    }
+    return null;
+}
+
 function extractInstagramUsername(url: string): string | null {
     const match = url.match(/instagram\.com\/([a-zA-Z0-9_.]+)/);
     if (!match) return null;
@@ -125,7 +169,7 @@ function extractDomain(url: string): string {
 
 export async function POST(req: Request) {
     try {
-        const { nombre, negocio, link, contexto } = await req.json();
+        const { nombre, negocio, link, contexto, tipo_pagina } = await req.json();
 
         if (!nombre) {
             return NextResponse.json({ error: "El nombre del contacto es requerido" }, { status: 400 });
@@ -153,18 +197,28 @@ export async function POST(req: Request) {
                 isInstagram = true;
                 const username = extractInstagramUsername(link);
                 
+                if (username) {
+                    // Fetch real profile avatar from DDG Image search
+                    const avatarUrl = await getInstagramProfilePic(username);
+                    if (avatarUrl) {
+                        logoUrl = avatarUrl;
+                    }
+                }
+                
                 // Fallback smart: Search if this business has a website
                 const resolvedWebsite = await searchBusinessWebsite(negocio || username || "");
                 
                 if (resolvedWebsite) {
                     targetWebsiteUrl = resolvedWebsite;
                     
-                    // Fetch logo via Microlink
-                    const microlinkLogo = await fetchMicrolinkLogo(targetWebsiteUrl);
-                    const domain = extractDomain(targetWebsiteUrl);
-                    logoUrl = microlinkLogo || `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+                    if (!logoUrl) {
+                        // Fetch logo via Microlink
+                        const microlinkLogo = await fetchMicrolinkLogo(targetWebsiteUrl);
+                        const domain = extractDomain(targetWebsiteUrl);
+                        logoUrl = microlinkLogo || `https://www.google.com/s2/favicons?domain=${domain}&sz=128`;
+                    }
                     
-                    // Fetch screenshot via Microlink
+                    // Fetch screenshot via Microlink of their website
                     const screenshotUrl = `https://api.microlink.io/?url=${encodeURIComponent(targetWebsiteUrl)}&screenshot=true&embed=screenshot.url`;
                     imageDescription = `Captura de pantalla del sitio web oficial (${targetWebsiteUrl}) del negocio, obtenido buscando el perfil de Instagram.`;
                     
@@ -174,9 +228,11 @@ export async function POST(req: Request) {
                         isScreenshotSuccessful = true;
                     }
                 } else {
-                    // Instagram only, no website found. Instagram blocks direct scrapers.
-                    logoUrl = "";
-                    imageDescription = "Perfil de Instagram sin sitio web detectado. No se puede acceder visualmente por el muro de login de Meta.";
+                    // Instagram only, no website found.
+                    if (!logoUrl) {
+                        logoUrl = "";
+                    }
+                    imageDescription = "Perfil de Instagram sin sitio web detectado. La investigación se realizará mediante búsqueda integrada.";
                 }
             } else {
                 // Website: screenshot and logo via Microlink
@@ -198,18 +254,56 @@ export async function POST(req: Request) {
 
         console.log(`[Investigación IA] Screenshot exitoso: ${isScreenshotSuccessful ? "SÍ" : "NO"}`);
 
-        // --- Build Gemini Prompt ---
-        const visualTask = imageBase64
-            ? `4. ANÁLISIS DE IDENTIDAD VISUAL — Analiza la imagen adjunta (${imageDescription}) con mucho detalle:
-   - Paleta de colores: Identifica los COLORES REALES y DOMINANTES que ves en la imagen. Nombra cada color descriptivamente y provee su código hexadecimal exacto aproximado (ej: "Fondo crema cálido #F5ECD7", "Verde salvia principal #7D9B76", "Texto marrón oscuro #3B2A1A"). Lista al menos 3 colores reales.
-   - Tipografía: Identifica el estilo tipográfico visible en la imagen. Sugiere la tipografía de Google Fonts más similar.
-   - Logo: Establece logo_url como: "${logoUrl}"`
-            : `4. ANÁLISIS DE IDENTIDAD VISUAL (sin imagen disponible — sugiere basándote en el rubro):
-   - Propón una paleta de colores coherente con el nicho del negocio (con nombres y hex).
-   - Sugiere tipografías premium de Google Fonts adecuadas para el rubro.
-   - Logo: ${logoUrl ? `Establece logo_url como: "${logoUrl}"` : "No disponible"}`;
+        // --- Build Gemini Request Config (Grounding vs standard visual call) ---
+        let contents: any[] = [];
+        let tools: any[] = [];
 
-        const textPrompt = `Actúa como un diseñador UI/UX experto, consultor de negocios y estratega digital para Galuweb, una agencia de desarrollo web de alto nivel.
+        if (isInstagram && !isScreenshotSuccessful) {
+            // Instagram profile investigation using Google Search Grounding
+            const username = extractInstagramUsername(link) || negocio || nombre;
+            const groundingPrompt = `Actúa como un diseñador UI/UX experto, consultor de negocios y estratega digital para la agencia Galuweb.
+Investiga el perfil de Instagram del usuario/negocio "${username}" (enlace: ${link}) usando la búsqueda de Google.
+Busca y extrae la siguiente información real:
+1. ¿A qué se dedica exactamente este negocio?
+2. ¿Cuántos seguidores tiene aproximadamente?
+3. ¿Cuál es su biografía o descripción de perfil?
+4. ¿Qué sitio web tiene enlazado en su biografía (si hay alguno)?
+5. ¿Cuál es el estilo visual de sus publicaciones (colores predominantes, tipo de fotos, estética general)?
+
+--- DATOS ADICIONALES DEL CLIENTE ---
+Nombre del contacto: ${nombre}
+Negocio: ${negocio || "No especificado"}
+Observaciones/Anotaciones provistas por el usuario: ${contexto || "Ninguna (si el usuario escribió algo aquí sobre el perfil, dale prioridad máxima)"}
+Tipo de proyecto seleccionado: ${tipo_pagina || "landing"}
+
+--- TAREA ---
+Identifica al menos 3 puntos débiles u oportunidades de mejora en su presencia digital (por ejemplo, si no tiene web, si su link en bio está roto o falta, si no automatiza reservas, si su catálogo es manual, si le falta captación online, etc.) y propón soluciones de desarrollo que Galuweb puede construir para este tipo de proyecto: "${tipo_pagina || "landing"}".
+
+Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown:
+{
+  "que_hace": "Resumen conciso y profesional de la actividad del negocio y datos del perfil como seguidores o bio (máx 80 palabras).",
+  "puntos_debiles": "Al menos 3 puntos débiles como lista de viñetas cortas y claras.",
+  "soluciones": "Soluciones específicas de diseño/desarrollo que Galuweb puede implementar orientadas al tipo de proyecto '${tipo_pagina || "landing"}', como lista de viñetas.",
+  "colores": "Paleta de colores dominantes que se observan en las imágenes/posteos de su perfil de Instagram, con nombres y hex (ej: #E8A598 Rosa Salmón, #4A3E3D Marrón Oscuro). Provee al menos 3 colores reales.",
+  "tipografia": "Tipografías o estilos tipográficos sugeridos (Google Fonts premium) que vayan en sintonía con su marca y estilo de Instagram.",
+  "logo_url": "${logoUrl || ""}"
+}`;
+
+            contents = [{ parts: [{ text: groundingPrompt }] }];
+            tools = [{ googleSearch: {} }];
+        } else {
+            // Standard analysis with screenshot
+            const visualTask = imageBase64
+                ? `4. ANÁLISIS DE IDENTIDAD VISUAL — Analiza la imagen adjunta (${imageDescription}) con mucho detalle:
+    - Paleta de colores: Identifica los COLORES REALES y DOMINANTES que ves en la imagen. Nombra cada color descriptivamente y provee su código hexadecimal exacto aproximado (ej: "Fondo crema cálido #F5ECD7", "Verde salvia principal #7D9B76", "Texto marrón oscuro #3B2A1A"). Lista al menos 3 colores reales.
+    - Tipografía: Identifica el estilo tipográfico visible en la imagen. Sugiere la tipografía de Google Fonts más similar.
+    - Logo: Establece logo_url como: "${logoUrl}"`
+                : `4. ANÁLISIS DE IDENTIDAD VISUAL (sin imagen disponible — sugiere basándote en el rubro):
+    - Propón una paleta de colores coherente con el nicho del negocio (con nombres y hex).
+    - Sugiere tipografías premium de Google Fonts adecuadas para el rubro.
+    - Logo: ${logoUrl ? `Establece logo_url como: "${logoUrl}"` : "No disponible"}`;
+
+            const textPrompt = `Actúa como un diseñador UI/UX experto, consultor de negocios y estratega digital para Galuweb, una agencia de desarrollo web de alto nivel.
 Analiza la siguiente información de un lead comercial${imageBase64 ? " y la imagen adjunta" : ""}:
 
 --- DATOS DEL LEAD ---
@@ -217,12 +311,13 @@ Nombre: ${nombre}
 Negocio/Nombre comercial: ${negocio || "No especificado"}
 Enlace del negocio: ${link || "No provisto"}
 Sitio web encontrado (si aplica): ${targetWebsiteUrl || "No aplica"}
-Contexto/Observaciones: ${contexto || "Ninguna"}
+Contexto/Observaciones provistas por el usuario: ${contexto || "Ninguna (si el usuario escribió algo aquí sobre el negocio, dale prioridad máxima)"}
+Tipo de proyecto seleccionado: ${tipo_pagina || "landing"}
 
 --- TAREA ---
 1. Deduce a qué se dedica el negocio en base a su nombre, enlace y contexto.
 2. Identifica al menos 3 puntos débiles en su presencia digital u operativa (procesos manuales, falta de automatización, baja captación online, etc.).
-3. Propón soluciones específicas que Galuweb puede construir (Landing Page, E-commerce, Web App, automatizaciones, etc.).
+3. Propón soluciones específicas que Galuweb puede construir orientadas al tipo de proyecto "${tipo_pagina || "landing"}" (Landing Page, E-commerce, Web App, automatizaciones, etc.).
 4. Realiza el análisis visual siguiendo estas instrucciones:
 ${visualTask}
 
@@ -230,25 +325,24 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown
 {
   "que_hace": "Resumen conciso y profesional de la actividad del negocio (máx 80 palabras).",
   "puntos_debiles": "Al menos 3 puntos débiles como lista de viñetas cortas y claras.",
-  "soluciones": "Soluciones de diseño/desarrollo que Galuweb puede implementar, como lista de viñetas.",
+  "soluciones": "Soluciones de diseño/desarrollo que Galuweb puede implementar orientadas al tipo de proyecto '${tipo_pagina || "landing"}', como lista de viñetas.",
   "colores": "Paleta de colores con nombres descriptivos y códigos hex (ej: #1A1A2E Azul Marino Profundo, #E94560 Rojo Acento).",
   "tipografia": "Tipografías detectadas en la imagen o sugerencia de Google Fonts premium para el rubro.",
   "logo_url": "${logoUrl || ""}"
 }`;
 
-        // --- Build Gemini Request Parts ---
-        const parts: object[] = [];
-
-        if (imageBase64) {
-            parts.push({
-                inlineData: {
-                    mimeType: imageBase64.mimeType,
-                    data: imageBase64.data
-                }
-            });
+            const parts: object[] = [];
+            if (imageBase64) {
+                parts.push({
+                    inlineData: {
+                        mimeType: imageBase64.mimeType,
+                        data: imageBase64.data
+                    }
+                });
+            }
+            parts.push({ text: textPrompt });
+            contents = [{ parts }];
         }
-
-        parts.push({ text: textPrompt });
 
         // --- Retry loop for Gemini API ---
         let attempt = 0;
@@ -257,20 +351,25 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown
         let success = false;
         const maxAttempts = 3;
 
-        // We use gemini-2.5-flash as requested by the user.
         while (attempt < maxAttempts && !success) {
             attempt++;
             try {
                 console.log(`[Gemini API] Llamando a gemini-2.5-flash (Intento ${attempt}/${maxAttempts})...`);
+                const bodyPayload: any = {
+                    contents
+                };
+                if (tools.length > 0) {
+                    bodyPayload.tools = tools;
+                } else {
+                    bodyPayload.generationConfig = { responseMimeType: "application/json" };
+                }
+
                 response = await fetch(
                     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
                     {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            contents: [{ parts }],
-                            generationConfig: { responseMimeType: "application/json" }
-                        })
+                        body: JSON.stringify(bodyPayload)
                     }
                 );
                 
@@ -302,7 +401,18 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown
             return NextResponse.json({ error: errMsg }, { status: response ? response.status : 500 });
         }
 
-        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        
+        // Strip markdown block tags if Gemini output them despite instructions
+        if (text.startsWith("```json")) {
+            text = text.substring(7);
+        } else if (text.startsWith("```")) {
+            text = text.substring(3);
+        }
+        if (text.endsWith("```")) {
+            text = text.substring(0, text.length - 3);
+        }
+        text = text.trim();
 
         try {
             const parsed = JSON.parse(text);
@@ -315,19 +425,20 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown
                 console.log("[Gemini API] Generando Prompt Maestro...");
                 const gemSystemPrompt = `Afecta el rol de Arquitecto de Software Senior y Experto en Ingeniería de Prompts para Inteligencias Artificiales de Código (como Antigravity/Cursor). 
 
-Tu único objetivo es recibir un NICHO DE NEGOCIO y una NECESIDAD, y devolverme un PROMPT MAESTRO HIPER-DETALLADO, EXTENSO Y TÉCNICO que yo pueda copiar y pegar directamente en Antigravity para que me genere una Web App o Landing Page de conversión brutal usando Next.js, Tailwind CSS. Sin integracion a Supabase ya que no tendria base de datos porque esto seria solo Demo para presentar al potencial cliente. 
+Tu único objetivo es recibir un NICHO DE NEGOCIO, una NECESIDAD y el TIPO DE PÁGINA A DESARROLLAR, y devolverme un PROMPT MAESTRO HIPER-DETALLADO, EXTENSO Y TÉCNICO que yo pueda copiar y pegar directamente en Antigravity para que me genere una aplicación web de conversión brutal usando Next.js y Tailwind CSS. El tipo de proyecto es: "${tipo_pagina || "landing"}". Sin integración a Supabase ya que no tendría base de datos porque esto sería solo una Demo para presentar al potencial cliente. 
 
 El prompt maestro que me devuelvas debe ser masivo y estructurado OBLIGATORIAMENTE con las siguientes secciones explícitas:
 1. CONTEXTO DEL NEGOCIO Y PÚBLICO OBJETIVO: Explicar el dolor del cliente final de ese nicho.
-2. ARQUITECTURA DE COMPONENTES: Lista exhaustiva de componentes modulares, limpios y responsivos.
+2. ARQUITECTURA DE COMPONENTES: Lista exhaustiva de componentes modulares, limpios y responsivos específicos para un proyecto de tipo "${tipo_pagina || "landing"}".
 3. ESPECIFICACIONES DE DISEÑO (TAILWIND): Paleta de colores premium para el nicho, tipografías, espaciados y animaciones sutiles.
-4. COPIA Y CONVERSIÓN (COPYWRITING): Estructura exacta de los textos, títulos ganadores y llamadas a la acción (CTA) según el nicho.
-5. LOGICA DE CÓDIGO (NEXT.JS): Manejo de estados, hooks necesarios y validaciones de formularios.
+4. COPIA Y CONVERSIÓN (COPYWRITING): Estructura exacta de los textos, títulos ganadores y llamadas a la acción (CTA) según el nicho y el tipo de página.
+5. LOGICA DE CÓDIGO (NEXT.JS): Manejo de estados, hooks necesarios y validaciones de formularios correspondientes a la funcionalidad.
 
-Por favor, sé extremadamente minucioso, prolijo y extenso. No resumas nada. Dame todo el código de configuración y las instrucciones estructurales para que Antigravity trabaje en modo "Vibe Coding" sin errores.`;
+Por favor, sé extremadamente minucioso, prolijo y extenso. No resumas nada. Dame todo el código de configuración y las instrucciones estructurales para que Antigravity trabajaje en modo "Vibe Coding" sin errores.`;
 
                 const gemInput = `--- DATOS DEL NEGOCIO ---
 Nombre comercial: ${negocio || nombre}
+Tipo de proyecto solicitado: ${tipo_pagina || "landing"}
 Rubro / Lo que hace: ${parsed.que_hace || "No especificado"}
 Debilidades identificadas: ${parsed.puntos_debiles || "No especificados"}
 Soluciones propuestas: ${parsed.soluciones || "No especificadas"}
@@ -366,6 +477,7 @@ Tipografías recomendadas: ${parsed.tipografia || "No especificadas"}`;
             }
 
             parsed.prompt_maestro = promptMaestro;
+            parsed.tipo_pagina = tipo_pagina || "landing";
             return NextResponse.json(parsed);
         } catch {
             console.error("Error al parsear respuesta JSON de Gemini:", text);
@@ -377,6 +489,7 @@ Tipografías recomendadas: ${parsed.tipografia || "No especificadas"}`;
                 tipografia: "Google Fonts premium: Inter + Sora.",
                 logo_url: logoUrl,
                 prompt_maestro: "",
+                tipo_pagina: tipo_pagina || "landing",
                 rawText: text
             });
         }

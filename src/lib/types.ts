@@ -155,6 +155,7 @@ export interface InfoInvestigacion {
     tipografia?: string;
     logo_url?: string;
     prompt_maestro?: string;
+    tipo_pagina?: TipoProyecto;
 }
 
 export interface NotaSeguimiento {
