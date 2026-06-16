@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 
+// Allow up to 60s for this route (2 Gemini calls + image fetches)
+export const maxDuration = 60;
+
 // --- Helpers ---
 
 async function fetchImageBase64(url: string): Promise<{ data: string; mimeType: string } | null> {
@@ -163,6 +166,44 @@ function extractDomain(url: string): string {
     } catch {
         return url.replace(/https?:\/\/(www\.)?/, "").split("/")[0];
     }
+}
+
+// --- Robust JSON extraction ---
+function extractJSON(raw: string): any | null {
+    // 1. Try direct parse
+    const trimmed = raw.trim();
+    try { return JSON.parse(trimmed); } catch {}
+
+    // 2. Strip markdown code fences (```json ... ``` or ``` ... ```)
+    const fenceMatch = raw.match(/```(?:json)?\s*\n?([\s\S]*?)\n?\s*```/);
+    if (fenceMatch) {
+        try { return JSON.parse(fenceMatch[1].trim()); } catch {}
+    }
+
+    // 3. Find the first { ... } block that looks like valid JSON
+    const braceStart = raw.indexOf("{");
+    if (braceStart !== -1) {
+        let depth = 0;
+        let braceEnd = -1;
+        for (let i = braceStart; i < raw.length; i++) {
+            if (raw[i] === "{") depth++;
+            if (raw[i] === "}") depth--;
+            if (depth === 0) { braceEnd = i; break; }
+        }
+        if (braceEnd !== -1) {
+            const candidate = raw.substring(braceStart, braceEnd + 1);
+            try { return JSON.parse(candidate); } catch {}
+            // Try fixing common issues: trailing commas
+            try {
+                const fixed = candidate
+                    .replace(/,\s*}/g, "}")
+                    .replace(/,\s*]/g, "]");
+                return JSON.parse(fixed);
+            } catch {}
+        }
+    }
+
+    return null;
 }
 
 // --- Main Route ---
@@ -398,32 +439,54 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown
 
         if (!success) {
             const errMsg = data?.error?.message || "No se pudo comunicar con Gemini después de 3 intentos.";
+            console.error("[Gemini API] Todas las llamadas fallaron. Último error:", errMsg);
             return NextResponse.json({ error: errMsg }, { status: response ? response.status : 500 });
         }
 
-        let text = data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+        // --- Extract text from ALL parts (grounding returns multiple parts) ---
+        const allParts = data.candidates?.[0]?.content?.parts || [];
+        let text = allParts
+            .filter((p: any) => typeof p.text === "string")
+            .map((p: any) => p.text)
+            .join("\n");
         
-        // Strip markdown block tags if Gemini output them despite instructions
-        if (text.startsWith("```json")) {
-            text = text.substring(7);
-        } else if (text.startsWith("```")) {
-            text = text.substring(3);
+        console.log(`[Gemini API] Respuesta recibida. Partes: ${allParts.length}, Texto total: ${text.length} chars`);
+        if (text.length < 50) {
+            console.warn(`[Gemini API] Respuesta muy corta, texto completo:`, text);
+        } else {
+            console.log(`[Gemini API] Primeros 300 chars:`, text.substring(0, 300));
         }
-        if (text.endsWith("```")) {
-            text = text.substring(0, text.length - 3);
+
+        const parsed = extractJSON(text);
+        
+        if (!parsed) {
+            console.error("[Gemini API] No se pudo extraer JSON de la respuesta de investigación. Texto completo:", text);
+            // Even if JSON parsing failed, return what we have with the raw text
+            // so the user sees something and can manually fill in
+            return NextResponse.json({
+                que_hace: `Negocio de ${negocio || "servicios"}.`,
+                puntos_debiles: "• No se pudo analizar automáticamente. Revisa el enlace o agrega más contexto en las observaciones.",
+                soluciones: "• Intenta nuevamente con más datos o un enlace diferente.",
+                colores: "",
+                tipografia: "",
+                logo_url: logoUrl,
+                prompt_maestro: "",
+                tipo_pagina: tipo_pagina || "landing",
+                _error: "La IA no devolvió un JSON válido. Intenta de nuevo o agrega más contexto.",
+                _rawPreview: text.substring(0, 500)
+            });
         }
-        text = text.trim();
 
-        try {
-            const parsed = JSON.parse(text);
-            // Inject resolved logo URL if missing in parsed JSON
-            if (logoUrl && !parsed.logo_url) parsed.logo_url = logoUrl;
+        console.log("[Gemini API] JSON de investigación extraído exitosamente. Claves:", Object.keys(parsed).join(", "));
+        
+        // Inject resolved logo URL if missing in parsed JSON
+        if (logoUrl && !parsed.logo_url) parsed.logo_url = logoUrl;
 
-            // --- Call 2: Generate Prompt Maestro (GEM logic) ---
-            let promptMaestro = "";
-            if (apiKey) {
-                console.log("[Gemini API] Generando Prompt Maestro...");
-                const gemSystemPrompt = `Afecta el rol de Arquitecto de Software Senior y Experto en Ingeniería de Prompts para Inteligencias Artificiales de Código (como Antigravity/Cursor). 
+        // --- Call 2: Generate Prompt Maestro (GEM logic) ---
+        let promptMaestro = "";
+        if (apiKey) {
+            console.log("[Gemini API] Generando Prompt Maestro...");
+            const gemSystemPrompt = `Afecta el rol de Arquitecto de Software Senior y Experto en Ingeniería de Prompts para Inteligencias Artificiales de Código (como Antigravity/Cursor). 
 
 Tu único objetivo es recibir un NICHO DE NEGOCIO, una NECESIDAD y el TIPO DE PÁGINA A DESARROLLAR, y devolverme un PROMPT MAESTRO HIPER-DETALLADO, EXTENSO Y TÉCNICO que yo pueda copiar y pegar directamente en Antigravity para que me genere una aplicación web de conversión brutal usando Next.js y Tailwind CSS. El tipo de proyecto es: "${tipo_pagina || "landing"}". Sin integración a Supabase ya que no tendría base de datos porque esto sería solo una Demo para presentar al potencial cliente. 
 
@@ -436,7 +499,7 @@ El prompt maestro que me devuelvas debe ser masivo y estructurado OBLIGATORIAMEN
 
 Por favor, sé extremadamente minucioso, prolijo y extenso. No resumas nada. Dame todo el código de configuración y las instrucciones estructurales para que Antigravity trabajaje en modo "Vibe Coding" sin errores.`;
 
-                const gemInput = `--- DATOS DEL NEGOCIO ---
+            const gemInput = `--- DATOS DEL NEGOCIO ---
 Nombre comercial: ${negocio || nombre}
 Tipo de proyecto solicitado: ${tipo_pagina || "landing"}
 Rubro / Lo que hace: ${parsed.que_hace || "No especificado"}
@@ -445,54 +508,46 @@ Soluciones propuestas: ${parsed.soluciones || "No especificadas"}
 Colores de marca: ${parsed.colores || "No especificados"}
 Tipografías recomendadas: ${parsed.tipografia || "No especificadas"}`;
 
-                try {
-                    const gemResponse = await fetch(
-                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-                        {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({
-                                contents: [
-                                    {
-                                        parts: [
-                                            { text: gemSystemPrompt },
-                                            { text: gemInput }
-                                        ]
-                                    }
-                                ]
-                            })
-                        }
-                    );
-
-                    if (gemResponse.ok) {
-                        const gemData = await gemResponse.json();
-                        promptMaestro = gemData.candidates?.[0]?.content?.parts?.[0]?.text || "";
-                        console.log("[Gemini API] Prompt Maestro generado con éxito.");
-                    } else {
-                        console.warn(`[Gemini API] Falló al generar Prompt Maestro: status ${gemResponse.status}`);
+            try {
+                const gemResponse = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            contents: [
+                                {
+                                    parts: [
+                                        { text: gemSystemPrompt },
+                                        { text: gemInput }
+                                    ]
+                                }
+                            ]
+                        })
                     }
-                } catch (gemErr: any) {
-                    console.error("[Gemini API] Error al generar Prompt Maestro:", gemErr.message);
-                }
-            }
+                );
 
-            parsed.prompt_maestro = promptMaestro;
-            parsed.tipo_pagina = tipo_pagina || "landing";
-            return NextResponse.json(parsed);
-        } catch {
-            console.error("Error al parsear respuesta JSON de Gemini:", text);
-            return NextResponse.json({
-                que_hace: `Negocio de ${negocio || "servicios"}.`,
-                puntos_debiles: "• Dificultad para captar clientes online.\n• Falta de optimización digital.",
-                soluciones: "• Desarrollo de Landing Page.\n• Integración de CRM.",
-                colores: "Paleta neutra sugerida (la IA no pudo generar un formato JSON válido).",
-                tipografia: "Google Fonts premium: Inter + Sora.",
-                logo_url: logoUrl,
-                prompt_maestro: "",
-                tipo_pagina: tipo_pagina || "landing",
-                rawText: text
-            });
+                if (gemResponse.ok) {
+                    const gemData = await gemResponse.json();
+                    // Also concatenate all text parts from prompt maestro response
+                    const pmParts = gemData.candidates?.[0]?.content?.parts || [];
+                    promptMaestro = pmParts
+                        .filter((p: any) => typeof p.text === "string")
+                        .map((p: any) => p.text)
+                        .join("\n");
+                    console.log(`[Gemini API] Prompt Maestro generado con éxito. Longitud: ${promptMaestro.length} chars`);
+                } else {
+                    const gemErrData = await gemResponse.json().catch(() => ({}));
+                    console.warn(`[Gemini API] Falló al generar Prompt Maestro: status ${gemResponse.status}`, gemErrData?.error?.message || "");
+                }
+            } catch (gemErr: any) {
+                console.error("[Gemini API] Error al generar Prompt Maestro:", gemErr.message);
+            }
         }
+
+        parsed.prompt_maestro = promptMaestro;
+        parsed.tipo_pagina = tipo_pagina || "landing";
+        return NextResponse.json(parsed);
     } catch (error: any) {
         console.error("[POST Route Error]:", error);
         return NextResponse.json({ error: error.message || "Error interno al procesar la IA" }, { status: 500 });
