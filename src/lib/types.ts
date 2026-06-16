@@ -154,6 +154,7 @@ export interface InfoInvestigacion {
     colores?: string;
     tipografia?: string;
     logo_url?: string;
+    prompt_maestro?: string;
 }
 
 export interface NotaSeguimiento {

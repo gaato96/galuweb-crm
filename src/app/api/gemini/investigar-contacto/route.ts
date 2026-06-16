@@ -308,6 +308,64 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown
             const parsed = JSON.parse(text);
             // Inject resolved logo URL if missing in parsed JSON
             if (logoUrl && !parsed.logo_url) parsed.logo_url = logoUrl;
+
+            // --- Call 2: Generate Prompt Maestro (GEM logic) ---
+            let promptMaestro = "";
+            if (apiKey) {
+                console.log("[Gemini API] Generando Prompt Maestro...");
+                const gemSystemPrompt = `Afecta el rol de Arquitecto de Software Senior y Experto en Ingeniería de Prompts para Inteligencias Artificiales de Código (como Antigravity/Cursor). 
+
+Tu único objetivo es recibir un NICHO DE NEGOCIO y una NECESIDAD, y devolverme un PROMPT MAESTRO HIPER-DETALLADO, EXTENSO Y TÉCNICO que yo pueda copiar y pegar directamente en Antigravity para que me genere una Web App o Landing Page de conversión brutal usando Next.js, Tailwind CSS. Sin integracion a Supabase ya que no tendria base de datos porque esto seria solo Demo para presentar al potencial cliente. 
+
+El prompt maestro que me devuelvas debe ser masivo y estructurado OBLIGATORIAMENTE con las siguientes secciones explícitas:
+1. CONTEXTO DEL NEGOCIO Y PÚBLICO OBJETIVO: Explicar el dolor del cliente final de ese nicho.
+2. ARQUITECTURA DE COMPONENTES: Lista exhaustiva de componentes modulares, limpios y responsivos.
+3. ESPECIFICACIONES DE DISEÑO (TAILWIND): Paleta de colores premium para el nicho, tipografías, espaciados y animaciones sutiles.
+4. COPIA Y CONVERSIÓN (COPYWRITING): Estructura exacta de los textos, títulos ganadores y llamadas a la acción (CTA) según el nicho.
+5. LOGICA DE CÓDIGO (NEXT.JS): Manejo de estados, hooks necesarios y validaciones de formularios.
+
+Por favor, sé extremadamente minucioso, prolijo y extenso. No resumas nada. Dame todo el código de configuración y las instrucciones estructurales para que Antigravity trabaje en modo "Vibe Coding" sin errores.`;
+
+                const gemInput = `--- DATOS DEL NEGOCIO ---
+Nombre comercial: ${negocio || nombre}
+Rubro / Lo que hace: ${parsed.que_hace || "No especificado"}
+Debilidades identificadas: ${parsed.puntos_debiles || "No especificados"}
+Soluciones propuestas: ${parsed.soluciones || "No especificadas"}
+Colores de marca: ${parsed.colores || "No especificados"}
+Tipografías recomendadas: ${parsed.tipografia || "No especificadas"}`;
+
+                try {
+                    const gemResponse = await fetch(
+                        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+                        {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({
+                                contents: [
+                                    {
+                                        parts: [
+                                            { text: gemSystemPrompt },
+                                            { text: gemInput }
+                                        ]
+                                    }
+                                ]
+                            })
+                        }
+                    );
+
+                    if (gemResponse.ok) {
+                        const gemData = await gemResponse.json();
+                        promptMaestro = gemData.candidates?.[0]?.content?.parts?.[0]?.text || "";
+                        console.log("[Gemini API] Prompt Maestro generado con éxito.");
+                    } else {
+                        console.warn(`[Gemini API] Falló al generar Prompt Maestro: status ${gemResponse.status}`);
+                    }
+                } catch (gemErr: any) {
+                    console.error("[Gemini API] Error al generar Prompt Maestro:", gemErr.message);
+                }
+            }
+
+            parsed.prompt_maestro = promptMaestro;
             return NextResponse.json(parsed);
         } catch {
             console.error("Error al parsear respuesta JSON de Gemini:", text);
@@ -318,6 +376,7 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown
                 colores: "Paleta neutra sugerida (la IA no pudo generar un formato JSON válido).",
                 tipografia: "Google Fonts premium: Inter + Sora.",
                 logo_url: logoUrl,
+                prompt_maestro: "",
                 rawText: text
             });
         }

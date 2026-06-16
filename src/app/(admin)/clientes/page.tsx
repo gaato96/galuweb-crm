@@ -279,7 +279,8 @@ function ClienteDetailModal({
         contexto: "",
         colores: "",
         tipografia: "",
-        logo_url: ""
+        logo_url: "",
+        prompt_maestro: ""
     });
     const [seguimiento, setSeguimiento] = useState("");
     const [waMsg, setWaMsg] = useState("");
@@ -298,6 +299,7 @@ function ClienteDetailModal({
                 colores: cliente.info_investigacion.colores || "",
                 tipografia: cliente.info_investigacion.tipografia || "",
                 logo_url: cliente.info_investigacion.logo_url || "",
+                prompt_maestro: cliente.info_investigacion.prompt_maestro || ""
             });
         } else {
             setInv({
@@ -308,7 +310,8 @@ function ClienteDetailModal({
                 contexto: "",
                 colores: "",
                 tipografia: "",
-                logo_url: ""
+                logo_url: "",
+                prompt_maestro: ""
             });
         }
         setWaMsg(cliente?.msg_whatsapp || "");
@@ -339,11 +342,12 @@ function ClienteDetailModal({
                 soluciones: data.soluciones || "",
                 colores: data.colores || "",
                 tipografia: data.tipografia || "",
-                logo_url: data.logo_url || ""
+                logo_url: data.logo_url || "",
+                prompt_maestro: data.prompt_maestro || ""
             };
             setInv(newInv);
             onUpdate(cliente.id, { info_investigacion: newInv });
-            toast.success("Investigación completada y guardada");
+            toast.success("Investigación completada y Prompt Maestro generado");
         } catch (error: any) {
             console.error(error);
             toast.error(error.message || "Error al investigar lead");
@@ -611,6 +615,42 @@ function ClienteDetailModal({
                                     )}
                                 </div>
                             </div>
+                            {/* Prompt Maestro para Antigravity */}
+                            {inv.prompt_maestro && (
+                                <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <div className="flex items-center gap-2 text-primary font-bold text-xs">
+                                            <Sparkles className="w-4 h-4 animate-pulse" /> PROMPT MAESTRO PARA ANTIGRAVITY
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(inv.prompt_maestro || "");
+                                                toast.success("Prompt Maestro copiado al portapapeles");
+                                            }}
+                                            className="px-3 py-1 rounded-lg text-xs bg-primary text-primary-foreground font-bold hover:opacity-95 transition-opacity"
+                                        >
+                                            Copiar Prompt
+                                        </button>
+                                    </div>
+                                    <div className="max-h-48 overflow-y-auto p-3 rounded-lg bg-secondary text-xs font-mono text-muted-foreground whitespace-pre-wrap select-all border border-border">
+                                        {inv.prompt_maestro}
+                                    </div>
+                                    <div className="flex items-center justify-between text-[10px] text-muted-foreground bg-secondary/30 p-2 rounded-lg border border-border/40">
+                                        <span className="font-semibold">Comando para auto-desplegar y registrar en CRM:</span>
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                navigator.clipboard.writeText(`node deploy-demo.js --client=${cliente.id}`);
+                                                toast.success("Comando de despliegue copiado");
+                                            }}
+                                            className="font-mono text-[9px] hover:text-foreground underline transition-colors"
+                                        >
+                                            node deploy-demo.js --client={cliente.id} (Copiar)
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                             <div className="flex gap-2 pt-2">
                                 <button onClick={saveInvestigation} className="px-3.5 py-2 rounded-lg text-xs bg-secondary border border-border text-foreground hover:bg-accent transition-colors font-medium">
                                     Guardar Investigación
@@ -728,6 +768,16 @@ function ClienteDetailModal({
                             placeholder="Mensaje de WhatsApp..."
                         />
                         <div className="flex justify-end gap-2">
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    navigator.clipboard.writeText(waMsg);
+                                    toast.success("Mensaje copiado al portapapeles");
+                                }}
+                                className="px-4 py-2 rounded-lg text-xs bg-secondary border border-border text-foreground hover:bg-accent transition-colors font-bold"
+                            >
+                                Copiar Mensaje
+                            </button>
                             {cliente.tel ? (
                                 <button
                                     onClick={handleEnviarWhatsapp}
