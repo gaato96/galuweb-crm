@@ -479,10 +479,29 @@ function ClienteDetailModal({
             });
             const data = await res.json();
             if (!res.ok) throw new Error(data.error || "Error al registrar demo");
-            if (data.cliente?.msg_whatsapp) {
-                setWaMsg(data.cliente.msg_whatsapp);
+            
+            if (data.cliente) {
+                setWaMsg(data.cliente.msg_whatsapp || "");
+                if (data.cliente.info_investigacion) {
+                    setInv({
+                        que_hace: data.cliente.info_investigacion.que_hace || "",
+                        puntos_debiles: data.cliente.info_investigacion.puntos_debiles || "",
+                        soluciones: data.cliente.info_investigacion.soluciones || "",
+                        enlace: data.cliente.info_investigacion.enlace || "",
+                        contexto: data.cliente.info_investigacion.contexto || "",
+                        colores: data.cliente.info_investigacion.colores || "",
+                        tipografia: data.cliente.info_investigacion.tipografia || "",
+                        logo_url: data.cliente.info_investigacion.logo_url || "",
+                        prompt_maestro: data.cliente.info_investigacion.prompt_maestro || "",
+                        tipo_pagina: data.cliente.info_investigacion.tipo_pagina || "landing",
+                        analisis_impacto: data.cliente.info_investigacion.analisis_impacto || "",
+                        solucion_tecnica: data.cliente.info_investigacion.solucion_tecnica || "",
+                        guion_demo: data.cliente.info_investigacion.guion_demo || ""
+                    });
+                }
+                onUpdate(cliente.id, data.cliente);
             }
-            toast.success("✅ Demo registrada y mensaje de WhatsApp generado");
+            toast.success("✅ Demo registrada, Análisis e Impacto y Guion generados");
         } catch (error: any) {
             console.error(error);
             toast.error(error.message || "Error al registrar demo");
