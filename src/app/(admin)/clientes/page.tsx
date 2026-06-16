@@ -711,7 +711,7 @@ function ClienteDetailModal({
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                const scriptPath = `${window.location.origin.includes('localhost') ? 'D:/Gutmark/Diseño Web/SaaS/Galuweb CRM/galuweb-crm' : '.'}/scripts/deploy-demo.js`;
+                                                const scriptPath = "D:/Gutmark/Diseño Web/SaaS/Galuweb CRM/galuweb-crm/scripts/deploy-demo.js";
                                                 const cmd = `node "${scriptPath}" --client=${cliente.id}`;
                                                 navigator.clipboard.writeText(cmd);
                                                 toast.success("Comando de despliegue copiado (con ruta completa al script)");
