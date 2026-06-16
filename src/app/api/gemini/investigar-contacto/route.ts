@@ -206,6 +206,75 @@ function extractJSON(raw: string): any | null {
     return null;
 }
 
+// --- Helper for Gemini API Calls with rate limit fallbacks ---
+interface GeminiCallOptions {
+    responseMimeType?: string;
+    tools?: any[];
+}
+
+async function callGemini(contents: any[], options: GeminiCallOptions = {}): Promise<string> {
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("GEMINI_API_KEY no está configurada");
+
+    const models = ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
+    let lastError = "";
+
+    for (const model of models) {
+        let attempt = 0;
+        const maxAttempts = 2;
+
+        while (attempt < maxAttempts) {
+            attempt++;
+            try {
+                console.log(`[callGemini] Llamando a ${model} (Intento ${attempt}/${maxAttempts})...`);
+                const bodyPayload: any = { contents };
+                if (options.tools && options.tools.length > 0) {
+                    bodyPayload.tools = options.tools;
+                } else if (options.responseMimeType) {
+                    bodyPayload.generationConfig = { responseMimeType: options.responseMimeType };
+                }
+
+                const response = await fetch(
+                    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+                    {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify(bodyPayload)
+                    }
+                );
+
+                if (response.ok) {
+                    const data = await response.json();
+                    const allParts = data.candidates?.[0]?.content?.parts || [];
+                    const text = allParts
+                        .filter((p: any) => typeof p.text === "string")
+                        .map((p: any) => p.text)
+                        .join("\n");
+                    return text;
+                } else {
+                    const data = await response.json().catch(() => ({}));
+                    const errMsg = data.error?.message || `Status ${response.status}`;
+                    console.warn(`[callGemini] Intento ${attempt} con ${model} falló: ${errMsg}`);
+                    lastError = errMsg;
+                    if (response.status === 429) {
+                        // Rate limit, proceed immediately to the next fallback model
+                        break;
+                    }
+                }
+            } catch (err: any) {
+                console.error(`[callGemini] Error de red con ${model}:`, err.message);
+                lastError = err.message;
+            }
+
+            if (attempt < maxAttempts) {
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+            }
+        }
+    }
+
+    throw new Error(`Todos los modelos de Gemini fallaron. Último error: ${lastError}`);
+}
+
 // --- Main Route ---
 
 export async function POST(req: Request) {
@@ -295,15 +364,13 @@ export async function POST(req: Request) {
 
         console.log(`[Investigación IA] Screenshot exitoso: ${isScreenshotSuccessful ? "SÍ" : "NO"}`);
 
-        // --- Build Gemini Request Config (Grounding vs standard visual call) ---
-        let contents: any[] = [];
-        let tools: any[] = [];
+        let parsed: any = null;
 
         if (isInstagram && !isScreenshotSuccessful) {
-            // Instagram profile investigation using Google Search Grounding
+            // STEP 1: Grounded search research (returns freeform text description)
             const username = extractInstagramUsername(link) || negocio || nombre;
-            const groundingPrompt = `Actúa como un diseñador UI/UX experto, consultor de negocios y estratega digital para la agencia Galuweb.
-Investiga el perfil de Instagram del usuario/negocio "${username}" (enlace: ${link}) usando la búsqueda de Google.
+            const groundingPrompt = `Actúa como un investigador digital para la agencia Galuweb.
+Investiga en la web el perfil de Instagram del usuario/negocio "${username}" (enlace: ${link}).
 Busca y extrae la siguiente información real:
 1. ¿A qué se dedica exactamente este negocio?
 2. ¿Cuántos seguidores tiene aproximadamente?
@@ -311,29 +378,63 @@ Busca y extrae la siguiente información real:
 4. ¿Qué sitio web tiene enlazado en su biografía (si hay alguno)?
 5. ¿Cuál es el estilo visual de sus publicaciones (colores predominantes, tipo de fotos, estética general)?
 
---- DATOS ADICIONALES DEL CLIENTE ---
+Describe todo lo que encuentres en formato de texto libre narrativo. No intentes escribir JSON ni bloques de código.`;
+
+            let researchText = "";
+            try {
+                console.log("[Investigar Contacto] Ejecutando investigación de Instagram con Grounding...");
+                researchText = await callGemini([{ parts: [{ text: groundingPrompt }] }], {
+                    tools: [{ googleSearch: {} }]
+                });
+                console.log(`[Investigar Contacto] Investigación finalizada. Longitud: ${researchText.length} chars.`);
+            } catch (err: any) {
+                console.warn("[Investigar Contacto] Error en la investigación con Grounding:", err.message);
+                researchText = "No se pudo obtener información por búsqueda web debido a un error o límite de cuota.";
+            }
+
+            // STEP 2: Structure the research into a valid JSON object (forces JSON output without tools)
+            const structurePrompt = `Actúa como un diseñador UI/UX experto, consultor de negocios y estratega digital para la agencia Galuweb.
+Recibimos un prospecto/lead comercial de Instagram.
+A continuación tienes los resultados de la investigación por búsqueda (si los hay) y los datos provistos manualmente por el usuario.
+
+--- RESULTADOS DE INVESTIGACIÓN (BÚSQUEDA GOOGLE) ---
+${researchText}
+
+--- DATOS ADICIONALES DEL CLIENTE (INGRESADOS POR EL USUARIO) ---
 Nombre del contacto: ${nombre}
 Negocio: ${negocio || "No especificado"}
-Observaciones/Anotaciones provistas por el usuario: ${contexto || "Ninguna (si el usuario escribió algo aquí sobre el perfil, dale prioridad máxima)"}
+Observaciones/Anotaciones del usuario: ${contexto || "Ninguna (si el usuario escribió algo aquí sobre el perfil, dale prioridad máxima)"}
 Tipo de proyecto seleccionado: ${tipo_pagina || "landing"}
+Enlace Instagram: ${link}
 
 --- TAREA ---
-Identifica al menos 3 puntos débiles u oportunidades de mejora en su presencia digital (por ejemplo, si no tiene web, si su link en bio está roto o falta, si no automatiza reservas, si su catálogo es manual, si le falta captación online, etc.) y propón soluciones de desarrollo que Galuweb puede construir para este tipo de proyecto: "${tipo_pagina || "landing"}".
+1. Analiza el nicho/rubro y lo que hace este negocio en base a los datos anteriores. Si la investigación de búsqueda falló o está vacía (o no contiene datos de este perfil), deduce lo que hace basándote en el nombre comercial, el enlace de Instagram y las observaciones del usuario.
+2. Identifica al menos 3 puntos débiles u oportunidades de mejora en su presencia digital (por ejemplo, si no tiene web, si su link en bio está roto o falta, si no automatiza reservas, si su catálogo es manual, si le falta captación online, etc.) y propón soluciones específicas orientadas al tipo de proyecto seleccionado: "${tipo_pagina || "landing"}".
+3. Propón una paleta de colores coherente y profesional para el negocio (si la investigación no detectó colores reales, sugiere una paleta premium acorde al rubro médico/comercial/estético de este lead). Provee nombres de color y códigos hexadecimales reales.
+4. Sugiere tipografías de Google Fonts premium adecuadas.
 
-Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown:
+Responde ÚNICAMENTE con un objeto JSON válido que cumpla con el siguiente esquema (no incluyas markdown, solo el objeto JSON):
 {
   "que_hace": "Resumen conciso y profesional de la actividad del negocio y datos del perfil como seguidores o bio (máx 80 palabras).",
   "puntos_debiles": "Al menos 3 puntos débiles como lista de viñetas cortas y claras.",
   "soluciones": "Soluciones específicas de diseño/desarrollo que Galuweb puede implementar orientadas al tipo de proyecto '${tipo_pagina || "landing"}', como lista de viñetas.",
-  "colores": "Paleta de colores dominantes que se observan en las imágenes/posteos de su perfil de Instagram, con nombres y hex (ej: #E8A598 Rosa Salmón, #4A3E3D Marrón Oscuro). Provee al menos 3 colores reales.",
-  "tipografia": "Tipografías o estilos tipográficos sugeridos (Google Fonts premium) que vayan en sintonía con su marca y estilo de Instagram.",
+  "colores": "Paleta de colores dominantes con nombres y hex (ej: #E8A598 Rosa Salmón, #4A3E3D Marrón Oscuro). Mínimo 3 colores.",
+  "tipografia": "Tipografías o estilos tipográficos sugeridos (Google Fonts premium) que vayan en sintonía con su rubro y estética.",
   "logo_url": "${logoUrl || ""}"
 }`;
 
-            contents = [{ parts: [{ text: groundingPrompt }] }];
-            tools = [{ googleSearch: {} }];
+            try {
+                console.log("[Investigar Contacto] Estructurando investigación de Instagram en JSON...");
+                const jsonText = await callGemini([{ parts: [{ text: structurePrompt }] }], {
+                    responseMimeType: "application/json"
+                });
+                parsed = extractJSON(jsonText);
+            } catch (err: any) {
+                console.error("[Investigar Contacto] Error al estructurar en JSON:", err.message);
+            }
+
         } else {
-            // Standard analysis with screenshot
+            // Standard analysis (with screenshot or direct website review)
             const visualTask = imageBase64
                 ? `4. ANÁLISIS DE IDENTIDAD VISUAL — Analiza la imagen adjunta (${imageDescription}) con mucho detalle:
     - Paleta de colores: Identifica los COLORES REALES y DOMINANTES que ves en la imagen. Nombra cada color descriptivamente y provee su código hexadecimal exacto aproximado (ej: "Fondo crema cálido #F5ECD7", "Verde salvia principal #7D9B76", "Texto marrón oscuro #3B2A1A"). Lista al menos 3 colores reales.
@@ -382,87 +483,21 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown
                 });
             }
             parts.push({ text: textPrompt });
-            contents = [{ parts }];
-        }
 
-        // --- Retry loop for Gemini API ---
-        let attempt = 0;
-        let response: any = null;
-        let data: any = null;
-        let success = false;
-        const maxAttempts = 3;
-
-        while (attempt < maxAttempts && !success) {
-            attempt++;
             try {
-                console.log(`[Gemini API] Llamando a gemini-2.5-flash (Intento ${attempt}/${maxAttempts})...`);
-                const bodyPayload: any = {
-                    contents
-                };
-                if (tools.length > 0) {
-                    bodyPayload.tools = tools;
-                } else {
-                    bodyPayload.generationConfig = { responseMimeType: "application/json" };
-                }
-
-                response = await fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify(bodyPayload)
-                    }
-                );
-                
-                data = await response.json();
-                
-                if (response.ok) {
-                    success = true;
-                    console.log(`[Gemini API] Petición exitosa en el intento ${attempt}`);
-                } else {
-                    const errMsg = data.error?.message || "Unknown error";
-                    console.warn(`[Gemini API] Intento ${attempt} falló (Status ${response.status}): ${errMsg}`);
-                    
-                    if (attempt < maxAttempts) {
-                        const delay = attempt * 1500;
-                        console.log(`[Gemini API] Esperando ${delay}ms antes del reintento...`);
-                        await new Promise((resolve) => setTimeout(resolve, delay));
-                    }
-                }
+                console.log("[Investigar Contacto] Ejecutando análisis visual estándar...");
+                const jsonText = await callGemini([{ parts }], {
+                    responseMimeType: "application/json"
+                });
+                parsed = extractJSON(jsonText);
             } catch (err: any) {
-                console.error(`[Gemini API] Error de red en intento ${attempt}:`, err.message);
-                if (attempt < maxAttempts) {
-                    await new Promise((resolve) => setTimeout(resolve, attempt * 1500));
-                }
+                console.error("[Investigar Contacto] Error en análisis visual estándar:", err.message);
             }
         }
 
-        if (!success) {
-            const errMsg = data?.error?.message || "No se pudo comunicar con Gemini después de 3 intentos.";
-            console.error("[Gemini API] Todas las llamadas fallaron. Último error:", errMsg);
-            return NextResponse.json({ error: errMsg }, { status: response ? response.status : 500 });
-        }
-
-        // --- Extract text from ALL parts (grounding returns multiple parts) ---
-        const allParts = data.candidates?.[0]?.content?.parts || [];
-        const text = allParts
-            .filter((p: any) => typeof p.text === "string")
-            .map((p: any) => p.text)
-            .join("\n");
-        
-        console.log(`[Gemini API] Respuesta recibida. Partes: ${allParts.length}, Texto total: ${text.length} chars`);
-        if (text.length < 50) {
-            console.warn(`[Gemini API] Respuesta muy corta, texto completo:`, text);
-        } else {
-            console.log(`[Gemini API] Primeros 300 chars:`, text.substring(0, 300));
-        }
-
-        const parsed = extractJSON(text);
-        
+        // --- Check if parsing succeeded and format defensively ---
         if (!parsed) {
-            console.error("[Gemini API] No se pudo extraer JSON de la respuesta de investigación. Texto completo:", text);
-            // Even if JSON parsing failed, return what we have with the raw text
-            // so the user sees something and can manually fill in
+            console.error("[Investigar Contacto] No se pudo obtener o extraer un JSON de investigación válido.");
             return NextResponse.json({
                 que_hace: `Negocio de ${negocio || "servicios"}.`,
                 puntos_debiles: "• No se pudo analizar automáticamente. Revisa el enlace o agrega más contexto en las observaciones.",
@@ -472,21 +507,38 @@ Responde ÚNICAMENTE con un objeto JSON válido, sin bloques de código markdown
                 logo_url: logoUrl,
                 prompt_maestro: "",
                 tipo_pagina: tipo_pagina || "landing",
-                _error: "La IA no devolvió un JSON válido. Intenta de nuevo o agrega más contexto.",
-                _rawPreview: text.substring(0, 500)
+                _error: "La IA no devolvió un JSON válido. Intenta de nuevo o agrega más contexto."
             });
         }
 
-        console.log("[Gemini API] JSON de investigación extraído exitosamente. Claves:", Object.keys(parsed).join(", "));
+        // Defensive formatting: convert any arrays/objects to strings for DB compatibility
+        if (parsed.puntos_debiles && Array.isArray(parsed.puntos_debiles)) {
+            parsed.puntos_debiles = parsed.puntos_debiles.map((p: string) => `• ${p.trim()}`).join("\n");
+        }
+        if (parsed.soluciones && Array.isArray(parsed.soluciones)) {
+            parsed.soluciones = parsed.soluciones.map((s: string) => `• ${s.trim()}`).join("\n");
+        }
+        if (parsed.colores && typeof parsed.colores === "object" && parsed.colores !== null) {
+            parsed.colores = Object.entries(parsed.colores)
+                .map(([name, hex]) => `${hex} ${name}`)
+                .join(", ");
+        }
+        if (parsed.tipografia && typeof parsed.tipografia === "object" && parsed.tipografia !== null) {
+            parsed.tipografia = Object.entries(parsed.tipografia)
+                .map(([name, desc]) => `${name}: ${desc}`)
+                .join(" | ");
+        }
+
+        console.log("[Investigar Contacto] JSON de investigación extraído y formateado exitosamente. Claves:", Object.keys(parsed).join(", "));
         
         // Inject resolved logo URL if missing in parsed JSON
         if (logoUrl && !parsed.logo_url) parsed.logo_url = logoUrl;
 
         // --- Call 2: Generate Prompt Maestro (GEM logic) ---
         let promptMaestro = "";
-        if (apiKey) {
-            console.log("[Gemini API] Generando Prompt Maestro...");
-            const gemSystemPrompt = `Afecta el rol de Arquitecto de Software Senior y Experto en Ingeniería de Prompts para Inteligencias Artificiales de Código (como Antigravity/Cursor). 
+        
+        console.log("[Investigar Contacto] Generando Prompt Maestro...");
+        const gemSystemPrompt = `Afecta el rol de Arquitecto de Software Senior y Experto en Ingeniería de Prompts para Inteligencias Artificiales de Código (como Antigravity/Cursor). 
 
 Tu único objetivo es recibir un NICHO DE NEGOCIO, una NECESIDAD y el TIPO DE PÁGINA A DESARROLLAR, y devolverme un PROMPT MAESTRO HIPER-DETALLADO, EXTENSO Y TÉCNICO que yo pueda copiar y pegar directamente en Antigravity para que me genere una aplicación web de conversión brutal usando Next.js y Tailwind CSS. El tipo de proyecto es: "${tipo_pagina || "landing"}". Sin integración a Supabase ya que no tendría base de datos porque esto sería solo una Demo para presentar al potencial cliente. 
 
@@ -499,7 +551,7 @@ El prompt maestro que me devuelvas debe ser masivo y estructurado OBLIGATORIAMEN
 
 Por favor, sé extremadamente minucioso, prolijo y extenso. No resumas nada. Dame todo el código de configuración y las instrucciones estructurales para que Antigravity trabajaje en modo "Vibe Coding" sin errores.`;
 
-            const gemInput = `--- DATOS DEL NEGOCIO ---
+        const gemInput = `--- DATOS DEL NEGOCIO ---
 Nombre comercial: ${negocio || nombre}
 Tipo de proyecto solicitado: ${tipo_pagina || "landing"}
 Rubro / Lo que hace: ${parsed.que_hace || "No especificado"}
@@ -508,41 +560,18 @@ Soluciones propuestas: ${parsed.soluciones || "No especificadas"}
 Colores de marca: ${parsed.colores || "No especificados"}
 Tipografías recomendadas: ${parsed.tipografia || "No especificadas"}`;
 
-            try {
-                const gemResponse = await fetch(
-                    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
-                    {
-                        method: "POST",
-                        headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({
-                            contents: [
-                                {
-                                    parts: [
-                                        { text: gemSystemPrompt },
-                                        { text: gemInput }
-                                    ]
-                                }
-                            ]
-                        })
-                    }
-                );
-
-                if (gemResponse.ok) {
-                    const gemData = await gemResponse.json();
-                    // Also concatenate all text parts from prompt maestro response
-                    const pmParts = gemData.candidates?.[0]?.content?.parts || [];
-                    promptMaestro = pmParts
-                        .filter((p: any) => typeof p.text === "string")
-                        .map((p: any) => p.text)
-                        .join("\n");
-                    console.log(`[Gemini API] Prompt Maestro generado con éxito. Longitud: ${promptMaestro.length} chars`);
-                } else {
-                    const gemErrData = await gemResponse.json().catch(() => ({}));
-                    console.warn(`[Gemini API] Falló al generar Prompt Maestro: status ${gemResponse.status}`, gemErrData?.error?.message || "");
+        try {
+            promptMaestro = await callGemini([
+                {
+                    parts: [
+                        { text: gemSystemPrompt },
+                        { text: gemInput }
+                    ]
                 }
-            } catch (gemErr: any) {
-                console.error("[Gemini API] Error al generar Prompt Maestro:", gemErr.message);
-            }
+            ]);
+            console.log(`[Investigar Contacto] Prompt Maestro generado con éxito. Longitud: ${promptMaestro.length} chars`);
+        } catch (gemErr: any) {
+            console.error("[Investigar Contacto] Error al generar Prompt Maestro:", gemErr.message);
         }
 
         parsed.prompt_maestro = promptMaestro;
