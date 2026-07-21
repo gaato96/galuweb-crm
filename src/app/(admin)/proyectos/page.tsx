@@ -3,15 +3,15 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
-    ExternalLink, Eye, X, CheckCircle2, Circle, Plus, Copy,
+    ExternalLink, Eye, X, CheckCircle2, Plus, Copy,
     Layers, ScrollText, Zap, Globe, Users, Tag,
-    ChevronRight, Trash2, CalendarDays, Clock, CheckSquare, FileText, Upload
+    Trash2, CalendarDays, Clock, CheckSquare, FileText, Upload
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { proyectosStore, tareasStore, clientesStore, logsProyectoStore, storageStore } from "@/lib/store";
 import { toast } from "sonner";
 import type { Proyecto, Tarea, Cliente, FaseProyecto, LogProyecto } from "@/lib/types";
-import { FASES_POR_TIPO, TIPO_PROYECTO_LABELS, ESTADO_TAREA_COLORS, PRIORIDAD_COLORS } from "@/lib/types";
+import { FASES_POR_TIPO, TIPO_PROYECTO_LABELS, PRIORIDAD_COLORS } from "@/lib/types";
 import Link from "next/link";
 
 // ── Utilities ────────────────────────────────────────────────────────────────
@@ -955,7 +955,8 @@ function ProyectosContent() {
                 tareasStore.getAll(),
                 clientesStore.getAll(),
             ]);
-            setProyectos(p);
+            // Filter strictly client projects
+            setProyectos(p.filter(item => !item.es_interno && item.tipo_proyecto !== 'saas'));
             setTareas(t);
             setClientes(c);
         } catch {
@@ -978,8 +979,8 @@ function ProyectosContent() {
         <div className="space-y-5 animate-fade-in">
             <div className="flex items-center justify-between">
                 <div>
-                    <h2 className="text-2xl font-bold text-foreground">Proyectos</h2>
-                    <p className="text-sm text-muted-foreground">{proyectos.filter((p) => p.estado === "activo").length} proyectos activos</p>
+                    <h2 className="text-2xl font-bold text-foreground">Proyectos Clientes</h2>
+                    <p className="text-sm text-muted-foreground">{proyectos.filter((p) => p.estado === "activo").length} proyectos de clientes activos</p>
                 </div>
                 <div className="flex items-center gap-3">
                     <button onClick={() => setShowNew(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-all glow-primary">

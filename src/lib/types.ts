@@ -14,12 +14,21 @@ export type EtapaCliente =
     | "no_interesado";
 
 export type TipoProyecto = "landing" | "institucional" | "ecommerce" | "webapp" | "saas";
+export type TipoProyectoPropio = "web_propia" | "software" | "saas";
 export type EstadoProyecto = "activo" | "pausado" | "finalizado";
 
 export type Prioridad = "baja" | "media" | "alta";
 export type EstadoTarea = "pendiente" | "en_progreso" | "completada";
+export type TipoTarea = "puntual" | "recurrente";
+export type FrecuenciaRecurrente = "diaria" | "semanal" | "mensual";
 export type CategoriaTarea = "diseno" | "dev" | "marketing" | "contenido" | "seo" | "otro";
 export type BloqueTarea = "construccion" | "crecimiento";
+
+export interface SubpasoTarea {
+    id: string;
+    texto: string;
+    completado: boolean;
+}
 
 export type EstadoCotizacion = "borrador" | "enviada" | "aceptada" | "rechazada";
 export type TipoCotizacion = "web" | "webapp";
@@ -181,6 +190,10 @@ export interface Proyecto {
     descripcion: string;
     fecha_entrega?: string;
     es_interno: boolean;
+    tipo_propio?: TipoProyectoPropio;
+    stack_tecnologico?: string;
+    notas_negocio?: string;
+    url_producto?: string;
     accesos: { servicio: string; url: string; usuario: string; password: string; }[];
     figma_aprobado?: boolean;
     figma_comentarios?: string;
@@ -205,6 +218,10 @@ export interface Tarea {
     categoria: CategoriaTarea;
     bloque?: BloqueTarea;
     proyecto?: Proyecto;
+    pasos?: SubpasoTarea[];
+    tipo_tarea?: TipoTarea;
+    frecuencia_recurrente?: FrecuenciaRecurrente;
+    ultima_ejecucion?: string;
     // Marketing/Content fields (solo para módulo de marketing)
     idea_contenido?: string;
     hook?: string;

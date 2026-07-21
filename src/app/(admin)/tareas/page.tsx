@@ -59,22 +59,39 @@ function TareaDetailModal({
     const [bloque, setBloque] = useState<BloqueTarea | undefined>(tarea.bloque);
     const [fechaVenc, setFechaVenc] = useState(tarea.fecha_vencimiento || "");
     const [horaRec, setHoraRec] = useState(tarea.hora_recordatorio || "");
+    const [pasos, setPasos] = useState<{ id: string; texto: string; completado: boolean }[]>(tarea.pasos || []);
+    const [nuevoPasoTexto, setNuevoPasoTexto] = useState("");
     const [saving, setSaving] = useState(false);
     const proyecto = tarea.proyecto_id ? proyectos.find((p) => p.id === tarea.proyecto_id) : null;
     const gcalUrl = generarUrlGoogleCalendar(tarea.titulo, descripcion, fechaVenc, horaRec);
 
+    const handleAddPaso = () => {
+        if (!nuevoPasoTexto.trim()) return;
+        const nuevo = { id: Math.random().toString(36).substring(2, 9), texto: nuevoPasoTexto.trim(), completado: false };
+        setPasos([...pasos, nuevo]);
+        setNuevoPasoTexto("");
+    };
+
+    const handleTogglePaso = (id: string) => {
+        setPasos(pasos.map(p => p.id === id ? { ...p, completado: !p.completado } : p));
+    };
+
+    const handleRemovePaso = (id: string) => {
+        setPasos(pasos.filter(p => p.id !== id));
+    };
+
     const handleSave = async () => {
         setSaving(true);
         try {
-            const updateData: any = {};
-            if (descripcion !== (tarea.descripcion || "")) updateData.descripcion = descripcion;
-            if (bloque !== tarea.bloque) updateData.bloque = bloque;
-            if (fechaVenc !== (tarea.fecha_vencimiento || "")) updateData.fecha_vencimiento = fechaVenc || null;
-            if (horaRec !== (tarea.hora_recordatorio || "")) updateData.hora_recordatorio = horaRec || null;
+            const updateData: any = {
+                descripcion,
+                bloque: bloque || null,
+                fecha_vencimiento: fechaVenc || null,
+                hora_recordatorio: horaRec || null,
+                pasos: pasos
+            };
 
-            if (Object.keys(updateData).length > 0) {
-                await tareasStore.update(tarea.id, updateData);
-            }
+            await tareasStore.update(tarea.id, updateData);
             toast.success("Tarea actualizada");
             onUpdated();
             onClose();
@@ -173,6 +190,57 @@ function TareaDetailModal({
                         value={descripcion}
                         onChange={(e) => setDescripcion(e.target.value)}
                     />
+                </div>
+
+                {/* Subpasos / Checklist */}
+                <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
+                            <CheckSquare className="w-3.5 h-3.5" /> Checklist de Subpasos {pasos.length > 0 && `(${pasos.filter(p => p.completado).length}/${pasos.length})`}
+                        </label>
+                    </div>
+
+                    <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
+                        {pasos.map((paso) => (
+                            <div key={paso.id} className="flex items-center gap-2 p-2 rounded-lg bg-secondary/30 border border-border text-xs">
+                                <button
+                                    type="button"
+                                    onClick={() => handleTogglePaso(paso.id)}
+                                    className="shrink-0 text-muted-foreground hover:text-primary"
+                                >
+                                    {paso.completado ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Circle className="w-4 h-4 text-muted-foreground" />}
+                                </button>
+                                <span className={cn("flex-1 text-xs", paso.completado ? "line-through text-muted-foreground" : "text-foreground")}>
+                                    {paso.texto}
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => handleRemovePaso(paso.id)}
+                                    className="p-1 text-muted-foreground hover:text-red-400"
+                                >
+                                    <X className="w-3 h-3" />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+
+                    <div className="flex gap-2">
+                        <input
+                            type="text"
+                            value={nuevoPasoTexto}
+                            onChange={(e) => setNuevoPasoTexto(e.target.value)}
+                            placeholder="Agregar un subpaso específico (ej: Exportar SVGs)..."
+                            className="flex-1 h-8 px-3 rounded-lg bg-secondary/50 border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
+                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddPaso(); } }}
+                        />
+                        <button
+                            type="button"
+                            onClick={handleAddPaso}
+                            className="px-3 h-8 rounded-lg bg-secondary border border-border text-xs font-bold text-foreground hover:bg-secondary/80"
+                        >
+                            + Paso
+                        </button>
+                    </div>
                 </div>
 
                 {/* Bloque selector */}
@@ -396,6 +464,11 @@ function TareasContent() {
                                 {t.titulo}
                             </p>
                             {hasDesc && <FileText className="w-3 h-3 text-muted-foreground/60 shrink-0" />}
+                            {t.pasos && t.pasos.length > 0 && (
+                                <span className="text-[10px] px-1.5 py-0.2 bg-primary/10 text-primary border border-primary/20 rounded font-semibold shrink-0">
+                                    {t.pasos.filter(p => p.completado).length}/{t.pasos.length} pasos
+                                </span>
+                            )}
                         </div>
                         {proyecto && <p className="text-[11px] text-muted-foreground">{proyecto.nombre}</p>}
                     </div>

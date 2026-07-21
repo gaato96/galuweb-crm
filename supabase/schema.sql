@@ -145,4 +145,16 @@ CREATE INDEX idx_ideas_estado ON ideas(estado);
 -- Disable Row Level Security (RLS) for ideas to match other CRM tables
 ALTER TABLE ideas DISABLE ROW LEVEL SECURITY;
 
+-- Updates for Proyectos Propios & Tareas Recurrentes / Pasos
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS tipo_propio TEXT DEFAULT 'web_propia';
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS stack_tecnologico TEXT DEFAULT '';
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS notas_negocio TEXT DEFAULT '';
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS url_producto TEXT DEFAULT '';
+
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS pasos JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS tipo_tarea TEXT DEFAULT 'puntual';
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS frecuencia_recurrente TEXT DEFAULT NULL;
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS ultima_ejecucion TIMESTAMPTZ DEFAULT NULL;
+
+
 
