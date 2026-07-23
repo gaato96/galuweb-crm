@@ -6,13 +6,25 @@ const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY || "";
 // ─── Extraer place_id de una URL de Google Maps ──────────────────────────────
 
 function extractPlaceIdFromUrl(url: string): string | null {
-    // Formato: ?q=place_id:ChIJ...  o  place_id:ChIJ...
-    const matchQ = url.match(/place_id[=:]([A-Za-z0-9_-]+)/);
+    // Decodificar URL por si tiene caracteres codificados
+    let decodedUrl = url;
+    try { decodedUrl = decodeURIComponent(url); } catch { /* usar original */ }
+
+    // Formato 1: ?q=place_id:ChIJ...  o  place_id=ChIJ...
+    const matchQ = decodedUrl.match(/place_id[=:]([A-Za-z0-9_-]{10,})/);
     if (matchQ) return matchQ[1];
 
-    // Formato data: !1sChIJ... (en URLs largas de Google Maps)
-    const matchData = url.match(/!1s(ChIJ[A-Za-z0-9_-]+)/);
-    if (matchData) return matchData[1];
+    // Formato 2: !19sChIJ... (formato moderno de Google Maps)
+    const match19 = decodedUrl.match(/!19s(ChIJ[A-Za-z0-9_-]+)/);
+    if (match19) return match19[1];
+
+    // Formato 3: !1sChIJ... (formato antiguo de Google Maps)
+    const match1 = decodedUrl.match(/!1s(ChIJ[A-Za-z0-9_-]+)/);
+    if (match1) return match1[1];
+
+    // Formato 4: Fallback genérico — cualquier ChIJ... con al menos 10 chars en la URL
+    const matchGeneric = decodedUrl.match(/\b(ChIJ[A-Za-z0-9_-]{10,})/);
+    if (matchGeneric) return matchGeneric[1];
 
     return null;
 }
