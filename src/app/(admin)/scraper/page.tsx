@@ -47,6 +47,7 @@ export default function ScraperPage() {
     // Formulario de Búsqueda
     const [rubro, setRubro] = useState("");
     const [lugar, setLugar] = useState("");
+    const [limite, setLimite] = useState(30);
     const [loading, setLoading] = useState(false);
     const [loadingStep, setLoadingStep] = useState("");
 
@@ -99,7 +100,7 @@ export default function ScraperPage() {
             const res = await fetch("/api/scraper", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ rubro: targetRubro, lugar: lugar.trim(), limite: 15 }),
+                body: JSON.stringify({ rubro: targetRubro, lugar: lugar.trim(), limite: Number(limite) }),
             });
 
             const json = await res.json();
@@ -270,7 +271,7 @@ export default function ScraperPage() {
             {/* Panel de Búsqueda */}
             <div className="bg-card border border-border rounded-2xl p-5 shadow-lg space-y-4">
                 <form onSubmit={handleBuscar} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
-                    <div className="md:col-span-5 relative">
+                    <div className="md:col-span-4 relative">
                         <label className="text-xs font-semibold text-muted-foreground mb-1 block px-1">
                             Rubro o Categoría del Negocio
                         </label>
@@ -280,13 +281,13 @@ export default function ScraperPage() {
                                 type="text"
                                 value={rubro}
                                 onChange={(e) => setRubro(e.target.value)}
-                                placeholder="Ej: Gimnasios, Inmobiliarias, Dentistas..."
+                                placeholder="Ej: Comida, Gimnasios, Dentistas..."
                                 className="w-full pl-10 pr-4 py-2.5 bg-background border border-input rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground/60"
                             />
                         </div>
                     </div>
 
-                    <div className="md:col-span-5 relative">
+                    <div className="md:col-span-4 relative">
                         <label className="text-xs font-semibold text-muted-foreground mb-1 block px-1">
                             Ubicación / Lugar
                         </label>
@@ -296,10 +297,25 @@ export default function ScraperPage() {
                                 type="text"
                                 value={lugar}
                                 onChange={(e) => setLugar(e.target.value)}
-                                placeholder="Ej: Buenos Aires, Córdoba, Madrid, Pilar..."
+                                placeholder="Ej: San Miguel de Tucumán, Córdoba..."
                                 className="w-full pl-10 pr-4 py-2.5 bg-background border border-input rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground/60"
                             />
                         </div>
+                    </div>
+
+                    <div className="md:col-span-2 relative">
+                        <label className="text-xs font-semibold text-muted-foreground mb-1 block px-1">
+                            Cantidad de Resultados
+                        </label>
+                        <select
+                            value={limite}
+                            onChange={(e) => setLimite(Number(e.target.value))}
+                            className="w-full px-3 py-2.5 bg-background border border-input rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all"
+                        >
+                            <option value={15}>15 Resultados</option>
+                            <option value={30}>30 Resultados</option>
+                            <option value={50}>50 Resultados</option>
+                        </select>
                     </div>
 
                     <div className="md:col-span-2 pt-5">
@@ -540,10 +556,22 @@ export default function ScraperPage() {
 
                                     {/* Información de Dirección y Sitio Web */}
                                     <div className="space-y-2 text-xs">
-                                        <p className="text-muted-foreground flex items-start gap-1.5">
-                                            <MapPin className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
-                                            <span className="line-clamp-2">{prospecto.direccion}</span>
-                                        </p>
+                                        <div className="flex items-start justify-between gap-1 text-muted-foreground">
+                                            <p className="flex items-start gap-1.5 line-clamp-2 flex-1">
+                                                <MapPin className="w-3.5 h-3.5 text-primary shrink-0 mt-0.5" />
+                                                <span>{prospecto.direccion}</span>
+                                            </p>
+                                            <a
+                                                href={prospecto.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(prospecto.nombre + " " + prospecto.direccion)}`}
+                                                target="_blank"
+                                                rel="noreferrer"
+                                                className="inline-flex items-center gap-1 text-[11px] font-bold text-sky-400 hover:text-sky-300 hover:underline shrink-0 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20"
+                                                title="Ver ubicación exacta en Google Maps"
+                                            >
+                                                <span>📍 Google Maps</span>
+                                                <ExternalLink className="w-2.5 h-2.5" />
+                                            </a>
+                                        </div>
 
                                         {/* Badge Sitio Web vs Oportunidad */}
                                         <div>
@@ -725,10 +753,19 @@ export default function ScraperPage() {
                                                 <td className="p-3.5">
                                                     {prospecto.rating ? `⭐ ${prospecto.rating}` : "-"}
                                                 </td>
-                                                <td className="p-3.5 text-right space-x-2">
+                                                <td className="p-3.5 text-right space-x-2 whitespace-nowrap">
+                                                    <a
+                                                        href={prospecto.mapsUrl || `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(prospecto.nombre + " " + prospecto.direccion)}`}
+                                                        target="_blank"
+                                                        rel="noreferrer"
+                                                        className="px-2.5 py-1 rounded bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 font-semibold text-xs border border-sky-500/30 inline-flex items-center gap-1"
+                                                        title="Ver en Google Maps"
+                                                    >
+                                                        <span>📍 Maps</span>
+                                                    </a>
                                                     <button
                                                         onClick={() => handleCopyPhone(prospecto)}
-                                                        className="p-1.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground"
+                                                        className="p-1.5 rounded bg-secondary hover:bg-secondary/80 text-muted-foreground hover:text-foreground inline-flex items-center"
                                                         title="Copiar Teléfono"
                                                     >
                                                         <Copy className="w-3.5 h-3.5" />
