@@ -6,26 +6,48 @@ const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY || "";
 // ─── Extraer place_id de una URL de Google Maps ──────────────────────────────
 
 function extractPlaceIdFromUrl(url: string): string | null {
-    // Decodificar URL por si tiene caracteres codificados
     let decodedUrl = url;
     try { decodedUrl = decodeURIComponent(url); } catch { /* usar original */ }
 
-    // Formato 1: ?q=place_id:ChIJ...  o  place_id=ChIJ...
     const matchQ = decodedUrl.match(/place_id[=:]([A-Za-z0-9_-]{10,})/);
     if (matchQ) return matchQ[1];
 
-    // Formato 2: !19sChIJ... (formato moderno de Google Maps)
     const match19 = decodedUrl.match(/!19s(ChIJ[A-Za-z0-9_-]+)/);
     if (match19) return match19[1];
 
-    // Formato 3: !1sChIJ... (formato antiguo de Google Maps)
     const match1 = decodedUrl.match(/!1s(ChIJ[A-Za-z0-9_-]+)/);
     if (match1) return match1[1];
 
-    // Formato 4: Fallback genérico — cualquier ChIJ... con al menos 10 chars en la URL
     const matchGeneric = decodedUrl.match(/\b(ChIJ[A-Za-z0-9_-]{10,})/);
     if (matchGeneric) return matchGeneric[1];
 
+    return null;
+}
+
+// ─── Extraer coordenadas de la URL ────────────────────────────────────────────
+
+function extractCoordsFromUrl(url: string): { lat: number; lng: number } | null {
+    // Formato: !3d-26.837!4d-65.220 (en el data parameter)
+    const latMatch = url.match(/!3d(-?\d+\.\d+)/);
+    const lngMatch = url.match(/!4d(-?\d+\.\d+)/);
+    if (latMatch && lngMatch) {
+        return { lat: parseFloat(latMatch[1]), lng: parseFloat(lngMatch[1]) };
+    }
+    // Formato: @-26.837,-65.220,17z
+    const coordMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+    if (coordMatch) {
+        return { lat: parseFloat(coordMatch[1]), lng: parseFloat(coordMatch[2]) };
+    }
+    return null;
+}
+
+// ─── Extraer nombre del negocio de la URL ────────────────────────────────────
+
+function extractBusinessNameFromUrl(url: string): string | null {
+    const match = url.match(/\/maps\/place\/([^/@?]+)/);
+    if (match) {
+        return decodeURIComponent(match[1].replace(/\+/g, " ")).trim();
+    }
     return null;
 }
 
@@ -39,57 +61,70 @@ async function resolveShortUrl(url: string): Promise<string> {
             headers: { "User-Agent": "Mozilla/5.0" },
             signal: AbortSignal.timeout(8000),
         });
-        return res.url; // URL final después de redirect
+        return res.url;
     } catch {
         return url;
     }
 }
 
-// ─── Obtener detalles de un negocio por place_id ─────────────────────────────
+// ─── Obtener detalles por place_id (Places API legacy) ───────────────────────
 
-async function fetchPlaceDetails(placeId: string) {
+async function fetchPlaceDetails(placeId: string): Promise<{ result: Record<string, unknown> | null; apiStatus: string }> {
     const fields = [
-        "name",
-        "formatted_address",
-        "formatted_phone_number",
-        "international_phone_number",
-        "website",
-        "rating",
-        "user_ratings_total",
-        "opening_hours",
-        "types",
-        "geometry",
-        "vicinity",
+        "name", "formatted_address", "formatted_phone_number",
+        "international_phone_number", "website", "rating",
+        "user_ratings_total", "types", "vicinity",
     ].join(",");
 
-    const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fields}&language=es&key=${GOOGLE_API_KEY}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.status !== "OK" || !data.result) return null;
-    return data.result;
-}
-
-// ─── Buscar lugar por texto cuando no hay place_id ───────────────────────────
-
-async function searchByText(query: string) {
-    const url = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${encodeURIComponent(query)}&inputtype=textquery&fields=place_id,name&language=es&key=${GOOGLE_API_KEY}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!res.ok) return null;
-    const data = await res.json();
-    if (data.status !== "OK" || !data.candidates?.length) return null;
-    return data.candidates[0].place_id as string;
-}
-
-// ─── Extraer nombre del negocio de la URL de Google Maps ─────────────────────
-
-function extractBusinessNameFromUrl(url: string): string | null {
-    // Google Maps URLs tienen formato: /maps/place/NOMBRE/@lat,lon...
-    const match = url.match(/\/maps\/place\/([^/@?]+)/);
-    if (match) {
-        return decodeURIComponent(match[1].replace(/\+/g, " "));
+    try {
+        const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fields}&language=es&key=${GOOGLE_API_KEY}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) return { result: null, apiStatus: `HTTP ${res.status}` };
+        const data = await res.json();
+        console.log(`[Places Details] place_id=${placeId} status=${data.status} error=${data.error_message || "none"}`);
+        if (data.status === "OK" && data.result) return { result: data.result, apiStatus: "OK" };
+        return { result: null, apiStatus: data.error_message || data.status };
+    } catch (e) {
+        return { result: null, apiStatus: e instanceof Error ? e.message : "timeout" };
     }
-    return null;
+}
+
+// ─── Buscar por nombre cerca de coordenadas ──────────────────────────────────
+
+async function searchNearbyByName(
+    name: string,
+    lat: number,
+    lng: number
+): Promise<{ placeId: string | null; apiStatus: string }> {
+    try {
+        const query = encodeURIComponent(name);
+        const url = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${query}&location=${lat},${lng}&radius=500&language=es&key=${GOOGLE_API_KEY}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        if (!res.ok) return { placeId: null, apiStatus: `HTTP ${res.status}` };
+        const data = await res.json();
+        console.log(`[Places TextSearch] name="${name}" status=${data.status} error=${data.error_message || "none"}`);
+        if (data.status === "OK" && data.results?.length > 0) {
+            return { placeId: data.results[0].place_id, apiStatus: "OK" };
+        }
+        return { placeId: null, apiStatus: data.error_message || data.status };
+    } catch (e) {
+        return { placeId: null, apiStatus: e instanceof Error ? e.message : "timeout" };
+    }
+}
+
+// ─── Buscar place_id solo por texto ──────────────────────────────────────────
+
+async function searchByText(query: string): Promise<string | null> {
+    try {
+        const url = `https://maps.googleapis.com/maps/api/place/findplacefromtext/json?input=${encodeURIComponent(query)}&inputtype=textquery&fields=place_id,name&language=es&key=${GOOGLE_API_KEY}`;
+        const res = await fetch(url, { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) return null;
+        const data = await res.json();
+        if (data.status === "OK" && data.candidates?.length > 0) return data.candidates[0].place_id as string;
+        return null;
+    } catch {
+        return null;
+    }
 }
 
 // ─── Formatear teléfono para WhatsApp ────────────────────────────────────────
@@ -133,21 +168,34 @@ export async function POST(req: Request) {
             if (!url) continue;
 
             try {
-                // 1. Resolver URLs cortas (maps.app.goo.gl)
+                // 1. Resolver URLs cortas
                 let resolvedUrl = url;
                 if (url.includes("goo.gl") || url.includes("maps.app")) {
                     resolvedUrl = await resolveShortUrl(url);
                 }
 
-                // 2. Intentar extraer place_id de la URL
+                // 2. Extraer información de la URL
                 let placeId = extractPlaceIdFromUrl(resolvedUrl);
+                const coords = extractCoordsFromUrl(resolvedUrl);
+                const businessName = extractBusinessNameFromUrl(resolvedUrl);
 
-                // 3. Si no hay place_id, buscar por nombre del negocio en la URL
-                if (!placeId) {
-                    const businessName = extractBusinessNameFromUrl(resolvedUrl);
-                    if (businessName) {
-                        placeId = await searchByText(businessName) || null;
+                console.log(`[Import URL] placeId=${placeId} coords=${JSON.stringify(coords)} name=${businessName}`);
+
+                // 3. Si no hay place_id pero hay coordenadas + nombre, buscar nearby
+                if (!placeId && coords && businessName) {
+                    const nearbyResult = await searchNearbyByName(businessName, coords.lat, coords.lng);
+                    if (nearbyResult.placeId) {
+                        placeId = nearbyResult.placeId;
+                    } else if (nearbyResult.apiStatus !== "ZERO_RESULTS") {
+                        // Si hay error de API (no solo sin resultados), reportar
+                        errors.push({ url, error: `API Google: ${nearbyResult.apiStatus}` });
+                        continue;
                     }
+                }
+
+                // 4. Si no hay place_id y hay nombre, buscar por texto
+                if (!placeId && businessName) {
+                    placeId = await searchByText(businessName);
                 }
 
                 if (!placeId) {
@@ -155,50 +203,52 @@ export async function POST(req: Request) {
                     continue;
                 }
 
-                // 4. Obtener detalles completos del negocio
-                const details = await fetchPlaceDetails(placeId);
+                // 5. Obtener detalles completos
+                const { result: details, apiStatus } = await fetchPlaceDetails(placeId);
                 if (!details) {
-                    errors.push({ url, error: "No se encontraron datos para este negocio." });
+                    // Si la API falla con REQUEST_DENIED, informar al usuario
+                    if (apiStatus.includes("REQUEST_DENIED") || apiStatus.includes("API") || apiStatus.includes("not activated")) {
+                        errors.push({ url, error: `Places API no habilitada en Google Cloud. Habilita 'Places API' en console.cloud.google.com (status: ${apiStatus})` });
+                    } else {
+                        errors.push({ url, error: `No se encontraron datos (${apiStatus})` });
+                    }
                     continue;
                 }
 
                 const phoneRaw =
-                    details.international_phone_number ||
-                    details.formatted_phone_number ||
+                    (details.international_phone_number as string) ||
+                    (details.formatted_phone_number as string) ||
                     undefined;
 
                 const telefonoClean = formatPhoneForWhatsapp(phoneRaw) || undefined;
-                const website = details.website;
+                const website = details.website as string | undefined;
                 const tieneSitioWeb =
                     !!website &&
                     !website.includes("facebook.com") &&
                     !website.includes("instagram.com");
 
                 const mapsUrl = `https://www.google.com/maps/place/?q=place_id:${placeId}`;
-
-                // Detectar redes sociales desde el website si aplica
                 const instagram = website?.includes("instagram.com") ? website : undefined;
                 const facebook = website?.includes("facebook.com") ? website : undefined;
 
                 results.push({
                     id: `gmaps-url-${placeId}`,
-                    nombre: details.name || "Negocio sin nombre",
-                    rubro: details.types?.[0]?.replace(/_/g, " ") || "Negocio",
-                    lugar: details.formatted_address?.split(",").slice(-2).join(",").trim() || "",
-                    direccion: details.formatted_address || details.vicinity || "",
-                    telefono: details.formatted_phone_number || phoneRaw,
+                    nombre: (details.name as string) || businessName || "Negocio sin nombre",
+                    rubro: ((details.types as string[])?.[0]?.replace(/_/g, " ")) || "Negocio",
+                    lugar: ((details.formatted_address as string) || "").split(",").slice(-2).join(",").trim() || "",
+                    direccion: (details.formatted_address as string) || (details.vicinity as string) || "",
+                    telefono: (details.formatted_phone_number as string) || phoneRaw,
                     telefonoClean,
                     tieneSitioWeb,
                     sitioWebUrl: tieneSitioWeb ? website : undefined,
-                    rating: details.rating,
-                    reviewsCount: details.user_ratings_total,
+                    rating: details.rating as number | undefined,
+                    reviewsCount: details.user_ratings_total as number | undefined,
                     redesSociales: { instagram, facebook },
                     guardadoEnCrm: false,
                     fechaExtraccion: new Date().toISOString(),
                     mapsUrl,
                 });
 
-                // Pequeño delay para no saturar la API
                 await new Promise((r) => setTimeout(r, 300));
             } catch (err) {
                 errors.push({
@@ -210,11 +260,7 @@ export async function POST(req: Request) {
 
         return NextResponse.json({
             success: true,
-            data: {
-                resultados: results,
-                errores: errors,
-                total: results.length,
-            },
+            data: { resultados: results, errores: errors, total: results.length },
         });
     } catch (error: unknown) {
         const msg = error instanceof Error ? error.message : "Error al importar URLs";
