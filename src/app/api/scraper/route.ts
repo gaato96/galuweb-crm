@@ -2,57 +2,33 @@ import { NextResponse } from "next/server";
 import type { ProspectoScraped, ScraperBusqueda } from "@/lib/types";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY || "";
+const PLACES_BASE = "https://places.googleapis.com/v1";
 
-// ─── Tipos de respuesta de Google Places API ─────────────────────────────────
+// ─── Headers para Places API (New) ──────────────────────────────────────────
 
-interface GooglePlaceResult {
-    place_id: string;
-    name: string;
-    formatted_address?: string;
-    vicinity?: string;
-    geometry?: { location: { lat: number; lng: number } };
+function placesHeaders(fieldMask: string) {
+    return {
+        "Content-Type": "application/json",
+        "X-Goog-Api-Key": GOOGLE_API_KEY,
+        "X-Goog-FieldMask": fieldMask,
+    };
+}
+
+// ─── Tipos de respuesta Places API (New) ─────────────────────────────────────
+
+interface NewPlace {
+    id: string;
+    displayName?: { text: string };
+    formattedAddress?: string;
+    nationalPhoneNumber?: string;
+    internationalPhoneNumber?: string;
+    websiteUri?: string;
     rating?: number;
-    user_ratings_total?: number;
-    website?: string;
-    formatted_phone_number?: string;
-    international_phone_number?: string;
-    opening_hours?: { open_now?: boolean };
-    types?: string[];
-    photos?: { photo_reference: string }[];
+    userRatingCount?: number;
+    primaryType?: string;
 }
 
-interface GooglePlacesTextSearchResponse {
-    results: GooglePlaceResult[];
-    next_page_token?: string;
-    status: string;
-    error_message?: string;
-}
-
-interface GooglePlaceDetailsResponse {
-    result?: GooglePlaceResult;
-    status: string;
-}
-
-// ─── Obtener detalles de un lugar (teléfono, website, redes) ────────────────
-
-async function fetchPlaceDetails(placeId: string): Promise<Partial<GooglePlaceResult>> {
-    if (!GOOGLE_API_KEY) return {};
-    try {
-        const fields = "formatted_phone_number,international_phone_number,website,opening_hours,rating,user_ratings_total";
-        const url = `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=${fields}&language=es&key=${GOOGLE_API_KEY}`;
-        const res = await fetch(url);
-        if (!res.ok) return {};
-        const data: GooglePlaceDetailsResponse = await res.json();
-        if (data.status === "OK" && data.result) {
-            return data.result;
-        }
-        return {};
-    } catch {
-        return {};
-    }
-}
-
-// ─── Formatear número para WhatsApp Argentina ───────────────────────────────
+// ─── Formatear teléfono para WhatsApp Argentina ──────────────────────────────
 
 function formatPhoneForWhatsapp(phone: string | undefined): string | null {
     if (!phone) return null;
@@ -64,60 +40,70 @@ function formatPhoneForWhatsapp(phone: string | undefined): string | null {
     return null;
 }
 
-// ─── Extraer redes sociales del website ────────────────────────────────────
+// ─── Buscar todos los lugares con paginación (Places API New) ────────────────
 
-function extractSocialLinks(website?: string): { instagram?: string; facebook?: string } {
-    if (!website) return {};
-    const ig = website.includes("instagram.com") ? website : undefined;
-    const fb = website.includes("facebook.com") ? website : undefined;
-    return { instagram: ig, facebook: fb };
-}
-
-// ─── Buscar TODOS los resultados con paginación ───────────────────────────
-
-async function fetchAllPlaces(query: string, location: string): Promise<GooglePlaceResult[]> {
-    const allResults: GooglePlaceResult[] = [];
+async function fetchAllPlaces(query: string, location: string): Promise<NewPlace[]> {
+    const allPlaces: NewPlace[] = [];
     const seenIds = new Set<string>();
 
-    // Text Search: busca por texto libre en una ubicación
-    let searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?query=${encodeURIComponent(query + " en " + location)}&language=es&region=ar&key=${GOOGLE_API_KEY}`;
+    const fieldMask = [
+        "places.id",
+        "places.displayName",
+        "places.formattedAddress",
+        "places.nationalPhoneNumber",
+        "places.internationalPhoneNumber",
+        "places.websiteUri",
+        "places.rating",
+        "places.userRatingCount",
+        "places.primaryType",
+    ].join(",");
 
-    let pageCount = 0;
-    const MAX_PAGES = 5; // Google Places devuelve hasta 60 resultados (3 páginas de 20)
+    let pageToken: string | undefined;
+    const MAX_PAGES = 3; // máximo 60 resultados (3 x 20)
 
-    while (searchUrl && pageCount < MAX_PAGES) {
-        const res = await fetch(searchUrl);
-        if (!res.ok) break;
+    for (let page = 0; page < MAX_PAGES; page++) {
+        const body: Record<string, unknown> = {
+            textQuery: `${query} en ${location}`,
+            languageCode: "es",
+            regionCode: "AR",
+            pageSize: 20,
+        };
+        if (pageToken) body.pageToken = pageToken;
 
-        const data: GooglePlacesTextSearchResponse = await res.json();
+        const res = await fetch(`${PLACES_BASE}/places:searchText`, {
+            method: "POST",
+            headers: placesHeaders(fieldMask),
+            body: JSON.stringify(body),
+            signal: AbortSignal.timeout(15000),
+        });
 
-        if (data.status !== "OK" && data.status !== "ZERO_RESULTS") {
-            console.error("Google Places API error:", data.status, data.error_message);
+        if (!res.ok) {
+            console.error(`[Places TextSearch] HTTP ${res.status}`);
             break;
         }
 
-        for (const place of data.results) {
-            if (!seenIds.has(place.place_id)) {
-                seenIds.add(place.place_id);
-                allResults.push(place);
+        const data = await res.json();
+        if (!data.places || data.places.length === 0) break;
+
+        for (const place of data.places as NewPlace[]) {
+            if (!seenIds.has(place.id)) {
+                seenIds.add(place.id);
+                allPlaces.push(place);
             }
         }
 
-        // Obtener siguiente página si existe
-        if (data.next_page_token) {
-            pageCount++;
-            // Google requiere un delay antes de usar next_page_token
+        if (data.nextPageToken) {
+            pageToken = data.nextPageToken;
             await new Promise((r) => setTimeout(r, 2000));
-            searchUrl = `https://maps.googleapis.com/maps/api/place/textsearch/json?pagetoken=${data.next_page_token}&key=${GOOGLE_API_KEY}`;
         } else {
             break;
         }
     }
 
-    return allResults;
+    return allPlaces;
 }
 
-// ─── Handler principal ────────────────────────────────────────────────────
+// ─── Handler principal ────────────────────────────────────────────────────────
 
 export async function POST(req: Request) {
     try {
@@ -138,65 +124,44 @@ export async function POST(req: Request) {
             );
         }
 
-        // 1. Buscar todos los lugares en Google Maps
+        // Buscar todos los lugares en Google Maps
         const places = await fetchAllPlaces(rubro, lugar);
 
-        // 2. Para cada resultado, obtener detalles (teléfono, website, etc.)
-        //    Procesamos en lotes de 5 para no saturar la API
-        const scrapedItems: ProspectoScraped[] = [];
+        const scrapedItems: ProspectoScraped[] = places.map((place) => {
+            const nombre = place.displayName?.text || "Negocio sin nombre";
+            const direccion = place.formattedAddress || lugar;
 
-        const BATCH_SIZE = 5;
-        for (let i = 0; i < places.length; i += BATCH_SIZE) {
-            const batch = places.slice(i, i + BATCH_SIZE);
-            const detailsPromises = batch.map((p) => fetchPlaceDetails(p.place_id));
-            const batchDetails = await Promise.all(detailsPromises);
+            const phoneRaw = place.internationalPhoneNumber || place.nationalPhoneNumber;
+            const telefonoClean = formatPhoneForWhatsapp(phoneRaw) || undefined;
 
-            batch.forEach((place, batchIdx) => {
-                const details = batchDetails[batchIdx];
-                const nombre = place.name;
-                const direccion = place.formatted_address || place.vicinity || lugar;
+            const website = place.websiteUri;
+            const tieneSitioWeb =
+                !!website &&
+                !website.includes("facebook.com") &&
+                !website.includes("instagram.com");
 
-                const phoneRaw =
-                    details.international_phone_number ||
-                    details.formatted_phone_number ||
-                    place.formatted_phone_number ||
-                    undefined;
+            const mapsUrl = `https://www.google.com/maps/place/?q=place_id:${place.id}`;
+            const instagram = website?.includes("instagram.com") ? website : undefined;
+            const facebook = website?.includes("facebook.com") ? website : undefined;
 
-                const telefonoClean = formatPhoneForWhatsapp(phoneRaw) || undefined;
-                const website = details.website || place.website;
-                const tieneSitioWeb = !!website && !website.includes("facebook.com") && !website.includes("instagram.com");
-                const socials = extractSocialLinks(details.website || website);
-
-                // Link directo al place en Google Maps usando el place_id real
-                const mapsUrl = `https://www.google.com/maps/place/?q=place_id:${place.place_id}`;
-
-                scrapedItems.push({
-                    id: `gmaps-${place.place_id}`,
-                    nombre,
-                    rubro,
-                    lugar,
-                    direccion,
-                    telefono: details.formatted_phone_number || phoneRaw || undefined,
-                    telefonoClean,
-                    tieneSitioWeb,
-                    sitioWebUrl: tieneSitioWeb ? website : undefined,
-                    rating: details.rating ?? place.rating,
-                    reviewsCount: details.user_ratings_total ?? place.user_ratings_total,
-                    redesSociales: {
-                        instagram: socials.instagram,
-                        facebook: socials.facebook,
-                    },
-                    guardadoEnCrm: false,
-                    fechaExtraccion: new Date().toISOString(),
-                    mapsUrl,
-                });
-            });
-
-            // Pequeño delay entre lotes
-            if (i + BATCH_SIZE < places.length) {
-                await new Promise((r) => setTimeout(r, 500));
-            }
-        }
+            return {
+                id: `gmaps-${place.id}`,
+                nombre,
+                rubro,
+                lugar,
+                direccion,
+                telefono: place.nationalPhoneNumber || phoneRaw,
+                telefonoClean,
+                tieneSitioWeb,
+                sitioWebUrl: tieneSitioWeb ? website : undefined,
+                rating: place.rating,
+                reviewsCount: place.userRatingCount,
+                redesSociales: { instagram, facebook },
+                guardadoEnCrm: false,
+                fechaExtraccion: new Date().toISOString(),
+                mapsUrl,
+            };
+        });
 
         const sinWebCount = scrapedItems.filter((p) => !p.tieneSitioWeb).length;
         const conWhatsappCount = scrapedItems.filter((p) => !!p.telefonoClean).length;
