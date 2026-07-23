@@ -410,6 +410,36 @@ export const ideasStore = {
 // --- Scraper de Prospectos ---
 const SCRAPER_STORAGE_KEY = "galuweb_scraper_searches";
 
+// Mapea un row de Supabase (snake_case) a ScraperBusqueda (camelCase)
+function dbRowToBusqueda(row: Record<string, unknown>): ScraperBusqueda {
+    return {
+        id: row.id as string,
+        created_at: row.created_at as string,
+        rubro: row.rubro as string,
+        lugar: row.lugar as string,
+        tituloPersonalizado: (row.titulo_personalizado ?? row.tituloPersonalizado) as string | undefined,
+        totalResultados: (row.total_resultados ?? row.totalResultados ?? 0) as number,
+        sinWebCount: (row.sin_web_count ?? row.sinWebCount ?? 0) as number,
+        conWhatsappCount: (row.con_whatsapp_count ?? row.conWhatsappCount ?? 0) as number,
+        prospectos: (row.prospectos ?? []) as ProspectoScraped[],
+    };
+}
+
+// Mapea ScraperBusqueda a snake_case para Supabase
+function busquedaToDbRow(b: ScraperBusqueda): Record<string, unknown> {
+    return {
+        id: b.id,
+        created_at: b.created_at,
+        rubro: b.rubro,
+        lugar: b.lugar,
+        titulo_personalizado: b.tituloPersonalizado ?? null,
+        total_resultados: b.totalResultados,
+        sin_web_count: b.sinWebCount,
+        con_whatsapp_count: b.conWhatsappCount,
+        prospectos: b.prospectos,
+    };
+}
+
 export const scraperStore = {
     getAllSearches: async (): Promise<ScraperBusqueda[]> => {
         let dbSearches: ScraperBusqueda[] = [];
@@ -418,11 +448,14 @@ export const scraperStore = {
                 .from("scraper_busquedas")
                 .select("*")
                 .order("created_at", { ascending: false });
-            if (!error && data && Array.isArray(data)) {
-                dbSearches = data;
+            if (error) {
+                console.warn("[scraperStore] Supabase error al leer historial:", error.message, error.code);
+            } else if (data && Array.isArray(data)) {
+                dbSearches = data.map(row => dbRowToBusqueda(row as Record<string, unknown>));
+                console.log("[scraperStore] Supabase devolvio", dbSearches.length, "busquedas");
             }
-        } catch {
-            // Silencioso
+        } catch (e) {
+            console.warn("[scraperStore] Supabase no disponible:", e);
         }
         
         let localSearches: ScraperBusqueda[] = [];
@@ -437,7 +470,7 @@ export const scraperStore = {
             }
         }
 
-        // Combinar por id eliminando duplicados
+        // Combinar por id eliminando duplicados (Supabase tiene prioridad)
         const combinedMap = new Map<string, ScraperBusqueda>();
         [...dbSearches, ...localSearches].forEach(item => {
             if (item && item.id && !combinedMap.has(item.id)) {
@@ -449,12 +482,12 @@ export const scraperStore = {
             (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
 
-        // Guardar combinados en localStorage por si acaso
+        // Actualizar localStorage con la lista combinada
         if (typeof window !== "undefined" && combined.length > 0) {
             try {
                 localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(combined.slice(0, 50)));
             } catch {
-                // Silencioso
+                // Silencioso (quota exceeded)
             }
         }
 
@@ -462,7 +495,7 @@ export const scraperStore = {
     },
 
     saveSearch: async (busqueda: ScraperBusqueda): Promise<void> => {
-        // 1. Guardado en localStorage del dispositivo actual
+        // 1. Guardado inmediato en localStorage
         if (typeof window !== "undefined") {
             try {
                 const local = localStorage.getItem(SCRAPER_STORAGE_KEY);
@@ -470,15 +503,22 @@ export const scraperStore = {
                 const updated = [busqueda, ...current.filter(b => b.id !== busqueda.id)];
                 localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated.slice(0, 50)));
             } catch (e) {
-                console.error("Error al guardar busqueda en localStorage:", e);
+                console.error("[scraperStore] Error localStorage:", e);
             }
         }
 
-        // 2. Guardado en Supabase para sincronización multi-dispositivo (PC -> Móvil)
+        // 2. Guardado en Supabase con columnas snake_case
         try {
-            await supabase.from("scraper_busquedas").upsert(busqueda);
+            const row = busquedaToDbRow(busqueda);
+            const { error } = await supabase.from("scraper_busquedas").upsert(row);
+            if (error) {
+                console.warn("[scraperStore] Supabase upsert error:", error.message, "|", error.code);
+                console.warn(">>> Si dice '42P01' la tabla NO existe. Crea la tabla en Supabase SQL Editor.");
+            } else {
+                console.log("[scraperStore] Guardado en Supabase OK:", busqueda.id);
+            }
         } catch (e) {
-            console.warn("Supabase scraper_busquedas error al guardar:", e);
+            console.warn("[scraperStore] Supabase no disponible:", e);
         }
     },
 
