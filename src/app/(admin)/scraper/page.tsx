@@ -47,7 +47,7 @@ export default function ScraperPage() {
     // Formulario de Búsqueda
     const [rubro, setRubro] = useState("");
     const [lugar, setLugar] = useState("");
-    const [limite, setLimite] = useState(30);
+    const [limite, setLimite] = useState(200);
     const [loading, setLoading] = useState(false);
     const [loadingStep, setLoadingStep] = useState("");
 
@@ -305,16 +305,16 @@ export default function ScraperPage() {
 
                     <div className="md:col-span-2 relative">
                         <label className="text-xs font-semibold text-muted-foreground mb-1 block px-1">
-                            Cantidad de Resultados
+                            Límite de Búsqueda
                         </label>
                         <select
                             value={limite}
                             onChange={(e) => setLimite(Number(e.target.value))}
                             className="w-full px-3 py-2.5 bg-background border border-input rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all"
                         >
-                            <option value={15}>15 Resultados</option>
-                            <option value={30}>30 Resultados</option>
-                            <option value={50}>50 Resultados</option>
+                            <option value={200}>Todos los posibles (Sin Límite)</option>
+                            <option value={100}>Hasta 100 resultados</option>
+                            <option value={50}>Hasta 50 resultados</option>
                         </select>
                     </div>
 
