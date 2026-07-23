@@ -418,3 +418,42 @@ export const ESTADO_IDEA_COLORS: Record<EstadoIdea, string> = {
     aprobada: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
     descartada: "bg-rose-500/20 text-rose-300 border-rose-500/30",
 };
+
+// --- Scraper de Prospectos ---
+export interface RedesSocialesProspecto {
+    instagram?: string;
+    facebook?: string;
+    linkedin?: string;
+    tiktok?: string;
+}
+
+export interface ProspectoScraped {
+    id: string;
+    nombre: string;
+    rubro: string;
+    lugar: string;
+    direccion: string;
+    telefono: string | null;
+    telefonoClean: string | null; // Nro formateado para wa.me sin caracteres especiales
+    tieneSitioWeb: boolean;
+    sitioWebUrl: string | null;
+    rating?: number;
+    reviewsCount?: number;
+    redesSociales: RedesSocialesProspecto;
+    guardadoEnCrm?: boolean;
+    clienteId?: string;
+    fechaExtraccion: string;
+    mapsUrl?: string;
+}
+
+export interface ScraperBusqueda {
+    id: string;
+    created_at: string;
+    rubro: string;
+    lugar: string;
+    totalResultados: number;
+    sinWebCount: number;
+    conWhatsappCount: number;
+    prospectos: ProspectoScraped[];
+}
+

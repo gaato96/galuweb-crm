@@ -18,7 +18,8 @@ import {
     LifeBuoy,
     Lightbulb,
     Repeat,
-    Rocket
+    Rocket,
+    Compass
 } from "lucide-react";
 import { useState } from "react";
 
@@ -45,6 +46,7 @@ export const NAV_GROUPS: NavGroup[] = [
         title: "CLIENTES",
         items: [
             { label: "Clientes", href: "/clientes", icon: Users },
+            { label: "Scraper Leads", href: "/scraper", icon: Compass },
             { label: "Proyectos Clientes", href: "/proyectos", icon: FolderKanban },
             { label: "Cotizaciones", href: "/cotizaciones", icon: FileText },
             { label: "Briefs", href: "/briefs", icon: ClipboardList },

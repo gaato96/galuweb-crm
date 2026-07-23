@@ -4,7 +4,8 @@
 import { supabase } from "./supabase";
 import {
     Cliente, Proyecto, Tarea, Cotizacion, Finanza, Brief, Recurso,
-    EtapaCliente, Infraestructura, TicketSoporte, LogProyecto, Idea
+    EtapaCliente, Infraestructura, TicketSoporte, LogProyecto, Idea,
+    ScraperBusqueda, ProspectoScraped
 } from "./types";
 
 // ============================================================
@@ -405,4 +406,85 @@ export const ideasStore = {
         if (error) throw error;
     },
 };
+
+// --- Scraper de Prospectos ---
+const SCRAPER_STORAGE_KEY = "galuweb_scraper_searches";
+
+export const scraperStore = {
+    getAllSearches: async (): Promise<ScraperBusqueda[]> => {
+        try {
+            const { data, error } = await supabase
+                .from("scraper_busquedas")
+                .select("*")
+                .order("created_at", { ascending: false });
+            if (!error && data) {
+                return data;
+            }
+        } catch {
+            // fallback a localStorage si Supabase no tiene la tabla aún
+        }
+        
+        if (typeof window !== "undefined") {
+            const local = localStorage.getItem(SCRAPER_STORAGE_KEY);
+            if (local) {
+                try {
+                    return JSON.parse(local);
+                } catch {
+                    return [];
+                }
+            }
+        }
+        return [];
+    },
+
+    saveSearch: async (busqueda: ScraperBusqueda): Promise<void> => {
+        // Guardado local inmediato para UX rápida
+        if (typeof window !== "undefined") {
+            try {
+                const current = await scraperStore.getAllSearches();
+                const updated = [busqueda, ...current.filter(b => b.id !== busqueda.id)];
+                localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated.slice(0, 30)));
+            } catch (e) {
+                console.error("Error al guardar busqueda en localStorage:", e);
+            }
+        }
+
+        // Intento de guardado en Supabase
+        try {
+            await supabase.from("scraper_busquedas").insert(busqueda);
+        } catch {
+            // Silencioso si no existe tabla aún
+        }
+    },
+
+    convertirACliente: async (prospecto: ProspectoScraped): Promise<Cliente> => {
+        const clienteData: Omit<Cliente, "id" | "created_at"> = {
+            nombre: prospecto.nombre,
+            negocio: `${prospecto.rubro} - ${prospecto.lugar}`,
+            email: "",
+            tel: prospecto.telefono || "",
+            canal: "Scraper Google Maps",
+            etapa: "contacto" as EtapaCliente,
+            info_investigacion: {
+                que_hace: `Negocio de ${prospecto.rubro} ubicado en ${prospecto.direccion}. Rating: ${prospecto.rating || 'N/A'}.`,
+                puntos_debiles: prospecto.tieneSitioWeb ? `Sitio Web existente: ${prospecto.sitioWebUrl}` : "¡NO TIENE SITIO WEB! Oportunidad para venta de diseño web.",
+                soluciones: "Ofrecer servicio de desarrollo web y marketing digital en frío por WhatsApp.",
+                enlace: prospecto.sitioWebUrl || prospecto.mapsUrl || "",
+                contexto: `Redes Sociales: ${JSON.stringify(prospecto.redesSociales)}`
+            },
+            msg_whatsapp: "Hola! Como estan? Les queria hacer una consulta",
+            notas_seguimiento: [
+                {
+                    id: `nota-${Date.now()}`,
+                    fecha: new Date().toISOString().split("T")[0],
+                    texto: `Scrapeado de Google Maps (${prospecto.lugar}). Dirección: ${prospecto.direccion}. Posee sitio web: ${prospecto.tieneSitioWeb ? (prospecto.sitioWebUrl || 'Sí') : 'NO'}`
+                }
+            ]
+        };
+
+        const nuevoCliente = await clientesStore.create(clienteData);
+        return nuevoCliente;
+    }
+};
+
 
