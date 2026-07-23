@@ -5,7 +5,8 @@ import {
     Search, Compass, MapPin, Globe, Phone, MessageSquare, Copy, 
     Sparkles, Check, Download, History, AlertTriangle, 
     Star, ExternalLink, UserPlus, RefreshCw, ChevronRight,
-    Building2, Flame, CheckCircle2, Instagram, Facebook, Linkedin
+    Building2, Flame, CheckCircle2, Instagram, Facebook, Linkedin,
+    Link, Upload, X, ChevronDown, ChevronUp
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -66,6 +67,13 @@ export default function ScraperPage() {
     const [selectedProspectoWa, setSelectedProspectoWa] = useState<ProspectoScraped | null>(null);
     const [customWaMsg, setCustomWaMsg] = useState("Hola! Como estan? Les queria hacer una consulta");
     const [copiedPhoneId, setCopiedPhoneId] = useState<string | null>(null);
+
+    // Importar URLs
+    const [showImportPanel, setShowImportPanel] = useState(false);
+    const [urlsInput, setUrlsInput] = useState("");
+    const [importLoading, setImportLoading] = useState(false);
+    const [importProgress, setImportProgress] = useState<{ done: number; total: number; current: string } | null>(null);
+    const [importErrors, setImportErrors] = useState<{ url: string; error: string }[]>([]);
 
     // Carga de historial guardado al montar
     useEffect(() => {
@@ -177,6 +185,90 @@ export default function ScraperPage() {
         }
     };
 
+    // Importar URLs de Google Maps
+    const handleImportUrls = async () => {
+        const urls = urlsInput
+            .split("\n")
+            .map((u) => u.trim())
+            .filter((u) => u.length > 0 && (u.includes("google.com/maps") || u.includes("goo.gl") || u.includes("maps.app")));
+
+        if (urls.length === 0) {
+            toast.error("Por favor pega al menos una URL válida de Google Maps");
+            return;
+        }
+
+        setImportLoading(true);
+        setImportErrors([]);
+        setImportProgress({ done: 0, total: urls.length, current: "Iniciando..." });
+
+        try {
+            setImportProgress({ done: 0, total: urls.length, current: "Analizando URLs con Google Places API..." });
+
+            const res = await fetch("/api/scraper/import-url", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ urls }),
+            });
+
+            const json = await res.json();
+            if (!res.ok || !json.success) {
+                throw new Error(json.error || "Error al importar URLs");
+            }
+
+            const { resultados, errores, total } = json.data;
+
+            setImportProgress({ done: total, total: urls.length, current: `✓ ${total} negocios importados` });
+            setImportErrors(errores || []);
+
+            if (resultados && resultados.length > 0) {
+                // Agregar resultados al listado actual (evitar duplicados por id)
+                setProspectos((prev) => {
+                    const existingIds = new Set(prev.map((p) => p.id));
+                    const nuevos = resultados.filter((r: ProspectoScraped) => !existingIds.has(r.id));
+                    return [...prev, ...nuevos];
+                });
+
+                // Si hay una búsqueda activa, actualizarla
+                if (currentSearch) {
+                    const updatedBusqueda = {
+                        ...currentSearch,
+                        totalResultados: currentSearch.totalResultados + resultados.length,
+                        prospectos: [...currentSearch.prospectos, ...resultados],
+                    };
+                    setCurrentSearch(updatedBusqueda);
+                    await scraperStore.saveSearch(updatedBusqueda);
+                } else {
+                    // Crear nueva búsqueda con los importados
+                    const nuevaBusqueda: ScraperBusqueda = {
+                        id: `import-${Date.now()}`,
+                        created_at: new Date().toISOString(),
+                        rubro: "Importado desde URLs",
+                        lugar: "Google Maps",
+                        totalResultados: resultados.length,
+                        sinWebCount: resultados.filter((r: ProspectoScraped) => !r.tieneSitioWeb).length,
+                        conWhatsappCount: resultados.filter((r: ProspectoScraped) => !!r.telefonoClean).length,
+                        prospectos: resultados,
+                    };
+                    setCurrentSearch(nuevaBusqueda);
+                    await scraperStore.saveSearch(nuevaBusqueda);
+                    const nuevoHistorial = await scraperStore.getAllSearches();
+                    setHistorial(nuevoHistorial);
+                }
+
+                toast.success(`✅ ${total} negocio${total !== 1 ? "s" : ""} importado${total !== 1 ? "s" : ""} correctamente`);
+                setUrlsInput("");
+                setTimeout(() => setShowImportPanel(false), 1200);
+            } else {
+                toast.error("No se pudo importar ningún negocio. Verificá que las URLs sean de Google Maps.");
+            }
+        } catch (error: any) {
+            toast.error(error.message || "Error al importar URLs");
+        } finally {
+            setImportLoading(false);
+            setTimeout(() => setImportProgress(null), 3000);
+        }
+    };
+
     // Exportar lista a CSV
     const handleExportCsv = () => {
         if (prospectos.length === 0) return;
@@ -268,7 +360,123 @@ export default function ScraperPage() {
                 </div>
             </div>
 
+            {/* Tabs: Buscar / Importar URLs */}
+            <div className="flex gap-2">
+                <button
+                    onClick={() => setShowImportPanel(false)}
+                    className={cn(
+                        "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all",
+                        !showImportPanel
+                            ? "bg-primary text-primary-foreground border-primary shadow-md"
+                            : "bg-card border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+                    )}
+                >
+                    <Search className="w-4 h-4" />
+                    Buscar en Maps
+                </button>
+                <button
+                    onClick={() => setShowImportPanel(true)}
+                    className={cn(
+                        "flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border transition-all",
+                        showImportPanel
+                            ? "bg-primary text-primary-foreground border-primary shadow-md"
+                            : "bg-card border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+                    )}
+                >
+                    <Link className="w-4 h-4" />
+                    Importar URLs de Maps
+                </button>
+            </div>
+
+            {/* Panel de Importar URLs */}
+            {showImportPanel && (
+                <div className="bg-card border border-primary/30 rounded-2xl p-5 shadow-lg space-y-4">
+                    <div className="flex items-start justify-between">
+                        <div>
+                            <h2 className="text-base font-bold text-foreground flex items-center gap-2">
+                                <Link className="w-4 h-4 text-primary" />
+                                Importar desde URLs de Google Maps
+                            </h2>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                Pegá una URL por línea. Soporta URLs largas, cortas (maps.app.goo.gl) y links de fichas de negocio.
+                            </p>
+                        </div>
+                    </div>
+
+                    <textarea
+                        value={urlsInput}
+                        onChange={(e) => setUrlsInput(e.target.value)}
+                        placeholder={`Pegá las URLs de Google Maps, una por línea. Ejemplos:\nhttps://www.google.com/maps/place/Negocio+Ejemplo/@-26.8,−65.2,17z/data=...\nhttps://maps.app.goo.gl/XXXXX\nhttps://www.google.com/maps?q=place_id:ChIJ...`}
+                        rows={6}
+                        className="w-full px-4 py-3 bg-background border border-input rounded-xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground/40 resize-y"
+                    />
+
+                    <div className="flex items-center justify-between flex-wrap gap-3">
+                        <p className="text-xs text-muted-foreground">
+                            {urlsInput.split("\n").filter((u) => u.trim().includes("google.com/maps") || u.trim().includes("goo.gl") || u.trim().includes("maps.app")).length} URLs de Google Maps detectadas
+                        </p>
+
+                        <div className="flex gap-2">
+                            <button
+                                type="button"
+                                onClick={() => setUrlsInput("")}
+                                className="px-3 py-2 rounded-lg border border-border text-xs font-medium text-muted-foreground hover:text-foreground transition-all"
+                            >
+                                <X className="w-3.5 h-3.5 inline mr-1" />
+                                Limpiar
+                            </button>
+                            <button
+                                type="button"
+                                onClick={handleImportUrls}
+                                disabled={importLoading}
+                                className={cn(
+                                    "flex items-center gap-2 px-5 py-2 rounded-xl text-sm font-bold text-white shadow-lg transition-all",
+                                    importLoading
+                                        ? "bg-primary/50 cursor-not-allowed"
+                                        : "bg-primary hover:bg-primary/90 hover:scale-[1.02] active:scale-[0.98]"
+                                )}
+                            >
+                                {importLoading ? (
+                                    <><RefreshCw className="w-4 h-4 animate-spin" /> Importando...</>
+                                ) : (
+                                    <><Upload className="w-4 h-4" /> Importar Negocios</>
+                                )}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Progress */}
+                    {importProgress && (
+                        <div className="p-3 rounded-xl bg-primary/10 border border-primary/30">
+                            <div className="flex items-center justify-between text-xs font-semibold text-primary mb-1.5">
+                                <span>{importProgress.current}</span>
+                                <span>{importProgress.done}/{importProgress.total}</span>
+                            </div>
+                            <div className="w-full bg-primary/10 rounded-full h-1.5">
+                                <div
+                                    className="bg-primary h-1.5 rounded-full transition-all duration-500"
+                                    style={{ width: `${importProgress.total > 0 ? (importProgress.done / importProgress.total) * 100 : 0}%` }}
+                                />
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Errores */}
+                    {importErrors.length > 0 && (
+                        <div className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 space-y-1">
+                            <p className="text-xs font-bold text-rose-400 mb-1">⚠️ {importErrors.length} URL{importErrors.length !== 1 ? "s" : ""} no se pudo{importErrors.length !== 1 ? "ieron" : ""} procesar:</p>
+                            {importErrors.map((e, i) => (
+                                <p key={i} className="text-xs text-muted-foreground">
+                                    <span className="text-rose-400/70">•</span> {e.url.slice(0, 50)}... — {e.error}
+                                </p>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
+
             {/* Panel de Búsqueda */}
+            {!showImportPanel && (
             <div className="bg-card border border-border rounded-2xl p-5 shadow-lg space-y-4">
                 <form onSubmit={handleBuscar} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
                     <div className="md:col-span-4 relative">
@@ -378,6 +586,8 @@ export default function ScraperPage() {
                     </div>
                 )}
             </div>
+
+            )}
 
             {/* Resultados */}
             {currentSearch && (
