@@ -40,13 +40,28 @@ function formatPhoneForWhatsapp(phone: string | undefined): string | null {
     return null;
 }
 
-// ─── Buscar todos los lugares con paginación (Places API New) ────────────────
+// ─── Sub-variaciones para ampliar búsquedas si se piden más resultados ────────
 
-async function fetchAllPlaces(query: string, location: string): Promise<NewPlace[]> {
-    const allPlaces: NewPlace[] = [];
-    const seenIds = new Set<string>();
+const SUB_QUERIES: Record<string, string[]> = {
+    comida: ["Restaurantes", "Bares", "Rotiserías", "Comida rápida", "Pizzerías", "Empanadas", "Cafeterías"],
+    restaurantes: ["Restaurantes", "Bares", "Pizzerías", "Rotiserías"],
+    gimnasios: ["Gimnasios", "Crossfit", "Fitness center", "Gimnasio de musculación"],
+    peluquerías: ["Peluquerías", "Barberías", "Salón de belleza"],
+    dentistas: ["Dentistas", "Clínicas odontológicas", "Odontólogos"],
+    inmobiliarias: ["Inmobiliarias", "Bienes raíces", "Propiedades"],
+};
 
+// ─── Buscar todos los lugares con paginación real (Places API New) ────────────
+
+async function fetchPlacesForQuery(
+    textQuery: string,
+    seenIds: Set<string>,
+    allPlaces: NewPlace[],
+    targetLimit: number
+) {
+    // CRÍTICO: "nextPageToken" debe incluirse en X-Goog-FieldMask para que Google devuelva la página siguiente!
     const fieldMask = [
+        "nextPageToken",
         "places.id",
         "places.displayName",
         "places.formattedAddress",
@@ -59,44 +74,76 @@ async function fetchAllPlaces(query: string, location: string): Promise<NewPlace
     ].join(",");
 
     let pageToken: string | undefined;
-    const MAX_PAGES = 3; // máximo 60 resultados (3 x 20)
+    const MAX_PAGES_PER_QUERY = 5;
 
-    for (let page = 0; page < MAX_PAGES; page++) {
+    for (let page = 0; page < MAX_PAGES_PER_QUERY; page++) {
+        if (allPlaces.length >= targetLimit) break;
+
         const body: Record<string, unknown> = {
-            textQuery: `${query} en ${location}`,
+            textQuery,
             languageCode: "es",
             regionCode: "AR",
             pageSize: 20,
         };
         if (pageToken) body.pageToken = pageToken;
 
-        const res = await fetch(`${PLACES_BASE}/places:searchText`, {
-            method: "POST",
-            headers: placesHeaders(fieldMask),
-            body: JSON.stringify(body),
-            signal: AbortSignal.timeout(15000),
-        });
+        try {
+            const res = await fetch(`${PLACES_BASE}/places:searchText`, {
+                method: "POST",
+                headers: placesHeaders(fieldMask),
+                body: JSON.stringify(body),
+                signal: AbortSignal.timeout(15000),
+            });
 
-        if (!res.ok) {
-            console.error(`[Places TextSearch] HTTP ${res.status}`);
-            break;
-        }
-
-        const data = await res.json();
-        if (!data.places || data.places.length === 0) break;
-
-        for (const place of data.places as NewPlace[]) {
-            if (!seenIds.has(place.id)) {
-                seenIds.add(place.id);
-                allPlaces.push(place);
+            if (!res.ok) {
+                console.error(`[Places TextSearch] HTTP ${res.status}`);
+                break;
             }
-        }
 
-        if (data.nextPageToken) {
-            pageToken = data.nextPageToken;
-            await new Promise((r) => setTimeout(r, 2000));
-        } else {
+            const data = await res.json();
+            if (!data.places || data.places.length === 0) break;
+
+            for (const place of data.places as NewPlace[]) {
+                if (!seenIds.has(place.id)) {
+                    seenIds.add(place.id);
+                    allPlaces.push(place);
+                    if (allPlaces.length >= targetLimit) break;
+                }
+            }
+
+            console.log(`[Places Search] query="${textQuery}" page=${page + 1} got=${data.places.length} total_unique=${allPlaces.length} hasNextToken=${!!data.nextPageToken}`);
+
+            if (data.nextPageToken && allPlaces.length < targetLimit) {
+                pageToken = data.nextPageToken;
+                // Esperar a que el token se active en servidores de Google
+                await new Promise((r) => setTimeout(r, 1800));
+            } else {
+                break;
+            }
+        } catch (e) {
+            console.error(`[Places Search Error]`, e);
             break;
+        }
+    }
+}
+
+async function fetchAllPlaces(query: string, location: string, targetLimit: number = 200): Promise<NewPlace[]> {
+    const allPlaces: NewPlace[] = [];
+    const seenIds = new Set<string>();
+
+    // 1. Búsqueda principal
+    const mainQuery = `${query} en ${location}`;
+    await fetchPlacesForQuery(mainQuery, seenIds, allPlaces, targetLimit);
+
+    // 2. Si se solicitan más resultados y la búsqueda principal tiene sub-variaciones, buscar variantes
+    const queryLower = query.toLowerCase().trim();
+    const variations = SUB_QUERIES[queryLower] || [];
+
+    if (allPlaces.length < targetLimit && variations.length > 0) {
+        for (const subVar of variations) {
+            if (allPlaces.length >= targetLimit) break;
+            const subQuery = `${subVar} en ${location}`;
+            await fetchPlacesForQuery(subQuery, seenIds, allPlaces, targetLimit);
         }
     }
 
@@ -108,7 +155,7 @@ async function fetchAllPlaces(query: string, location: string): Promise<NewPlace
 export async function POST(req: Request) {
     try {
         const body = await req.json();
-        const { rubro, lugar } = body;
+        const { rubro, lugar, limite } = body;
 
         if (!rubro || !lugar) {
             return NextResponse.json(
@@ -124,8 +171,10 @@ export async function POST(req: Request) {
             );
         }
 
+        const targetLimit = Number(limite) || 200;
+
         // Buscar todos los lugares en Google Maps
-        const places = await fetchAllPlaces(rubro, lugar);
+        const places = await fetchAllPlaces(rubro, lugar, targetLimit);
 
         const scrapedItems: ProspectoScraped[] = places.map((place) => {
             const nombre = place.displayName?.text || "Negocio sin nombre";

@@ -412,57 +412,85 @@ const SCRAPER_STORAGE_KEY = "galuweb_scraper_searches";
 
 export const scraperStore = {
     getAllSearches: async (): Promise<ScraperBusqueda[]> => {
+        let dbSearches: ScraperBusqueda[] = [];
         try {
             const { data, error } = await supabase
                 .from("scraper_busquedas")
                 .select("*")
                 .order("created_at", { ascending: false });
-            if (!error && data) {
-                return data;
+            if (!error && data && Array.isArray(data)) {
+                dbSearches = data;
             }
         } catch {
-            // fallback a localStorage si Supabase no tiene la tabla aún
+            // Silencioso
         }
         
+        let localSearches: ScraperBusqueda[] = [];
         if (typeof window !== "undefined") {
             const local = localStorage.getItem(SCRAPER_STORAGE_KEY);
             if (local) {
                 try {
-                    return JSON.parse(local);
+                    localSearches = JSON.parse(local);
                 } catch {
-                    return [];
+                    localSearches = [];
                 }
             }
         }
-        return [];
+
+        // Combinar por id eliminando duplicados
+        const combinedMap = new Map<string, ScraperBusqueda>();
+        [...dbSearches, ...localSearches].forEach(item => {
+            if (item && item.id && !combinedMap.has(item.id)) {
+                combinedMap.set(item.id, item);
+            }
+        });
+
+        const combined = Array.from(combinedMap.values()).sort(
+            (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+        );
+
+        // Guardar combinados en localStorage por si acaso
+        if (typeof window !== "undefined" && combined.length > 0) {
+            try {
+                localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(combined.slice(0, 50)));
+            } catch {
+                // Silencioso
+            }
+        }
+
+        return combined;
     },
 
     saveSearch: async (busqueda: ScraperBusqueda): Promise<void> => {
-        // Guardado local inmediato para UX rápida
+        // 1. Guardado en localStorage del dispositivo actual
         if (typeof window !== "undefined") {
             try {
-                const current = await scraperStore.getAllSearches();
+                const local = localStorage.getItem(SCRAPER_STORAGE_KEY);
+                const current: ScraperBusqueda[] = local ? JSON.parse(local) : [];
                 const updated = [busqueda, ...current.filter(b => b.id !== busqueda.id)];
-                localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated.slice(0, 30)));
+                localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated.slice(0, 50)));
             } catch (e) {
                 console.error("Error al guardar busqueda en localStorage:", e);
             }
         }
 
-        // Intento de guardado en Supabase
+        // 2. Guardado en Supabase para sincronización multi-dispositivo (PC -> Móvil)
         try {
             await supabase.from("scraper_busquedas").upsert(busqueda);
-        } catch {
-            // Silencioso si no existe tabla aún
+        } catch (e) {
+            console.warn("Supabase scraper_busquedas error al guardar:", e);
         }
     },
 
     deleteSearch: async (id: string): Promise<void> => {
         if (typeof window !== "undefined") {
             try {
-                const current = await scraperStore.getAllSearches();
-                const updated = current.filter(b => b.id !== id);
-                localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated));
+                const local = localStorage.getItem(SCRAPER_STORAGE_KEY);
+                if (local) {
+                    const current: ScraperBusqueda[] = JSON.parse(local);
+                    const updated = current.filter(b => b.id !== id);
+                    localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated));
+                }
             } catch (e) {
                 console.error("Error al borrar búsqueda:", e);
             }
@@ -488,9 +516,12 @@ export const scraperStore = {
     renameSearch: async (id: string, nuevoTitulo: string): Promise<void> => {
         if (typeof window !== "undefined") {
             try {
-                const current = await scraperStore.getAllSearches();
-                const updated = current.map(b => b.id === id ? { ...b, tituloPersonalizado: nuevoTitulo } : b);
-                localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated));
+                const local = localStorage.getItem(SCRAPER_STORAGE_KEY);
+                if (local) {
+                    const current: ScraperBusqueda[] = JSON.parse(local);
+                    const updated = current.map(b => b.id === id ? { ...b, tituloPersonalizado: nuevoTitulo } : b);
+                    localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated));
+                }
             } catch (e) {
                 console.error("Error al renombrar búsqueda:", e);
             }
