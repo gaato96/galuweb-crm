@@ -451,9 +451,54 @@ export const scraperStore = {
 
         // Intento de guardado en Supabase
         try {
-            await supabase.from("scraper_busquedas").insert(busqueda);
+            await supabase.from("scraper_busquedas").upsert(busqueda);
         } catch {
             // Silencioso si no existe tabla aún
+        }
+    },
+
+    deleteSearch: async (id: string): Promise<void> => {
+        if (typeof window !== "undefined") {
+            try {
+                const current = await scraperStore.getAllSearches();
+                const updated = current.filter(b => b.id !== id);
+                localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated));
+            } catch (e) {
+                console.error("Error al borrar búsqueda:", e);
+            }
+        }
+        try {
+            await supabase.from("scraper_busquedas").delete().eq("id", id);
+        } catch {
+            // Silencioso
+        }
+    },
+
+    clearAllSearches: async (): Promise<void> => {
+        if (typeof window !== "undefined") {
+            localStorage.removeItem(SCRAPER_STORAGE_KEY);
+        }
+        try {
+            await supabase.from("scraper_busquedas").delete().neq("id", "");
+        } catch {
+            // Silencioso
+        }
+    },
+
+    renameSearch: async (id: string, nuevoTitulo: string): Promise<void> => {
+        if (typeof window !== "undefined") {
+            try {
+                const current = await scraperStore.getAllSearches();
+                const updated = current.map(b => b.id === id ? { ...b, tituloPersonalizado: nuevoTitulo } : b);
+                localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated));
+            } catch (e) {
+                console.error("Error al renombrar búsqueda:", e);
+            }
+        }
+        try {
+            await supabase.from("scraper_busquedas").update({ tituloPersonalizado: nuevoTitulo }).eq("id", id);
+        } catch {
+            // Silencioso
         }
     },
 

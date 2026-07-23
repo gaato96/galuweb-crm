@@ -6,7 +6,7 @@ import {
     Sparkles, Check, Download, History, AlertTriangle, 
     Star, ExternalLink, UserPlus, RefreshCw, ChevronRight,
     Building2, Flame, CheckCircle2, Instagram, Facebook, Linkedin,
-    Link, Upload, X, ChevronDown, ChevronUp
+    Link, Upload, X, ChevronDown, ChevronUp, Pencil, Trash2, Circle
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -60,8 +60,12 @@ export default function ScraperPage() {
 
     // Filtros de UI sobre resultados
     const [searchFilter, setSearchFilter] = useState("");
-    const [tabFiltro, setTabFiltro] = useState<"todos" | "sin_web" | "con_whatsapp" | "top_rated" | "guardados">("todos");
+    const [tabFiltro, setTabFiltro] = useState<"todos" | "sin_web" | "con_whatsapp" | "top_rated" | "contactados" | "pendientes" | "guardados">("todos");
     const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+
+    // Edición de título de búsqueda
+    const [editingSearchId, setEditingSearchId] = useState<string | null>(null);
+    const [editingTitleInput, setEditingTitleInput] = useState("");
 
     // Modal de WhatsApp
     const [selectedProspectoWa, setSelectedProspectoWa] = useState<ProspectoScraped | null>(null);
@@ -147,8 +151,8 @@ export default function ScraperPage() {
         setTimeout(() => setCopiedPhoneId(null), 2500);
     };
 
-    // Abrir WhatsApp Web / App directo
-    const handleOpenWhatsappDirect = (prospecto: ProspectoScraped, mensajeCustom?: string) => {
+    // Abrir WhatsApp Web / App directo y marcar como contactado
+    const handleOpenWhatsappDirect = async (prospecto: ProspectoScraped, mensajeCustom?: string) => {
         if (!prospecto.telefonoClean) {
             toast.error("No se pudo detectar un número válido para WhatsApp");
             return;
@@ -157,6 +161,87 @@ export default function ScraperPage() {
         const encodedText = encodeURIComponent(text);
         const url = `https://wa.me/${prospecto.telefonoClean}?text=${encodedText}`;
         window.open(url, "_blank");
+
+        // Marcar automáticamente como contactado al abrir WhatsApp
+        if (!prospecto.contactado) {
+            await handleToggleContactado(prospecto);
+        }
+    };
+
+    // Alternar estado Contactado / Pendiente
+    const handleToggleContactado = async (prospecto: ProspectoScraped) => {
+        const nuevoEstado = !prospecto.contactado;
+        const fecha = nuevoEstado ? new Date().toISOString() : undefined;
+
+        setProspectos(prev =>
+            prev.map(p => p.id === prospecto.id ? { ...p, contactado: nuevoEstado, fechaContactado: fecha } : p)
+        );
+
+        if (currentSearch) {
+            const updatedProspects = currentSearch.prospectos.map(p =>
+                p.id === prospecto.id ? { ...p, contactado: nuevoEstado, fechaContactado: fecha } : p
+            );
+            const updatedSearch = { ...currentSearch, prospectos: updatedProspects };
+            setCurrentSearch(updatedSearch);
+            await scraperStore.saveSearch(updatedSearch);
+
+            const nuevoHistorial = await scraperStore.getAllSearches();
+            setHistorial(nuevoHistorial);
+        }
+
+        if (nuevoEstado) {
+            toast.success(`✓ "${prospecto.nombre}" marcado como CONTACTADO`);
+        } else {
+            toast.info(`"${prospecto.nombre}" marcado como PENDIENTE`);
+        }
+    };
+
+    // Renombrar búsqueda guardada
+    const handleGuardarRenombrar = async (id: string, nuevoTitulo: string) => {
+        if (!nuevoTitulo.trim()) {
+            setEditingSearchId(null);
+            return;
+        }
+        await scraperStore.renameSearch(id, nuevoTitulo.trim());
+        const updated = await scraperStore.getAllSearches();
+        setHistorial(updated);
+        
+        if (currentSearch?.id === id) {
+            setCurrentSearch({ ...currentSearch, tituloPersonalizado: nuevoTitulo.trim() });
+        }
+        setEditingSearchId(null);
+        toast.success("Nombre de la búsqueda actualizado");
+    };
+
+    // Borrar búsqueda individual del historial
+    const handleBorrarBusqueda = async (e: React.MouseEvent, id: string) => {
+        e.stopPropagation();
+        await scraperStore.deleteSearch(id);
+        const updated = await scraperStore.getAllSearches();
+        setHistorial(updated);
+        if (currentSearch?.id === id) {
+            if (updated.length > 0) {
+                setCurrentSearch(updated[0]);
+                setProspectos(updated[0].prospectos || []);
+            } else {
+                setCurrentSearch(null);
+                setProspectos([]);
+            }
+        }
+        toast.success("Búsqueda eliminada del historial");
+    };
+
+    // Limpiar todo el historial
+    const handleLimpiarHistorial = async () => {
+        if (historial.length === 0) return;
+        if (!window.confirm("¿Estás seguro de que deseas eliminar TODO el historial de búsquedas? Esta acción no se puede deshacer.")) return;
+        
+        await scraperStore.clearAllSearches();
+        setHistorial([]);
+        setCurrentSearch(null);
+        setProspectos([]);
+        setShowHistorial(false);
+        toast.success("Historial limpiado correctamente");
     };
 
     // Guardar prospecto en el CRM como Cliente
@@ -308,12 +393,15 @@ export default function ScraperPage() {
         if (tabFiltro === "sin_web") return !p.tieneSitioWeb;
         if (tabFiltro === "con_whatsapp") return !!p.telefonoClean;
         if (tabFiltro === "top_rated") return (p.rating || 0) >= 4.5;
+        if (tabFiltro === "contactados") return !!p.contactado;
+        if (tabFiltro === "pendientes") return !p.contactado;
         if (tabFiltro === "guardados") return !!p.guardadoEnCrm;
         return true;
     });
 
     const totalSinWeb = prospectos.filter(p => !p.tieneSitioWeb).length;
     const totalConWa = prospectos.filter(p => !!p.telefonoClean).length;
+    const totalContactados = prospectos.filter(p => !!p.contactado).length;
     const totalGuardados = prospectos.filter(p => !!p.guardadoEnCrm).length;
 
     return (
@@ -586,43 +674,99 @@ export default function ScraperPage() {
                     </div>
                 )}
             </div>
-
             )}
 
             {/* Resultados */}
             {currentSearch && (
                 <div className="space-y-6">
+                    {/* Título de la búsqueda actual con opción de editar nombre */}
+                    <div className="bg-card border border-border px-5 py-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                        <div className="flex items-center gap-2.5">
+                            {editingSearchId === currentSearch.id ? (
+                                <div className="flex items-center gap-2">
+                                    <input
+                                        type="text"
+                                        value={editingTitleInput}
+                                        onChange={(e) => setEditingTitleInput(e.target.value)}
+                                        placeholder="Nombre de la búsqueda..."
+                                        className="px-3 py-1 bg-background border border-primary rounded-lg text-sm font-bold focus:outline-none text-foreground"
+                                        autoFocus
+                                        onKeyDown={(e) => {
+                                            if (e.key === "Enter") handleGuardarRenombrar(currentSearch.id, editingTitleInput);
+                                            if (e.key === "Escape") setEditingSearchId(null);
+                                        }}
+                                    />
+                                    <button
+                                        onClick={() => handleGuardarRenombrar(currentSearch.id, editingTitleInput)}
+                                        className="p-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90"
+                                        title="Guardar nombre"
+                                    >
+                                        <Check className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                        onClick={() => setEditingSearchId(null)}
+                                        className="p-1.5 rounded-lg bg-secondary text-muted-foreground hover:text-foreground"
+                                    >
+                                        <X className="w-4 h-4" />
+                                    </button>
+                                </div>
+                            ) : (
+                                <div className="flex items-center gap-2">
+                                    <h2 className="text-lg font-black text-foreground tracking-tight">
+                                        {currentSearch.tituloPersonalizado || `${currentSearch.rubro} en ${currentSearch.lugar}`}
+                                    </h2>
+                                    <button
+                                        onClick={() => {
+                                            setEditingSearchId(currentSearch.id);
+                                            setEditingTitleInput(currentSearch.tituloPersonalizado || `${currentSearch.rubro} en ${currentSearch.lugar}`);
+                                        }}
+                                        className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary transition-colors"
+                                        title="Renombrar esta búsqueda"
+                                    >
+                                        <Pencil className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                        <span className="text-xs text-muted-foreground font-medium">
+                            Realizada el {new Date(currentSearch.created_at).toLocaleDateString()} a las {new Date(currentSearch.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
+                    </div>
+
                     {/* Tarjetas KPI de resumen */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-card border border-border p-4 rounded-xl shadow-sm space-y-1">
+                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                        <div className="bg-card border border-border p-3.5 rounded-xl shadow-sm space-y-1">
                             <p className="text-xs font-semibold text-muted-foreground uppercase">Total Negocios</p>
                             <p className="text-2xl font-black text-foreground">{prospectos.length}</p>
                             <p className="text-[11px] text-muted-foreground">Encontrados en Maps</p>
                         </div>
 
-                        <div className="bg-gradient-to-br from-amber-500/10 via-card to-card border border-amber-500/30 p-4 rounded-xl shadow-sm space-y-1 relative overflow-hidden">
+                        <div className="bg-gradient-to-br from-amber-500/10 via-card to-card border border-amber-500/30 p-3.5 rounded-xl shadow-sm space-y-1 relative overflow-hidden">
                             <div className="flex items-center justify-between">
                                 <p className="text-xs font-bold text-amber-400 uppercase tracking-wide flex items-center gap-1">
-                                    <Flame className="w-3.5 h-3.5 fill-amber-400" /> Sin Sitio Web
+                                    <Flame className="w-3.5 h-3.5 fill-amber-400" /> Sin Web
                                 </p>
-                                <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded-full border border-amber-500/30">
-                                    ¡Oportunidad!
-                                </span>
                             </div>
                             <p className="text-2xl font-black text-amber-400">{totalSinWeb}</p>
-                            <p className="text-[11px] text-muted-foreground">Potenciales ventas de Web</p>
+                            <p className="text-[11px] text-muted-foreground">Oportunidades Web</p>
                         </div>
 
-                        <div className="bg-card border border-border p-4 rounded-xl shadow-sm space-y-1">
-                            <p className="text-xs font-semibold text-muted-foreground uppercase">Con WhatsApp Directo</p>
+                        <div className="bg-card border border-border p-3.5 rounded-xl shadow-sm space-y-1">
+                            <p className="text-xs font-semibold text-muted-foreground uppercase">Con WhatsApp</p>
                             <p className="text-2xl font-black text-emerald-400">{totalConWa}</p>
-                            <p className="text-[11px] text-muted-foreground">Listos para contacto en frío</p>
+                            <p className="text-[11px] text-muted-foreground">Contacto directo</p>
                         </div>
 
-                        <div className="bg-card border border-border p-4 rounded-xl shadow-sm space-y-1">
-                            <p className="text-xs font-semibold text-muted-foreground uppercase">Guardados en CRM</p>
+                        <div className="bg-card border border-border p-3.5 rounded-xl shadow-sm space-y-1">
+                            <p className="text-xs font-semibold text-muted-foreground uppercase">Contactados</p>
+                            <p className="text-2xl font-black text-blue-400">{totalContactados}</p>
+                            <p className="text-[11px] text-muted-foreground">{prospectos.length - totalContactados} pendientes</p>
+                        </div>
+
+                        <div className="bg-card border border-border p-3.5 rounded-xl shadow-sm space-y-1">
+                            <p className="text-xs font-semibold text-muted-foreground uppercase">En CRM</p>
                             <p className="text-2xl font-black text-primary">{totalGuardados}</p>
-                            <p className="text-[11px] text-muted-foreground">Convertidos a Clientes</p>
+                            <p className="text-[11px] text-muted-foreground">Clientes creados</p>
                         </div>
                     </div>
 
@@ -655,7 +799,7 @@ export default function ScraperPage() {
                             <button
                                 onClick={() => setTabFiltro("con_whatsapp")}
                                 className={cn(
-                                    "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap",
+                                    "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1",
                                     tabFiltro === "con_whatsapp"
                                         ? "bg-emerald-600 text-white shadow-sm"
                                         : "text-emerald-400 hover:bg-emerald-500/10"
@@ -664,15 +808,48 @@ export default function ScraperPage() {
                                 📱 Con WhatsApp ({totalConWa})
                             </button>
                             <button
+                                onClick={() => setTabFiltro("contactados")}
+                                className={cn(
+                                    "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1",
+                                    tabFiltro === "contactados"
+                                        ? "bg-blue-600 text-white shadow-sm"
+                                        : "text-blue-400 hover:bg-blue-500/10"
+                                )}
+                            >
+                                <CheckCircle2 className="w-3 h-3" /> Contactados ({totalContactados})
+                            </button>
+                            <button
+                                onClick={() => setTabFiltro("pendientes")}
+                                className={cn(
+                                    "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1",
+                                    tabFiltro === "pendientes"
+                                        ? "bg-slate-700 text-white shadow-sm"
+                                        : "text-muted-foreground hover:bg-secondary"
+                                )}
+                            >
+                                Pendientes ({prospectos.length - totalContactados})
+                            </button>
+                            <button
+                                onClick={() => setTabFiltro("top_rated")}
+                                className={cn(
+                                    "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1",
+                                    tabFiltro === "top_rated"
+                                        ? "bg-primary text-primary-foreground shadow-sm"
+                                        : "text-muted-foreground hover:bg-secondary"
+                                )}
+                            >
+                                ⭐ Top Rated (4.5+)
+                            </button>
+                            <button
                                 onClick={() => setTabFiltro("guardados")}
                                 className={cn(
-                                    "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap",
+                                    "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1",
                                     tabFiltro === "guardados"
                                         ? "bg-primary/20 text-primary border border-primary/40"
                                         : "text-muted-foreground hover:bg-secondary"
                                 )}
                             >
-                                Guardados en CRM ({totalGuardados})
+                                En CRM ({totalGuardados})
                             </button>
                         </div>
 
@@ -737,7 +914,7 @@ export default function ScraperPage() {
                                     {/* Indicadores superiores */}
                                     <div className="flex items-start justify-between gap-2">
                                         <div className="space-y-1 flex-1">
-                                            <div className="flex items-center gap-2 flex-wrap">
+                                            <div className="flex items-center gap-1.5 flex-wrap">
                                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-secondary text-foreground uppercase border border-border">
                                                     {prospecto.rubro}
                                                 </span>
@@ -746,6 +923,26 @@ export default function ScraperPage() {
                                                         <CheckCircle2 className="w-3 h-3" /> CRM
                                                     </span>
                                                 )}
+                                                <button
+                                                    onClick={() => handleToggleContactado(prospecto)}
+                                                    className={cn(
+                                                        "text-[10px] font-bold px-2 py-0.5 rounded-full border transition-all flex items-center gap-1 cursor-pointer",
+                                                        prospecto.contactado
+                                                            ? "bg-blue-500/20 text-blue-300 border-blue-500/40 hover:bg-blue-500/30"
+                                                            : "bg-secondary/60 text-muted-foreground border-border hover:border-blue-400 hover:text-blue-400"
+                                                    )}
+                                                    title={prospecto.contactado ? "Click para marcar como pendiente" : "Click para marcar como contactado"}
+                                                >
+                                                    {prospecto.contactado ? (
+                                                        <>
+                                                            <CheckCircle2 className="w-3 h-3 text-blue-400" /> Contactado
+                                                        </>
+                                                    ) : (
+                                                        <>
+                                                            <Circle className="w-3 h-3" /> Pendiente
+                                                        </>
+                                                    )}
+                                                </button>
                                             </div>
                                             <h3 className="text-base font-bold text-foreground line-clamp-1 group-hover:text-primary transition-colors">
                                                 {prospecto.nombre}
@@ -929,6 +1126,7 @@ export default function ScraperPage() {
                                     <thead className="bg-secondary/60 text-muted-foreground uppercase tracking-wider font-semibold border-b border-border">
                                         <tr>
                                             <th className="p-3.5">Negocio</th>
+                                            <th className="p-3.5">Contacto</th>
                                             <th className="p-3.5">Ubicación</th>
                                             <th className="p-3.5">Sitio Web</th>
                                             <th className="p-3.5">Teléfono</th>
@@ -942,6 +1140,29 @@ export default function ScraperPage() {
                                                 <td className="p-3.5 font-bold text-foreground">
                                                     <div>{prospecto.nombre}</div>
                                                     <span className="text-[10px] text-muted-foreground font-normal">{prospecto.rubro}</span>
+                                                </td>
+                                                <td className="p-3.5">
+                                                    <button
+                                                        onClick={() => handleToggleContactado(prospecto)}
+                                                        className={cn(
+                                                            "px-2 py-0.5 rounded-lg text-xs font-bold border transition-all flex items-center gap-1 cursor-pointer whitespace-nowrap",
+                                                            prospecto.contactado
+                                                                ? "bg-blue-500/20 text-blue-300 border-blue-500/40 hover:bg-blue-500/30"
+                                                                : "bg-secondary text-muted-foreground border-border hover:border-blue-400 hover:text-blue-400"
+                                                        )}
+                                                    >
+                                                        {prospecto.contactado ? (
+                                                            <>
+                                                                <CheckCircle2 className="w-3 h-3 text-blue-400" />
+                                                                <span>Contactado</span>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <Circle className="w-3 h-3" />
+                                                                <span>Pendiente</span>
+                                                            </>
+                                                        )}
+                                                    </button>
                                                 </td>
                                                 <td className="p-3.5 text-muted-foreground max-w-[200px] truncate">
                                                     {prospecto.direccion}
@@ -1091,42 +1312,116 @@ export default function ScraperPage() {
                                 <History className="w-5 h-5 text-primary" />
                                 <h3 className="font-bold text-foreground">Historial de Búsquedas Guardadas</h3>
                             </div>
-                            <button
-                                onClick={() => setShowHistorial(false)}
-                                className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-secondary"
-                            >
-                                ✕
-                            </button>
+                            <div className="flex items-center gap-2">
+                                {historial.length > 0 && (
+                                    <button
+                                        onClick={handleLimpiarHistorial}
+                                        className="text-xs font-semibold text-rose-400 hover:text-rose-300 px-2.5 py-1 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/20 transition-all flex items-center gap-1"
+                                        title="Limpiar todo el historial"
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        Limpiar Todo
+                                    </button>
+                                )}
+                                <button
+                                    onClick={() => setShowHistorial(false)}
+                                    className="text-muted-foreground hover:text-foreground p-1 rounded-lg hover:bg-secondary"
+                                >
+                                    ✕
+                                </button>
+                            </div>
                         </div>
 
                         <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar">
                             {historial.length === 0 ? (
                                 <p className="text-xs text-muted-foreground text-center py-8">No hay búsquedas guardadas en el historial.</p>
                             ) : (
-                                historial.map((b) => (
-                                    <div
-                                        key={b.id}
-                                        onClick={() => {
-                                            setCurrentSearch(b);
-                                            setProspectos(b.prospectos || []);
-                                            setShowHistorial(false);
-                                            toast.info(`Cargada búsqueda anterior: ${b.rubro} en ${b.lugar}`);
-                                        }}
-                                        className="p-3 rounded-xl border border-border hover:border-primary/40 bg-secondary/30 hover:bg-secondary cursor-pointer transition-all flex items-center justify-between group"
-                                    >
-                                        <div className="space-y-0.5">
-                                            <div className="flex items-center gap-2">
-                                                <span className="font-bold text-sm text-foreground group-hover:text-primary">
-                                                    {b.rubro} en {b.lugar}
-                                                </span>
-                                            </div>
-                                            <p className="text-[11px] text-muted-foreground">
-                                                {new Date(b.created_at).toLocaleDateString()} • {b.totalResultados} negocios ({b.sinWebCount} sin web)
-                                            </p>
+                                historial.map((b) => {
+                                    const isEditing = editingSearchId === b.id;
+                                    const nombreMostrar = b.tituloPersonalizado || `${b.rubro} en ${b.lugar}`;
+
+                                    return (
+                                        <div
+                                            key={b.id}
+                                            onClick={() => {
+                                                if (isEditing) return;
+                                                setCurrentSearch(b);
+                                                setProspectos(b.prospectos || []);
+                                                setShowHistorial(false);
+                                                toast.info(`Cargada búsqueda: ${nombreMostrar}`);
+                                            }}
+                                            className="p-3 rounded-xl border border-border hover:border-primary/40 bg-secondary/30 hover:bg-secondary cursor-pointer transition-all flex items-center justify-between group gap-2"
+                                        >
+                                            {isEditing ? (
+                                                <div className="flex items-center gap-2 flex-1" onClick={(e) => e.stopPropagation()}>
+                                                    <input
+                                                        type="text"
+                                                        value={editingTitleInput}
+                                                        onChange={(e) => setEditingTitleInput(e.target.value)}
+                                                        className="px-2.5 py-1 bg-background border border-primary rounded-lg text-xs font-bold text-foreground w-full focus:outline-none"
+                                                        autoFocus
+                                                        onKeyDown={(e) => {
+                                                            if (e.key === "Enter") handleGuardarRenombrar(b.id, editingTitleInput);
+                                                            if (e.key === "Escape") setEditingSearchId(null);
+                                                        }}
+                                                    />
+                                                    <button
+                                                        onClick={() => handleGuardarRenombrar(b.id, editingTitleInput)}
+                                                        className="p-1 rounded bg-primary text-white hover:bg-primary/90 shrink-0"
+                                                    >
+                                                        <Check className="w-3.5 h-3.5" />
+                                                    </button>
+                                                    <button
+                                                        onClick={() => setEditingSearchId(null)}
+                                                        className="p-1 rounded bg-secondary text-muted-foreground hover:text-foreground shrink-0"
+                                                    >
+                                                        <X className="w-3.5 h-3.5" />
+                                                    </button>
+                                                </div>
+                                            ) : (
+                                                <div className="space-y-0.5 flex-1 min-w-0">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-bold text-sm text-foreground group-hover:text-primary truncate">
+                                                            {nombreMostrar}
+                                                        </span>
+                                                        {b.tituloPersonalizado && (
+                                                            <span className="text-[10px] px-1.5 py-0.2 rounded bg-primary/20 text-primary border border-primary/30 font-medium shrink-0">
+                                                                Editado
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                    <p className="text-[11px] text-muted-foreground">
+                                                        {new Date(b.created_at).toLocaleDateString()} • {b.totalResultados} negocios ({b.sinWebCount} sin web)
+                                                    </p>
+                                                </div>
+                                            )}
+
+                                            {!isEditing && (
+                                                <div className="flex items-center gap-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setEditingSearchId(b.id);
+                                                            setEditingTitleInput(nombreMostrar);
+                                                        }}
+                                                        className="p-1.5 rounded-lg text-muted-foreground hover:text-primary hover:bg-secondary transition-colors"
+                                                        title="Renombrar búsqueda"
+                                                    >
+                                                        <Pencil className="w-3.5 h-3.5" />
+                                                    </button>
+                                                    <button
+                                                        onClick={(e) => handleBorrarBusqueda(e, b.id)}
+                                                        className="p-1.5 rounded-lg text-muted-foreground hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                                                        title="Eliminar búsqueda del historial"
+                                                    >
+                                                        <Trash2 className="w-3.5 h-3.5" />
+                                                    </button>
+                                                    <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-transform group-hover:translate-x-1 ml-1" />
+                                                </div>
+                                            )}
                                         </div>
-                                        <ChevronRight className="w-4 h-4 text-muted-foreground group-hover:text-primary transition-transform group-hover:translate-x-1" />
-                                    </div>
-                                ))
+                                    );
+                                })
                             )}
                         </div>
                     </div>

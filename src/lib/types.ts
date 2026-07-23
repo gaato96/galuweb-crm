@@ -444,6 +444,8 @@ export interface ProspectoScraped {
     clienteId?: string;
     fechaExtraccion: string;
     mapsUrl?: string;
+    contactado?: boolean;
+    fechaContactado?: string;
 }
 
 export interface ScraperBusqueda {
@@ -451,6 +453,7 @@ export interface ScraperBusqueda {
     created_at: string;
     rubro: string;
     lugar: string;
+    tituloPersonalizado?: string;
     totalResultados: number;
     sinWebCount: number;
     conWhatsappCount: number;
