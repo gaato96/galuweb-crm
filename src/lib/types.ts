@@ -433,10 +433,10 @@ export interface ProspectoScraped {
     rubro: string;
     lugar: string;
     direccion: string;
-    telefono: string | null;
-    telefonoClean: string | null; // Nro formateado para wa.me sin caracteres especiales
+    telefono?: string | null;
+    telefonoClean?: string | null; // Nro formateado para wa.me sin caracteres especiales
     tieneSitioWeb: boolean;
-    sitioWebUrl: string | null;
+    sitioWebUrl?: string | null;
     rating?: number;
     reviewsCount?: number;
     redesSociales: RedesSocialesProspecto;
