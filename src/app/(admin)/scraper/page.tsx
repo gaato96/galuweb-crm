@@ -79,14 +79,26 @@ export default function ScraperPage() {
     const [importProgress, setImportProgress] = useState<{ done: number; total: number; current: string } | null>(null);
     const [importErrors, setImportErrors] = useState<{ url: string; error: string }[]>([]);
 
+    // Helper para normalizar texto (quitar tildes/acentos y pasar a minúsculas)
+    const normalizeText = (str: string) =>
+        str.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
+
+    // Limpiar pantalla y comenzar de cero
+    const handleNuevaBusqueda = () => {
+        setCurrentSearch(null);
+        setProspectos([]);
+        setSearchFilter("");
+        toast.info("Pantalla de resultados limpiada.");
+    };
+
     // Carga de historial guardado al montar
     useEffect(() => {
         const cargarHistorial = async () => {
             const data = await scraperStore.getAllSearches();
             setHistorial(data);
             if (data.length > 0) {
-                setCurrentSearch(prev => prev || data[0]);
-                setProspectos(prev => prev.length > 0 ? prev : (data[0].prospectos || []));
+                setCurrentSearch(data[0]);
+                setProspectos(Array.isArray(data[0].prospectos) ? data[0].prospectos : []);
             }
         };
         cargarHistorial();
@@ -102,6 +114,9 @@ export default function ScraperPage() {
             return;
         }
 
+        // Limpiar lista anterior antes de iniciar nueva búsqueda
+        setCurrentSearch(null);
+        setProspectos([]);
         setLoading(true);
         setLoadingStep("Conectando con Google Maps...");
 
@@ -122,7 +137,7 @@ export default function ScraperPage() {
 
             const nuevaBusqueda: ScraperBusqueda = json.data;
             setCurrentSearch(nuevaBusqueda);
-            setProspectos(nuevaBusqueda.prospectos);
+            setProspectos(nuevaBusqueda.prospectos || []);
 
             // Guardar en persistencia
             await scraperStore.saveSearch(nuevaBusqueda);
@@ -306,39 +321,22 @@ export default function ScraperPage() {
             setImportErrors(errores || []);
 
             if (resultados && resultados.length > 0) {
-                // Agregar resultados al listado actual (evitar duplicados por id)
-                setProspectos((prev) => {
-                    const existingIds = new Set(prev.map((p) => p.id));
-                    const nuevos = resultados.filter((r: ProspectoScraped) => !existingIds.has(r.id));
-                    return [...prev, ...nuevos];
-                });
-
-                // Si hay una búsqueda activa, actualizarla
-                if (currentSearch) {
-                    const updatedBusqueda = {
-                        ...currentSearch,
-                        totalResultados: currentSearch.totalResultados + resultados.length,
-                        prospectos: [...currentSearch.prospectos, ...resultados],
-                    };
-                    setCurrentSearch(updatedBusqueda);
-                    await scraperStore.saveSearch(updatedBusqueda);
-                } else {
-                    // Crear nueva búsqueda con los importados
-                    const nuevaBusqueda: ScraperBusqueda = {
-                        id: `import-${Date.now()}`,
-                        created_at: new Date().toISOString(),
-                        rubro: "Importado desde URLs",
-                        lugar: "Google Maps",
-                        totalResultados: resultados.length,
-                        sinWebCount: resultados.filter((r: ProspectoScraped) => !r.tieneSitioWeb).length,
-                        conWhatsappCount: resultados.filter((r: ProspectoScraped) => !!r.telefonoClean).length,
-                        prospectos: resultados,
-                    };
-                    setCurrentSearch(nuevaBusqueda);
-                    await scraperStore.saveSearch(nuevaBusqueda);
-                    const nuevoHistorial = await scraperStore.getAllSearches();
-                    setHistorial(nuevoHistorial);
-                }
+                // Crear una nueva búsqueda independiente para los importados (sin acumular sobre la anterior)
+                const nuevaBusqueda: ScraperBusqueda = {
+                    id: `import-${Date.now()}`,
+                    created_at: new Date().toISOString(),
+                    rubro: "Importado desde URLs",
+                    lugar: "Google Maps",
+                    totalResultados: resultados.length,
+                    sinWebCount: resultados.filter((r: ProspectoScraped) => !r.tieneSitioWeb).length,
+                    conWhatsappCount: resultados.filter((r: ProspectoScraped) => !!r.telefonoClean).length,
+                    prospectos: resultados,
+                };
+                setCurrentSearch(nuevaBusqueda);
+                setProspectos(resultados);
+                await scraperStore.saveSearch(nuevaBusqueda);
+                const nuevoHistorial = await scraperStore.getAllSearches();
+                setHistorial(nuevoHistorial);
 
                 toast.success(`✅ ${total} negocio${total !== 1 ? "s" : ""} importado${total !== 1 ? "s" : ""} correctamente`);
                 setUrlsInput("");
@@ -382,13 +380,22 @@ export default function ScraperPage() {
         toast.success("Listado exportado a CSV exitosamente");
     };
 
-    // Aplicar filtros a la lista actual
+    // Aplicar filtros a la lista actual (insensible a acentos/tildes y mayúsculas)
     const prospectosFiltrados = prospectos.filter(p => {
-        const matchesSearch = p.nombre.toLowerCase().includes(searchFilter.toLowerCase()) ||
-                              p.direccion.toLowerCase().includes(searchFilter.toLowerCase()) ||
-                              (p.telefono && p.telefono.includes(searchFilter));
+        const q = normalizeText(searchFilter);
+        if (q) {
+            const matchesSearch = [
+                p.nombre,
+                p.direccion,
+                p.rubro,
+                p.lugar,
+                p.telefono,
+                p.telefonoClean,
+                p.sitioWebUrl
+            ].some(val => val && normalizeText(val).includes(q));
 
-        if (!matchesSearch) return false;
+            if (!matchesSearch) return false;
+        }
 
         if (tabFiltro === "sin_web") return !p.tieneSitioWeb;
         if (tabFiltro === "con_whatsapp") return !!p.telefonoClean;
@@ -428,7 +435,7 @@ export default function ScraperPage() {
                     </p>
                 </div>
 
-                <div className="flex items-center gap-2 z-10 shrink-0">
+                <div className="flex items-center gap-2 z-10 shrink-0 flex-wrap">
                     <button
                         onClick={() => setShowHistorial(true)}
                         className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-border bg-secondary/80 hover:bg-secondary text-sm font-medium transition-all text-foreground hover:shadow-md"
@@ -437,13 +444,23 @@ export default function ScraperPage() {
                         Historial ({historial.length})
                     </button>
                     {prospectos.length > 0 && (
-                        <button
-                            onClick={handleExportCsv}
-                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-sm font-medium transition-all"
-                        >
-                            <Download className="w-4 h-4" />
-                            Exportar CSV
-                        </button>
+                        <>
+                            <button
+                                onClick={handleNuevaBusqueda}
+                                className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-border bg-secondary/40 hover:bg-secondary text-xs font-medium transition-all text-muted-foreground hover:text-foreground"
+                                title="Limpiar resultados actuales"
+                            >
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                Limpiar Vista
+                            </button>
+                            <button
+                                onClick={handleExportCsv}
+                                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 text-sm font-medium transition-all"
+                            >
+                                <Download className="w-4 h-4" />
+                                Exportar CSV
+                            </button>
+                        </>
                     )}
                 </div>
             </div>

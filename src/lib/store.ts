@@ -412,16 +412,28 @@ const SCRAPER_STORAGE_KEY = "galuweb_scraper_searches";
 
 // Mapea un row de Supabase (snake_case) a ScraperBusqueda (camelCase)
 function dbRowToBusqueda(row: Record<string, unknown>): ScraperBusqueda {
+    let prospectosParsed: ProspectoScraped[] = [];
+    const rawProspectos = row.prospectos ?? row.prospectos;
+    if (Array.isArray(rawProspectos)) {
+        prospectosParsed = rawProspectos as ProspectoScraped[];
+    } else if (typeof rawProspectos === "string") {
+        try {
+            prospectosParsed = JSON.parse(rawProspectos);
+        } catch {
+            prospectosParsed = [];
+        }
+    }
+
     return {
         id: row.id as string,
         created_at: row.created_at as string,
         rubro: row.rubro as string,
         lugar: row.lugar as string,
         tituloPersonalizado: (row.titulo_personalizado ?? row.tituloPersonalizado) as string | undefined,
-        totalResultados: (row.total_resultados ?? row.totalResultados ?? 0) as number,
+        totalResultados: (row.total_resultados ?? row.totalResultados ?? prospectosParsed.length ?? 0) as number,
         sinWebCount: (row.sin_web_count ?? row.sinWebCount ?? 0) as number,
         conWhatsappCount: (row.con_whatsapp_count ?? row.conWhatsappCount ?? 0) as number,
-        prospectos: (row.prospectos ?? []) as ProspectoScraped[],
+        prospectos: prospectosParsed,
     };
 }
 
@@ -463,18 +475,33 @@ export const scraperStore = {
             const local = localStorage.getItem(SCRAPER_STORAGE_KEY);
             if (local) {
                 try {
-                    localSearches = JSON.parse(local);
+                    const parsed = JSON.parse(local);
+                    if (Array.isArray(parsed)) {
+                        localSearches = parsed.map(item => ({
+                            ...item,
+                            prospectos: Array.isArray(item.prospectos) ? item.prospectos : []
+                        }));
+                    }
                 } catch {
                     localSearches = [];
                 }
             }
         }
 
-        // Combinar por id eliminando duplicados (Supabase tiene prioridad)
+        // Combinar por id eliminando duplicados (preservar el registro con mayor cantidad de prospectos)
         const combinedMap = new Map<string, ScraperBusqueda>();
         [...dbSearches, ...localSearches].forEach(item => {
-            if (item && item.id && !combinedMap.has(item.id)) {
-                combinedMap.set(item.id, item);
+            if (item && item.id) {
+                const existing = combinedMap.get(item.id);
+                if (!existing) {
+                    combinedMap.set(item.id, item);
+                } else {
+                    const existingCount = (existing.prospectos || []).length;
+                    const itemCount = (item.prospectos || []).length;
+                    if (itemCount > existingCount) {
+                        combinedMap.set(item.id, item);
+                    }
+                }
             }
         });
 
