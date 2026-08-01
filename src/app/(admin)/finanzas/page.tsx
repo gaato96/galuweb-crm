@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-    Plus, DollarSign, TrendingUp, PieChart, X, Calendar, AlertTriangle,
+    Plus, DollarSign, TrendingUp, TrendingDown, PieChart, X, Calendar, AlertTriangle,
     ChevronLeft, ChevronRight, CheckCircle2, Clock, Trash2, Edit2, RefreshCw, ArrowUpRight, ArrowDownRight
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, daysFromNow } from "@/lib/utils";
@@ -260,6 +260,22 @@ export default function FinanzasPage() {
     // Gastos recurrentes registrados
     const gastosRecurrentes = finanzas.filter((f) => f.es_recurrente && (f.tipo === "gasto" || f.tipo === "herramienta"));
 
+    // Proyección: próximos 3 meses
+    const totalGastosRecurrentes = gastosRecurrentes.reduce((s, g) => s + Number(g.monto), 0);
+    const proyeccion = [1, 2, 3].map((offset) => {
+        const m = (mesActual + offset) % 12;
+        const y = anioActual + Math.floor((mesActual + offset) / 12);
+        const ingresosEsperados = finanzas
+            .filter((f) => {
+                const fecha = new Date(f.fecha_cobro || f.created_at);
+                return f.tipo === "ingreso" && !(f.cobrado ?? true) &&
+                    fecha.getMonth() === m && fecha.getFullYear() === y;
+            })
+            .reduce((s, f) => s + Number(f.monto), 0);
+        const balance = ingresosEsperados - totalGastosRecurrentes;
+        return { mes: MESES[m], anio: y, ingresosEsperados, totalGastosRecurrentes, balance };
+    });
+
     return (
         <div className="p-3 sm:p-6 space-y-4 sm:space-y-6 animate-fade-in pb-20">
             {/* Header + Selector de Mes */}
@@ -478,23 +494,74 @@ export default function FinanzasPage() {
 
             {/* SECCIÓN 3: Gastos Recurrentes Fijos */}
             {gastosRecurrentes.length > 0 && (
-                <div className="rounded-2xl border border-purple-500/20 bg-purple-500/5 p-5 space-y-3">
+                <div className="rounded-2xl border border-purple-500/20 bg-purple-500/5 p-4 sm:p-5 space-y-3">
                     <h3 className="text-sm font-bold text-purple-300 flex items-center gap-2">
-                        <RefreshCw className="w-4 h-4" /> Gastos Fijos Recurrentes (IA, Hosting, Herramientas)
+                        <RefreshCw className="w-4 h-4" /> Gastos Fijos Recurrentes
                     </h3>
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                         {gastosRecurrentes.map((g) => (
                             <div key={g.id} className="p-3 rounded-xl bg-card border border-border flex items-center justify-between">
-                                <div>
-                                    <p className="text-xs font-bold text-foreground">{g.descripcion}</p>
+                                <div className="min-w-0 mr-2">
+                                    <p className="text-xs font-bold text-foreground truncate">{g.descripcion}</p>
                                     <span className="text-[10px] text-muted-foreground capitalize">{g.tipo}</span>
                                 </div>
-                                <span className="text-sm font-bold text-rose-400">-{formatCurrency(g.monto)}</span>
+                                <span className="text-sm font-bold text-rose-400 shrink-0">-{formatCurrency(g.monto)}</span>
                             </div>
                         ))}
                     </div>
                 </div>
             )}
+
+            {/* SECCIÓN 4: Proyección Próximos 3 Meses */}
+            <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-4">
+                <div className="flex items-center gap-2">
+                    <TrendingUp className="w-4 h-4 text-primary" />
+                    <h3 className="text-sm font-bold text-foreground">Proyección — Próximos 3 Meses</h3>
+                </div>
+                <p className="text-xs text-muted-foreground -mt-1">
+                    Ingresos pendientes por cobrar + gastos recurrentes fijos ({formatCurrency(totalGastosRecurrentes)}/mes)
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    {proyeccion.map((p, idx) => (
+                        <div
+                            key={idx}
+                            className={cn(
+                                "p-4 rounded-xl border space-y-3",
+                                p.balance >= 0
+                                    ? "bg-emerald-500/5 border-emerald-500/20"
+                                    : "bg-rose-500/5 border-rose-500/20"
+                            )}
+                        >
+                            <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-foreground">{p.mes} {p.anio}</span>
+                                {p.balance >= 0
+                                    ? <TrendingUp className="w-3.5 h-3.5 text-emerald-400" />
+                                    : <TrendingDown className="w-3.5 h-3.5 text-rose-400" />}
+                            </div>
+                            <div className="space-y-1.5">
+                                <div className="flex items-center justify-between text-[11px]">
+                                    <span className="text-muted-foreground">Ingresos esperados</span>
+                                    <span className="font-bold text-emerald-400">{formatCurrency(p.ingresosEsperados)}</span>
+                                </div>
+                                <div className="flex items-center justify-between text-[11px]">
+                                    <span className="text-muted-foreground">Gastos fijos</span>
+                                    <span className="font-bold text-rose-400">-{formatCurrency(p.totalGastosRecurrentes)}</span>
+                                </div>
+                                <div className="h-px bg-border" />
+                                <div className="flex items-center justify-between">
+                                    <span className="text-xs font-bold text-foreground">Balance proj.</span>
+                                    <span className={cn(
+                                        "text-sm font-black",
+                                        p.balance >= 0 ? "text-emerald-400" : "text-rose-400"
+                                    )}>
+                                        {p.balance >= 0 ? "+" : ""}{formatCurrency(p.balance)}
+                                    </span>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
 
             {/* MODAL CREAR / EDITAR */}
             {showNew && (

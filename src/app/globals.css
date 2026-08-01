@@ -108,3 +108,22 @@
 .pipeline-column {
   min-height: 70vh;
 }
+
+/* Notification panel slide-down */
+@keyframes slide-down {
+  from { opacity: 0; transform: translateY(-8px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.animate-slide-down {
+  animation: slide-down 0.18s ease-out forwards;
+}
+
+/* One-time bounce for badge */
+@keyframes bounce-once {
+  0%, 100% { transform: scale(1); }
+  30%       { transform: scale(1.3); }
+  60%       { transform: scale(0.9); }
+}
+.animate-bounce-once {
+  animation: bounce-once 0.5s ease-out;
+}

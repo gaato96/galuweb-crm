@@ -1,12 +1,13 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Menu, X, Bell, Search } from "lucide-react";
+import { Menu, X, Search } from "lucide-react";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
 import { NAV_GROUPS } from "./sidebar";
 import Logo from "./logo";
+import NotificationsPanel from "@/components/notifications-panel";
 
 const PAGE_TITLES: Record<string, string> = {
     "/": "Dashboard",
@@ -74,13 +75,7 @@ export default function Header() {
                             className="w-[180px] lg:w-[220px] h-9 pl-9 pr-3 rounded-xl bg-secondary/60 border border-border text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
                         />
                     </div>
-                    <button 
-                        aria-label="Notificaciones"
-                        className="relative flex items-center justify-center w-9 h-9 rounded-xl bg-secondary/60 hover:bg-accent border border-border/50 transition-all active:scale-95"
-                    >
-                        <Bell className="w-4 h-4 text-muted-foreground" />
-                        <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-primary rounded-full ring-2 ring-background animate-pulse" />
-                    </button>
+                    <NotificationsPanel />
                     <div className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-primary via-indigo-600 to-cyan-500 text-[11px] font-extrabold text-white shadow-md shadow-primary/20 shrink-0">
                         AG
                     </div>
