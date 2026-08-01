@@ -732,20 +732,26 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
             )}
 
             {/* Filter Tabs */}
-            <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
-                {(["todas", "borrador", "enviada", "aceptada", "rechazada", "archivada"] as const).map((st) => (
+            <div className="flex gap-1.5 sm:gap-2 overflow-x-auto whitespace-nowrap scrollbar-none pb-1">
+                {[
+                    { id: "todas", label: "Todas" },
+                    { id: "borrador", label: "Borrador" },
+                    { id: "enviada", label: "Enviada" },
+                    { id: "aceptada", label: "Aceptada" },
+                    { id: "rechazada", label: "Rechazada" },
+                    { id: "archivada", label: "Archivadas" },
+                ].map((tab) => (
                     <button
-                        key={st}
-                        onClick={() => setFilterEstado(st)}
+                        key={tab.id}
+                        onClick={() => setFilterEstado(tab.id as any)}
                         className={cn(
-                            "px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all flex items-center gap-1.5",
-                            filterEstado === st
-                                ? "bg-primary text-primary-foreground"
-                                : "bg-secondary text-muted-foreground hover:text-foreground"
+                            "px-3 py-1.5 rounded-xl text-xs font-bold transition-all shrink-0 border",
+                            filterEstado === tab.id
+                                ? "bg-primary text-primary-foreground border-primary shadow-sm"
+                                : "bg-card text-muted-foreground border-border hover:bg-secondary hover:text-foreground"
                         )}
                     >
-                        {st === "archivada" && <Archive className="w-3 h-3" />}
-                        {st === "todas" ? "Todas" : st}
+                        {tab.label}
                     </button>
                 ))}
             </div>
@@ -764,27 +770,27 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                     const esArchivada = q.estado === "archivada";
 
                     return (
-                        <div key={q.id} className={cn("rounded-xl border border-border bg-card p-4 card-hover transition-all", esArchivada && "opacity-60 bg-secondary/20")}>
-                            <div className="flex items-start justify-between mb-3">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-0.5">
-                                        <h4 className="text-sm font-semibold text-foreground">{cliente.nombre}</h4>
-                                        <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", TIPO_BADGE[tipo])}>
+                        <div key={q.id} className={cn("rounded-2xl border border-border bg-card p-3.5 sm:p-5 card-hover transition-all space-y-3", esArchivada && "opacity-60 bg-secondary/20")}>
+                            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                    <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                                        <h4 className="text-sm font-bold text-foreground truncate">{cliente.nombre}</h4>
+                                        <span className={cn("text-[9px] sm:text-[10px] px-2 py-0.5 rounded-full border font-medium shrink-0", TIPO_BADGE[tipo])}>
                                             {tipo === "webapp" ? <Code2 className="w-2.5 h-2.5 inline mr-1" /> : <Globe className="w-2.5 h-2.5 inline mr-1" />}
                                             {TIPO_LABEL[tipo]}
                                         </span>
                                     </div>
                                     <p className="text-xs text-muted-foreground">{cliente.negocio} · {formatDate(q.created_at)}</p>
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center justify-between sm:justify-end gap-2 shrink-0">
                                     <span className={cn("text-[10px] px-2.5 py-1 rounded-full border font-medium capitalize", ESTADO_BADGE[q.estado])}>{q.estado}</span>
-                                    <span className="text-base font-bold text-foreground">{formatCurrency(q.total)}</span>
+                                    <span className="text-sm sm:text-base font-black text-foreground">{formatCurrency(q.total)}</span>
                                 </div>
                             </div>
 
                             {/* Módulos WebApp */}
                             {tipo === "webapp" && (q.especificaciones_webapp?.modulos?.length ?? 0) > 0 && (
-                                <div className="flex flex-wrap gap-1 mb-3">
+                                <div className="flex flex-wrap gap-1">
                                     {q.especificaciones_webapp?.modulos?.map((m, i) => (
                                         <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-violet-500/10 border border-violet-500/20 text-violet-300">{m}</span>
                                     ))}
@@ -792,26 +798,26 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                             )}
 
                             {/* Items */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5 mb-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
                                 {q.items.map((item, i) => (
-                                    <div key={i} className="flex justify-between text-xs px-2 py-1.5 rounded bg-secondary/50">
-                                        <span className="text-muted-foreground">{item.descripcion}</span>
-                                        <span className="text-foreground font-medium">{formatCurrency(item.precio)}</span>
+                                    <div key={i} className="flex justify-between text-xs px-2.5 py-1.5 rounded-xl bg-secondary/40 border border-border/50">
+                                        <span className="text-muted-foreground truncate mr-2">{item.descripcion}</span>
+                                        <span className="text-foreground font-semibold shrink-0">{formatCurrency(item.precio)}</span>
                                     </div>
                                 ))}
                             </div>
 
                             {/* Actions */}
-                            <div className="flex items-center justify-between mt-4">
+                            <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2.5 pt-2 border-t border-border/50">
                                 <div className="flex flex-wrap gap-1.5">
                                     {(["borrador", "enviada", "aceptada", "rechazada", "archivada"] as EstadoCotizacion[]).map((e) => (
-                                        <button key={e} onClick={() => updateEstado(q.id, e)} className={cn("px-2 py-1 rounded text-[10px] capitalize transition-colors flex items-center gap-1", q.estado === e ? "bg-primary/20 text-primary font-bold" : "text-muted-foreground hover:bg-secondary")}>
+                                        <button key={e} onClick={() => updateEstado(q.id, e)} className={cn("px-2 py-1 rounded-lg text-[10px] capitalize transition-colors flex items-center gap-1", q.estado === e ? "bg-primary/20 text-primary font-bold border border-primary/30" : "text-muted-foreground hover:bg-secondary")}>
                                             {e === "archivada" && <Archive className="w-2.5 h-2.5" />}
                                             {e}
                                         </button>
                                     ))}
                                 </div>
-                                <div className="flex items-center gap-2">
+                                <div className="flex items-center gap-2 justify-end">
                                     {/* PDF Download */}
                                     <PDFButton cotizacion={q} cliente={cliente} />
                                     {/* AI Prompt */}

@@ -11,7 +11,7 @@ export default function AdminLayout({
       <Sidebar />
       <div className="flex-1 flex flex-col lg:pl-[250px] transition-all duration-300">
         <Header />
-        <main className="flex-1 p-4 lg:p-6 overflow-x-hidden">
+        <main className="flex-1 p-3 sm:p-4 lg:p-6 overflow-x-hidden">
           {children}
         </main>
       </div>

@@ -365,26 +365,26 @@ function ProyectoDetailModal({
     ];
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm overflow-y-auto py-6 px-4">
-            <div className="w-full max-w-4xl rounded-3xl border border-border bg-card shadow-2xl animate-fade-in flex flex-col max-h-[90vh]">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md overflow-y-auto p-2 sm:p-4">
+            <div className="w-full max-w-4xl rounded-2xl sm:rounded-3xl border border-border bg-card shadow-2xl animate-fade-in flex flex-col max-h-[94vh] sm:max-h-[90vh]">
                 {/* Header con Logo Upload */}
-                <div className="p-6 border-b border-border flex items-center justify-between bg-secondary/20">
-                    <div className="flex items-center gap-4">
+                <div className="p-4 sm:p-6 border-b border-border flex items-center justify-between bg-secondary/20 gap-3">
+                    <div className="flex items-center gap-3 sm:gap-4 min-w-0">
                         {/* Logo Uploader */}
                         <div className="relative group shrink-0">
                             {logoUrl ? (
-                                <img src={logoUrl} alt={proyecto.nombre} className="w-14 h-14 rounded-2xl object-contain bg-card border border-border p-1 shadow-sm" />
+                                <img src={logoUrl} alt={proyecto.nombre} className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl object-contain bg-card border border-border p-1 shadow-sm" />
                             ) : (
-                                <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-black text-xl shadow-sm">
+                                <div className="w-11 h-11 sm:w-14 sm:h-14 rounded-xl sm:rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-black text-lg sm:text-xl shadow-sm">
                                     {proyecto.nombre.slice(0, 2).toUpperCase()}
                                 </div>
                             )}
 
                             <label
                                 htmlFor={`logo-upload-${proyecto.id}`}
-                                className="absolute inset-0 bg-black/60 rounded-2xl flex flex-col items-center justify-center text-[9px] font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer p-1 text-center"
+                                className="absolute inset-0 bg-black/60 rounded-xl sm:rounded-2xl flex flex-col items-center justify-center text-[9px] font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer p-1 text-center"
                             >
-                                <Upload className="w-4 h-4 mb-0.5" /> Logo
+                                <Upload className="w-3.5 h-3.5 sm:w-4 sm:h-4 mb-0.5" /> Logo
                             </label>
                             <input
                                 type="file"
@@ -398,36 +398,36 @@ function ProyectoDetailModal({
                             />
                         </div>
 
-                        <div>
-                            <div className="flex items-center gap-2">
-                                <h3 className="text-xl font-black text-foreground">{proyecto.nombre}</h3>
-                                {proyecto.es_interno && <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-md uppercase font-bold tracking-wider">Interno</span>}
+                        <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <h3 className="text-base sm:text-xl font-black text-foreground truncate">{proyecto.nombre}</h3>
+                                {proyecto.es_interno && <span className="text-[9px] sm:text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded uppercase font-bold tracking-wider shrink-0">Interno</span>}
                             </div>
-                            <p className="text-xs text-muted-foreground mt-0.5">
+                            <p className="text-[11px] sm:text-xs text-muted-foreground mt-0.5 truncate">
                                 {proyecto.es_interno ? "Producto Propio" : cliente?.nombre} · {TIPO_PROYECTO_LABELS[proyecto.tipo_proyecto]}
                             </p>
                         </div>
                     </div>
 
-                    <button onClick={onClose} className="p-2 rounded-xl hover:bg-secondary transition-colors">
-                        <X className="w-6 h-6 text-muted-foreground" />
+                    <button onClick={onClose} className="p-2 rounded-xl hover:bg-secondary transition-colors shrink-0">
+                        <X className="w-5 h-5 sm:w-6 sm:h-6 text-muted-foreground" />
                     </button>
                 </div>
 
                 {/* Tabs */}
-                <div className="flex gap-2 px-6 pt-3 border-b border-border bg-card overflow-x-auto">
+                <div className="flex gap-1 sm:gap-2 px-3 sm:px-6 pt-2.5 border-b border-border bg-card overflow-x-auto scrollbar-none">
                     {TABS.map((tab) => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             className={cn(
-                                "flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-t-xl border-b-2 transition-all -mb-px shrink-0",
+                                "flex items-center gap-1.5 sm:gap-2 px-3 sm:px-4 py-2 text-xs font-bold rounded-t-xl border-b-2 transition-all -mb-px shrink-0 whitespace-nowrap",
                                 activeTab === tab.id
                                     ? "border-primary text-primary bg-primary/5"
                                     : "border-transparent text-muted-foreground hover:text-foreground"
                             )}
                         >
-                            <tab.icon className="w-4 h-4" />
+                            <tab.icon className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                             {tab.label}
                             {tab.id === "documentos" && documentosList.length > 0 && (
                                 <span className="ml-1 text-[10px] bg-primary/20 text-primary px-1.5 py-0.2 rounded-full font-bold">
@@ -439,7 +439,7 @@ function ProyectoDetailModal({
                 </div>
 
                 {/* Content */}
-                <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
+                <div className="p-4 sm:p-6 flex-1 overflow-y-auto custom-scrollbar">
                     {/* TAB: GENERAL */}
                     {activeTab === "general" && (
                         <div className="space-y-6">

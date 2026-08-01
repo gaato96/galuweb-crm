@@ -146,10 +146,10 @@ function TareaDetailModal({
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
-            <div className="w-full max-w-xl rounded-3xl border border-border bg-card p-6 shadow-2xl animate-fade-in space-y-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-md p-2 sm:p-4 overflow-y-auto">
+            <div className="w-full max-w-xl max-h-[92vh] overflow-y-auto rounded-2xl sm:rounded-3xl border border-border bg-card p-4 sm:p-6 shadow-2xl animate-fade-in space-y-4 sm:space-y-5 custom-scrollbar">
                 <div className="flex items-center justify-between border-b border-border pb-3">
-                    <h3 className="text-lg font-bold text-foreground">Editar Tarea</h3>
+                    <h3 className="text-base sm:text-lg font-bold text-foreground">Editar Tarea</h3>
                     <div className="flex items-center gap-2">
                         <button onClick={handleDelete} className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10"><Trash2 className="w-4 h-4" /></button>
                         <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:bg-secondary"><X className="w-5 h-5" /></button>
@@ -162,11 +162,11 @@ function TareaDetailModal({
                         <input
                             value={titulo}
                             onChange={(e) => setTitulo(e.target.value)}
-                            className="w-full h-11 px-3 rounded-xl bg-secondary border border-border text-sm font-bold text-foreground focus:ring-2 focus:ring-primary/50 outline-none"
+                            className="w-full h-10 sm:h-11 px-3 rounded-xl bg-secondary border border-border text-sm font-bold text-foreground focus:ring-2 focus:ring-primary/50 outline-none"
                         />
                     </div>
 
-                    <div className="grid grid-cols-3 gap-3">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 sm:gap-3">
                         <div>
                             <label className="text-[10px] font-bold text-muted-foreground uppercase mb-1 block">Estado</label>
                             <select value={estado} onChange={(e) => setEstado(e.target.value as EstadoTarea)} className="w-full h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground outline-none font-medium">

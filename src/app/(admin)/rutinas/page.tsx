@@ -150,20 +150,20 @@ function RutinasContent() {
     }
 
     return (
-        <div className="space-y-6 animate-fade-in">
+        <div className="p-3 sm:p-6 space-y-4 sm:space-y-6 animate-fade-in pb-20">
             {/* Header */}
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
-                    <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
-                        <Repeat className="w-6 h-6 text-primary" /> Rutinas y Hábitos Recurrentes
+                    <h2 className="text-xl sm:text-2xl font-bold text-foreground flex items-center gap-2">
+                        <Repeat className="w-5 h-5 sm:w-6 sm:h-6 text-primary" /> Rutinas y Hábitos
                     </h2>
-                    <p className="text-sm text-muted-foreground">
+                    <p className="text-xs sm:text-sm text-muted-foreground">
                         Tareas frecuentes que hacés día a día sin necesidad de recrearlas
                     </p>
                 </div>
                 <button
                     onClick={() => setShowNew(!showNew)}
-                    className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-semibold hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-primary/20"
+                    className="flex items-center justify-center gap-2 px-4 py-2 sm:py-2.5 rounded-xl bg-primary text-primary-foreground text-xs sm:text-sm font-bold hover:opacity-90 active:scale-95 transition-all shadow-lg shadow-primary/20 shrink-0"
                 >
                     <Plus className="w-4 h-4" /> Nueva Rutina
                 </button>
@@ -171,11 +171,11 @@ function RutinasContent() {
 
             {/* Presets rápido si hay pocas rutinas */}
             {rutinas.length < 3 && (
-                <div className="p-4 rounded-xl border border-primary/20 bg-primary/5 space-y-3">
+                <div className="p-3.5 sm:p-4 rounded-2xl border border-primary/20 bg-primary/5 space-y-3">
                     <p className="text-xs font-bold text-primary flex items-center gap-1.5 uppercase tracking-wider">
                         <Zap className="w-4 h-4" /> Rutinas Sugeridas para Freelancers / Agencia
                     </p>
-                    <div className="flex flex-wrap gap-2">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
                         {PRESET_RUTINAS.map((preset, idx) => {
                             const yaExiste = rutinas.some(r => r.titulo === preset.titulo);
                             if (yaExiste) return null;
