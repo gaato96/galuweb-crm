@@ -5,12 +5,13 @@ import { useSearchParams } from "next/navigation";
 import {
     ExternalLink, Eye, X, CheckCircle2, Plus, Copy,
     Layers, ScrollText, Zap, Globe, Users, Tag,
-    Trash2, CalendarDays, Clock, CheckSquare, FileText, Upload
+    Trash2, CalendarDays, Clock, CheckSquare, FileText, Upload,
+    Image as ImageIcon, BookOpen, Edit3, Save, Check
 } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { proyectosStore, tareasStore, clientesStore, logsProyectoStore, storageStore } from "@/lib/store";
 import { toast } from "sonner";
-import type { Proyecto, Tarea, Cliente, FaseProyecto, LogProyecto } from "@/lib/types";
+import type { Proyecto, Tarea, Cliente, FaseProyecto, LogProyecto, DocumentoProyecto, TipoProyecto } from "@/lib/types";
 import { FASES_POR_TIPO, TIPO_PROYECTO_LABELS, PRIORIDAD_COLORS } from "@/lib/types";
 import Link from "next/link";
 
@@ -21,7 +22,16 @@ const ESTADO_BADGE: Record<string, string> = {
     finalizado: "bg-slate-500/20 text-slate-400 border-slate-500/30",
 };
 
-type ModalTab = "general" | "fases" | "novedades" | "saas" | "tareas";
+type ModalTab = "general" | "fases" | "tareas" | "novedades" | "documentos" | "saas";
+
+const DOC_CATEGORIA_BADGE: Record<string, string> = {
+    estrategia: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+    marketing: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+    contenido: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+    prospeccion: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+    manual: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+    otro: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+};
 
 // ── Project Card ─────────────────────────────────────────────────────────────
 function ProyectoCard({
@@ -32,31 +42,44 @@ function ProyectoCard({
     const fases = proyecto.fases || [];
     const totalFases = fases.length;
     const completedFases = fases.filter((f) => f.completada).length;
-    // Fall back to task-based progress if no phases configured yet
     const progress = totalFases > 0
         ? Math.round((completedFases / totalFases) * 100)
         : (tareas.length > 0 ? Math.round((tareas.filter((t) => t.estado === "completada").length / tareas.length) * 100) : 0);
 
     return (
-        <button onClick={onClick} className="w-full text-left rounded-xl border border-border bg-card p-5 card-hover group">
+        <button onClick={onClick} className="w-full text-left rounded-xl border border-border bg-card p-5 card-hover group relative overflow-hidden">
             <div className="flex items-start justify-between mb-3">
                 <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium uppercase tracking-wider", ESTADO_BADGE[proyecto.estado])}>
                     {proyecto.estado}
                 </span>
                 <span className="text-[10px] text-muted-foreground uppercase">{TIPO_PROYECTO_LABELS[proyecto.tipo_proyecto]}</span>
             </div>
-            <h4 className="text-base font-semibold text-foreground mb-1 group-hover:text-primary transition-colors">
-                {proyecto.nombre}
-                {proyecto.es_interno && <span className="ml-2 text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-md">SaaS/Interno</span>}
-            </h4>
+
+            <div className="flex items-center gap-3 mb-2">
+                {proyecto.logo_url ? (
+                    <img src={proyecto.logo_url} alt={proyecto.nombre} className="w-10 h-10 rounded-lg object-contain bg-secondary border border-border p-1 shrink-0" />
+                ) : (
+                    <div className="w-10 h-10 rounded-lg bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-bold text-sm shrink-0">
+                        {proyecto.nombre.slice(0, 2).toUpperCase()}
+                    </div>
+                )}
+                <div className="min-w-0 flex-1">
+                    <h4 className="text-base font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                        {proyecto.nombre}
+                    </h4>
+                    {proyecto.es_interno && <span className="text-[10px] bg-primary/20 text-primary px-1.5 py-0.5 rounded-md">SaaS/Interno</span>}
+                </div>
+            </div>
+
             {cliente && (
                 <div className="flex items-center gap-2 mb-4">
                     <div className="w-5 h-5 rounded-full bg-gradient-to-br from-primary/40 to-cyan-500/40 flex items-center justify-center text-[8px] font-bold">
                         {getInitials(cliente.nombre)}
                     </div>
-                    <p className="text-xs text-muted-foreground">{cliente.nombre}</p>
+                    <p className="text-xs text-muted-foreground truncate">{cliente.nombre}</p>
                 </div>
             )}
+
             <div>
                 <div className="flex items-center justify-between mb-1.5">
                     <span className="text-xs text-muted-foreground">Progreso {totalFases > 0 ? `(${completedFases}/${totalFases} fases)` : ""}</span>
@@ -70,34 +93,60 @@ function ProyectoCard({
     );
 }
 
-// ── Project Detail Modal ──────────────────────────────────────────────────────
+// ── Project Detail Modal / Drawer ─────────────────────────────────────────────
 function ProyectoDetailModal({
-    open, onClose, proyecto, reload,
+    open, onClose, proyecto, reload, onUpdateProyecto
 }: {
-    open: boolean; onClose: () => void; proyecto: Proyecto | null; reload: () => void;
+    open: boolean;
+    onClose: () => void;
+    proyecto: Proyecto | null;
+    reload: () => void;
+    onUpdateProyecto?: (p: Proyecto) => void;
 }) {
     const [activeTab, setActiveTab] = useState<ModalTab>("general");
     const [tareas, setTareas] = useState<Tarea[]>([]);
     const [cliente, setCliente] = useState<Cliente | undefined>();
     const [logs, setLogs] = useState<LogProyecto[]>([]);
+
+    // Local reactive states for live update without modal closure
+    const [fasesList, setFasesList] = useState<FaseProyecto[]>([]);
+    const [documentosList, setDocumentosList] = useState<DocumentoProyecto[]>([]);
+    const [logoUrl, setLogoUrl] = useState<string>("");
+
     const [showNewAcceso, setShowNewAcceso] = useState(false);
     const [newAcceso, setNewAcceso] = useState({ servicio: "", url: "", usuario: "", password: "" });
     const [savingFase, setSavingFase] = useState(false);
+
     // Log form
     const [showNewLog, setShowNewLog] = useState(false);
     const [logForm, setLogForm] = useState({ titulo: "", descripcion: "", fecha: new Date().toISOString().slice(0, 10) });
     const [savingLog, setSavingLog] = useState(false);
+
     // Tareas form
     const [showNewTarea, setShowNewTarea] = useState(false);
     const [tareaForm, setTareaForm] = useState<Partial<Tarea>>({
         titulo: "", descripcion: "", prioridad: "media", categoria: "dev"
     });
     const [savingTarea, setSavingTarea] = useState(false);
+
     // SaaS fields
     const [saasForm, setSaasForm] = useState({
         saas_url: "", version: "", usuarios_activos: 0,
     });
-    const [savingSaas, setSavingSaas] = useState(false);
+
+    // Documentos Wiki Form
+    const [showDocEdit, setShowDocEdit] = useState(false);
+    const [editingDoc, setEditingDoc] = useState<DocumentoProyecto | null>(null);
+    const [docForm, setDocForm] = useState<{
+        id?: string;
+        titulo: string;
+        categoria: 'estrategia' | 'marketing' | 'contenido' | 'prospeccion' | 'manual' | 'otro';
+        contenido: string;
+    }>({
+        titulo: "",
+        categoria: "estrategia",
+        contenido: ""
+    });
 
     useEffect(() => {
         if (!proyecto) return;
@@ -107,6 +156,16 @@ function ProyectoDetailModal({
             version: proyecto.version || "",
             usuarios_activos: proyecto.usuarios_activos || 0,
         });
+
+        // Initialize local reactive fields
+        const defaultFases = proyecto.fases && proyecto.fases.length > 0
+            ? proyecto.fases
+            : FASES_POR_TIPO[proyecto.tipo_proyecto]?.map((c) => ({ nombre: c.nombre, completada: false })) || [];
+
+        setFasesList(defaultFases);
+        setDocumentosList(proyecto.documentos || []);
+        setLogoUrl(proyecto.logo_url || "");
+
         const load = async () => {
             const [pts, cl, lg] = await Promise.all([
                 tareasStore.getByProyecto(proyecto.id),
@@ -122,18 +181,18 @@ function ProyectoDetailModal({
 
     if (!open || !proyecto) return null;
 
-    // Derive fases (init default if empty)
-    const currentFases: FaseProyecto[] = proyecto.fases && proyecto.fases.length > 0
-        ? proyecto.fases
-        : FASES_POR_TIPO[proyecto.tipo_proyecto].map((c) => ({ nombre: c.nombre, completada: false }));
-    const completedFases = currentFases.filter((f) => f.completada).length;
-    const fasesProgress = currentFases.length > 0 ? Math.round((completedFases / currentFases.length) * 100) : 0;
+    const completedFases = fasesList.filter((f) => f.completada).length;
+    const fasesProgress = fasesList.length > 0 ? Math.round((completedFases / fasesList.length) * 100) : 0;
 
+    // Toggle live phases immediately without page leave
     const toggleFase = async (index: number) => {
         setSavingFase(true);
-        const updated = currentFases.map((f, i) => i === index ? { ...f, completada: !f.completada } : f);
+        const updated = fasesList.map((f, i) => i === index ? { ...f, completada: !f.completada } : f);
+        setFasesList(updated); // Optimistic UI update!
+
         try {
-            await proyectosStore.update(proyecto.id, { fases: updated });
+            const updatedProyecto = await proyectosStore.update(proyecto.id, { fases: updated });
+            if (onUpdateProyecto) onUpdateProyecto(updatedProyecto);
             toast.success("Fase actualizada");
             reload();
         } catch {
@@ -141,6 +200,81 @@ function ProyectoDetailModal({
         } finally {
             setSavingFase(false);
         }
+    };
+
+    // Upload Logo
+    const handleUploadLogo = async (file: File) => {
+        const toastId = toast.loading("Subiendo logo...");
+        try {
+            const url = await storageStore.uploadLogo(file);
+            const updated = await proyectosStore.update(proyecto.id, { logo_url: url });
+            setLogoUrl(url);
+            if (onUpdateProyecto) onUpdateProyecto(updated);
+            toast.success("Logo guardado", { id: toastId });
+            reload();
+        } catch {
+            toast.error("Error al subir logo", { id: toastId });
+        }
+    };
+
+    // Save Strategy Document
+    const handleSaveDoc = async () => {
+        if (!docForm.titulo.trim()) { toast.error("Ingresa un título para el documento"); return; }
+
+        const docPayload: DocumentoProyecto = {
+            id: docForm.id || `doc_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            titulo: docForm.titulo,
+            categoria: docForm.categoria,
+            contenido: docForm.contenido,
+            updated_at: new Date().toISOString()
+        };
+
+        const exists = documentosList.some(d => d.id === docPayload.id);
+        const updatedDocs = exists
+            ? documentosList.map(d => d.id === docPayload.id ? docPayload : d)
+            : [docPayload, ...documentosList];
+
+        setDocumentosList(updatedDocs);
+
+        try {
+            const updated = await proyectosStore.update(proyecto.id, { documentos: updatedDocs });
+            if (onUpdateProyecto) onUpdateProyecto(updated);
+            toast.success("Documento guardado");
+            setShowDocEdit(false);
+            setEditingDoc(null);
+            setDocForm({ titulo: "", categoria: "estrategia", contenido: "" });
+            reload();
+        } catch {
+            toast.error("Error al guardar documento");
+        }
+    };
+
+    const handleDeleteDoc = async (id: string) => {
+        if (!confirm("¿Eliminar este documento de estrategia?")) return;
+        const updatedDocs = documentosList.filter(d => d.id !== id);
+        setDocumentosList(updatedDocs);
+        try {
+            const updated = await proyectosStore.update(proyecto.id, { documentos: updatedDocs });
+            if (onUpdateProyecto) onUpdateProyecto(updated);
+            toast.success("Documento eliminado");
+            reload();
+        } catch { toast.error("Error al eliminar"); }
+    };
+
+    const openDocEditor = (doc?: DocumentoProyecto) => {
+        if (doc) {
+            setEditingDoc(doc);
+            setDocForm({
+                id: doc.id,
+                titulo: doc.titulo,
+                categoria: doc.categoria,
+                contenido: doc.contenido
+            });
+        } else {
+            setEditingDoc(null);
+            setDocForm({ titulo: "", categoria: "estrategia", contenido: "" });
+        }
+        setShowDocEdit(true);
     };
 
     const addRecommendedTask = async (t: { titulo: string; categoria: string; prioridad: string; descripcion?: string }) => {
@@ -160,59 +294,6 @@ function ProyectoDetailModal({
             reload();
         } catch { toast.error("Error al crear tarea"); }
         finally { setSavingTarea(false); }
-    };
-
-    const handleSaveContrato = async (url: string) => {
-        try {
-            await proyectosStore.update(proyecto.id, { contrato_url: url });
-            toast.success("Contrato guardado");
-            reload();
-        } catch {
-            toast.error("Error al guardar contrato");
-        }
-    };
-
-    const handleAddAcceso = async () => {
-        if (!newAcceso.servicio || !newAcceso.usuario) return;
-        const updated = [...(proyecto.accesos || []), newAcceso];
-        try {
-            await proyectosStore.update(proyecto.id, { accesos: updated });
-            toast.success("Acceso guardado");
-            setNewAcceso({ servicio: "", url: "", usuario: "", password: "" });
-            setShowNewAcceso(false);
-            reload();
-        } catch { toast.error("Error al guardar acceso"); }
-    };
-
-    const handleRemoveAcceso = async (i: number) => {
-        const updated = (proyecto.accesos || []).filter((_, idx) => idx !== i);
-        try {
-            await proyectosStore.update(proyecto.id, { accesos: updated });
-            toast.success("Acceso eliminado");
-            reload();
-        } catch { toast.error("Error al eliminar acceso"); }
-    };
-
-    const handleAddLog = async () => {
-        if (!logForm.titulo.trim()) { toast.error("El título es requerido"); return; }
-        setSavingLog(true);
-        try {
-            await logsProyectoStore.create({ proyecto_id: proyecto.id, ...logForm });
-            const updated = await logsProyectoStore.getByProyecto(proyecto.id);
-            setLogs(updated);
-            setLogForm({ titulo: "", descripcion: "", fecha: new Date().toISOString().slice(0, 10) });
-            setShowNewLog(false);
-            toast.success("Novedad registrada");
-        } catch { toast.error("Error al guardar log"); }
-        finally { setSavingLog(false); }
-    };
-
-    const handleDeleteLog = async (id: string) => {
-        try {
-            await logsProyectoStore.delete(id);
-            setLogs(logs.filter((l) => l.id !== id));
-            toast.success("Entrada eliminada");
-        } catch { toast.error("Error al eliminar"); }
     };
 
     const handleAddTarea = async () => {
@@ -237,74 +318,134 @@ function ProyectoDetailModal({
         finally { setSavingTarea(false); }
     };
 
-    const handleSaveSaas = async () => {
-        setSavingSaas(true);
+    const handleAddAcceso = async () => {
+        if (!newAcceso.servicio || !newAcceso.usuario) return;
+        const updated = [...(proyecto.accesos || []), newAcceso];
         try {
-            await proyectosStore.update(proyecto.id, {
-                saas_url: saasForm.saas_url,
-                version: saasForm.version,
-                usuarios_activos: saasForm.usuarios_activos,
-            });
-            toast.success("Datos SaaS actualizados");
+            const updatedP = await proyectosStore.update(proyecto.id, { accesos: updated });
+            if (onUpdateProyecto) onUpdateProyecto(updatedP);
+            toast.success("Acceso guardado");
+            setNewAcceso({ servicio: "", url: "", usuario: "", password: "" });
+            setShowNewAcceso(false);
             reload();
-        } catch { toast.error("Error al guardar"); }
-        finally { setSavingSaas(false); }
+        } catch { toast.error("Error al guardar acceso"); }
+    };
+
+    const handleRemoveAcceso = async (i: number) => {
+        const updated = (proyecto.accesos || []).filter((_, idx) => idx !== i);
+        try {
+            const updatedP = await proyectosStore.update(proyecto.id, { accesos: updated });
+            if (onUpdateProyecto) onUpdateProyecto(updatedP);
+            toast.success("Acceso eliminado");
+            reload();
+        } catch { toast.error("Error al eliminar acceso"); }
+    };
+
+    const handleAddLog = async () => {
+        if (!logForm.titulo.trim()) { toast.error("El título es requerido"); return; }
+        setSavingLog(true);
+        try {
+            await logsProyectoStore.create({ proyecto_id: proyecto.id, ...logForm });
+            const updated = await logsProyectoStore.getByProyecto(proyecto.id);
+            setLogs(updated);
+            setLogForm({ titulo: "", descripcion: "", fecha: new Date().toISOString().slice(0, 10) });
+            setShowNewLog(false);
+            toast.success("Novedad registrada");
+        } catch { toast.error("Error al guardar log"); }
+        finally { setSavingLog(false); }
     };
 
     const TABS: { id: ModalTab; label: string; icon: any }[] = [
         { id: "general", label: "General", icon: Globe },
         { id: "fases", label: "Fases", icon: Layers },
+        { id: "documentos", label: "Documentos / Strategy Wiki", icon: BookOpen },
         { id: "tareas", label: "Tareas", icon: CheckSquare },
         { id: "novedades", label: "Novedades", icon: ScrollText },
         ...(proyecto.es_interno ? [{ id: "saas" as ModalTab, label: "SaaS", icon: Zap }] : []),
     ];
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-8 px-4">
-            <div className="w-full max-w-2xl rounded-2xl border border-border bg-card shadow-2xl animate-fade-in">
-                {/* Header */}
-                <div className="flex items-center justify-between p-6 border-b border-border">
-                    <div>
-                        <div className="flex items-center gap-2">
-                            <h3 className="text-lg font-bold text-foreground">{proyecto.nombre}</h3>
-                            {proyecto.es_interno && <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-md uppercase font-bold tracking-wider">Interno</span>}
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm overflow-y-auto py-6 px-4">
+            <div className="w-full max-w-4xl rounded-3xl border border-border bg-card shadow-2xl animate-fade-in flex flex-col max-h-[90vh]">
+                {/* Header con Logo Upload */}
+                <div className="p-6 border-b border-border flex items-center justify-between bg-secondary/20">
+                    <div className="flex items-center gap-4">
+                        {/* Logo Uploader */}
+                        <div className="relative group shrink-0">
+                            {logoUrl ? (
+                                <img src={logoUrl} alt={proyecto.nombre} className="w-14 h-14 rounded-2xl object-contain bg-card border border-border p-1 shadow-sm" />
+                            ) : (
+                                <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center text-primary font-black text-xl shadow-sm">
+                                    {proyecto.nombre.slice(0, 2).toUpperCase()}
+                                </div>
+                            )}
+
+                            <label
+                                htmlFor={`logo-upload-${proyecto.id}`}
+                                className="absolute inset-0 bg-black/60 rounded-2xl flex flex-col items-center justify-center text-[9px] font-bold text-white opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer p-1 text-center"
+                            >
+                                <Upload className="w-4 h-4 mb-0.5" /> Logo
+                            </label>
+                            <input
+                                type="file"
+                                accept="image/*"
+                                id={`logo-upload-${proyecto.id}`}
+                                className="hidden"
+                                onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) handleUploadLogo(f);
+                                }}
+                            />
                         </div>
-                        <p className="text-sm text-muted-foreground">
-                            {proyecto.es_interno ? "Producto Propio" : cliente?.nombre} · {TIPO_PROYECTO_LABELS[proyecto.tipo_proyecto]}
-                        </p>
+
+                        <div>
+                            <div className="flex items-center gap-2">
+                                <h3 className="text-xl font-black text-foreground">{proyecto.nombre}</h3>
+                                {proyecto.es_interno && <span className="text-[10px] bg-primary/20 text-primary px-2 py-0.5 rounded-md uppercase font-bold tracking-wider">Interno</span>}
+                            </div>
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                                {proyecto.es_interno ? "Producto Propio" : cliente?.nombre} · {TIPO_PROYECTO_LABELS[proyecto.tipo_proyecto]}
+                            </p>
+                        </div>
                     </div>
-                    <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-secondary transition-colors">
-                        <X className="w-5 h-5 text-muted-foreground" />
+
+                    <button onClick={onClose} className="p-2 rounded-xl hover:bg-secondary transition-colors">
+                        <X className="w-6 h-6 text-muted-foreground" />
                     </button>
                 </div>
 
                 {/* Tabs */}
-                <div className="flex gap-1 px-6 pt-4 border-b border-border">
+                <div className="flex gap-2 px-6 pt-3 border-b border-border bg-card overflow-x-auto">
                     {TABS.map((tab) => (
                         <button
                             key={tab.id}
                             onClick={() => setActiveTab(tab.id)}
                             className={cn(
-                                "flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-t-lg border-b-2 transition-colors -mb-px",
+                                "flex items-center gap-2 px-4 py-2.5 text-xs font-bold rounded-t-xl border-b-2 transition-all -mb-px shrink-0",
                                 activeTab === tab.id
-                                    ? "border-primary text-primary"
+                                    ? "border-primary text-primary bg-primary/5"
                                     : "border-transparent text-muted-foreground hover:text-foreground"
                             )}
                         >
-                            <tab.icon className="w-3.5 h-3.5" />
+                            <tab.icon className="w-4 h-4" />
                             {tab.label}
+                            {tab.id === "documentos" && documentosList.length > 0 && (
+                                <span className="ml-1 text-[10px] bg-primary/20 text-primary px-1.5 py-0.2 rounded-full font-bold">
+                                    {documentosList.length}
+                                </span>
+                            )}
                         </button>
                     ))}
                 </div>
 
-                <div className="p-6 max-h-[60vh] overflow-y-auto">
-                    {/* ── TAB: GENERAL ──────────────────────────────────── */}
+                {/* Content */}
+                <div className="p-6 flex-1 overflow-y-auto custom-scrollbar">
+                    {/* TAB: GENERAL */}
                     {activeTab === "general" && (
-                        <div className="space-y-5">
-                            {/* Links */}
+                        <div className="space-y-6">
                             <div className="flex flex-wrap gap-2">
                                 {proyecto.figma_url && (
-                                    <a href={proyecto.figma_url} target="_blank" rel="noopener" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary border border-border text-xs text-foreground hover:border-primary/30 transition-colors">
+                                    <a href={proyecto.figma_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-secondary border border-border text-xs text-foreground hover:border-primary/30 transition-colors">
                                         <ExternalLink className="w-3.5 h-3.5" /> Figma
                                     </a>
                                 )}
@@ -319,68 +460,16 @@ function ProyectoDetailModal({
                                 </button>
                             </div>
 
-                            {/* Figma status */}
-                            {proyecto.figma_url && (
-                                <div className={cn("p-4 rounded-xl border flex items-center gap-3", proyecto.figma_aprobado ? "bg-emerald-500/10 border-emerald-500/20" : "bg-purple-500/5 border-purple-500/20")}>
-                                    <div className={cn("w-9 h-9 rounded-lg flex items-center justify-center shrink-0", proyecto.figma_aprobado ? "bg-emerald-500/20 text-emerald-500" : "bg-purple-500/20 text-purple-400")}>
-                                        {proyecto.figma_aprobado ? <CheckCircle2 className="w-5 h-5" /> : <ExternalLink className="w-5 h-5" />}
-                                    </div>
-                                    <div>
-                                        <h4 className={cn("text-sm font-bold", proyecto.figma_aprobado ? "text-emerald-500" : "text-purple-400")}>
-                                            {proyecto.figma_aprobado ? "Diseño Aprobado" : "Diseño Pendiente"}
-                                        </h4>
-                                        {proyecto.figma_comentarios && <p className="text-xs text-foreground/80 italic">&quot;{proyecto.figma_comentarios}&quot;</p>}
-                                    </div>
-                                </div>
-                            )}
-
                             {/* Contrato */}
                             <div className="p-4 rounded-xl border border-border bg-secondary/30">
                                 <h4 className="text-sm font-semibold text-foreground mb-3 flex items-center gap-2"><FileText className="w-4 h-4 text-primary" /> Contrato de Servicios</h4>
                                 {proyecto.contrato_url ? (
-                                    <div className="space-y-3">
-                                        <div className="flex items-center justify-between p-3 rounded-lg bg-background border border-primary/30">
-                                            <div className="flex items-center gap-2">
-                                                <FileText className="w-5 h-5 text-primary" />
-                                                <span className="text-sm font-medium text-foreground">Contrato adjunto</span>
-                                            </div>
-                                            <a
-                                                href={proyecto.contrato_url}
-                                                target="_blank"
-                                                rel="noopener noreferrer"
-                                                className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-opacity"
-                                            >
-                                                Ver PDF
-                                            </a>
+                                    <div className="flex items-center justify-between p-3 rounded-lg bg-background border border-primary/30">
+                                        <div className="flex items-center gap-2">
+                                            <FileText className="w-5 h-5 text-primary" />
+                                            <span className="text-sm font-medium text-foreground">Contrato adjunto</span>
                                         </div>
-                                        <div className="flex items-center gap-3">
-                                            <input
-                                                type="file"
-                                                accept=".pdf"
-                                                id={`contrato-upload-${proyecto.id}`}
-                                                className="hidden"
-                                                onChange={async (e) => {
-                                                    const file = e.target.files?.[0];
-                                                    if (file) {
-                                                        const toastId = toast.loading("Subiendo PDF...");
-                                                        try {
-                                                            const url = await storageStore.uploadContrato(file);
-                                                            await proyectosStore.update(proyecto.id, { contrato_url: url });
-                                                            toast.success("Contrato actualizado", { id: toastId });
-                                                            reload();
-                                                        } catch {
-                                                            toast.error("Error al subir", { id: toastId });
-                                                        }
-                                                    }
-                                                }}
-                                            />
-                                            <label
-                                                htmlFor={`contrato-upload-${proyecto.id}`}
-                                                className="flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border-2 border-dashed border-primary/30 hover:border-primary/50 cursor-pointer transition-all text-sm text-primary hover:bg-primary/5"
-                                            >
-                                                <Upload className="w-4 h-4" /> Reemplazar PDF
-                                            </label>
-                                        </div>
+                                        <a href={proyecto.contrato_url} target="_blank" rel="noopener noreferrer" className="px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-bold">Ver PDF</a>
                                     </div>
                                 ) : (
                                     <div className="flex items-center gap-3">
@@ -398,23 +487,17 @@ function ProyectoDetailModal({
                                                         await proyectosStore.update(proyecto.id, { contrato_url: url });
                                                         toast.success("Contrato guardado", { id: toastId });
                                                         reload();
-                                                    } catch {
-                                                        toast.error("Error al subir", { id: toastId });
-                                                    }
+                                                    } catch { toast.error("Error al subir", { id: toastId }); }
                                                 }
                                             }}
                                         />
-                                        <label
-                                            htmlFor={`contrato-upload-${proyecto.id}`}
-                                            className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-primary/40 text-xs font-semibold text-primary hover:bg-primary/5 cursor-pointer transition-colors"
-                                        >
+                                        <label htmlFor={`contrato-upload-${proyecto.id}`} className="w-full flex items-center justify-center gap-2 px-3 py-3 rounded-lg border-2 border-dashed border-primary/40 text-xs font-semibold text-primary hover:bg-primary/5 cursor-pointer">
                                             <Upload className="w-4 h-4" /> Subir PDF del Contrato
                                         </label>
                                     </div>
                                 )}
                             </div>
 
-                            {/* Descripción */}
                             <div>
                                 <h4 className="text-sm font-semibold text-foreground mb-2">Descripción</h4>
                                 <div className="p-3 rounded-lg border border-border bg-secondary/30 text-sm text-muted-foreground min-h-[70px]">
@@ -422,45 +505,33 @@ function ProyectoDetailModal({
                                 </div>
                             </div>
 
-                            {/* Fecha entrega */}
-                            {proyecto.fecha_entrega && (
-                                <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                    <CalendarDays className="w-3.5 h-3.5" />
-                                    Entrega estimada: <strong className="text-foreground">{new Date(proyecto.fecha_entrega).toLocaleDateString()}</strong>
-                                </div>
-                            )}
-
                             {/* Accesos */}
                             <div>
                                 <div className="flex items-center justify-between mb-2">
                                     <h4 className="text-sm font-semibold text-foreground">Accesos / Credenciales</h4>
-                                    <button onClick={() => setShowNewAcceso(!showNewAcceso)} className="text-xs text-primary hover:text-primary/80 flex items-center gap-1">
+                                    <button onClick={() => setShowNewAcceso(!showNewAcceso)} className="text-xs text-primary font-bold hover:underline flex items-center gap-1">
                                         <Plus className="w-3 h-3" /> Agregar
                                     </button>
                                 </div>
                                 {showNewAcceso && (
                                     <div className="mb-3 p-3 rounded-lg border border-primary/30 bg-primary/5 space-y-2">
-                                        <input type="text" placeholder="Servicio (ej. Hosting)" className="w-full text-xs p-1.5 rounded bg-background border border-border" value={newAcceso.servicio} onChange={e => setNewAcceso({ ...newAcceso, servicio: e.target.value })} />
-                                        <input type="text" placeholder="URL Login (opcional)" className="w-full text-xs p-1.5 rounded bg-background border border-border" value={newAcceso.url} onChange={e => setNewAcceso({ ...newAcceso, url: e.target.value })} />
-                                        <input type="text" placeholder="Usuario / Email" className="w-full text-xs p-1.5 rounded bg-background border border-border" value={newAcceso.usuario} onChange={e => setNewAcceso({ ...newAcceso, usuario: e.target.value })} />
+                                        <input type="text" placeholder="Servicio (ej. Hosting)" className="w-full text-xs p-2 rounded-lg bg-background border border-border" value={newAcceso.servicio} onChange={e => setNewAcceso({ ...newAcceso, servicio: e.target.value })} />
+                                        <input type="text" placeholder="URL Login" className="w-full text-xs p-2 rounded-lg bg-background border border-border" value={newAcceso.url} onChange={e => setNewAcceso({ ...newAcceso, url: e.target.value })} />
+                                        <input type="text" placeholder="Usuario / Email" className="w-full text-xs p-2 rounded-lg bg-background border border-border" value={newAcceso.usuario} onChange={e => setNewAcceso({ ...newAcceso, usuario: e.target.value })} />
                                         <div className="flex gap-2">
-                                            <input type="text" placeholder="Contraseña" className="flex-1 text-xs p-1.5 rounded bg-background border border-border" value={newAcceso.password} onChange={e => setNewAcceso({ ...newAcceso, password: e.target.value })} />
-                                            <button onClick={handleAddAcceso} className="bg-primary text-black px-2 py-1.5 rounded text-xs font-bold">Guardar</button>
+                                            <input type="text" placeholder="Contraseña" className="flex-1 text-xs p-2 rounded-lg bg-background border border-border" value={newAcceso.password} onChange={e => setNewAcceso({ ...newAcceso, password: e.target.value })} />
+                                            <button onClick={handleAddAcceso} className="bg-primary text-primary-foreground px-3 py-2 rounded-lg text-xs font-bold">Guardar</button>
                                         </div>
                                     </div>
                                 )}
-                                <div className="space-y-2 max-h-[180px] overflow-y-auto pr-1">
-                                    {(!proyecto.accesos || proyecto.accesos.length === 0) && !showNewAcceso && (
-                                        <p className="text-xs text-muted-foreground italic">No hay accesos guardados.</p>
-                                    )}
+                                <div className="space-y-2 max-h-[180px] overflow-y-auto">
                                     {(proyecto.accesos || []).map((acceso, i) => (
-                                        <div key={i} className="p-2.5 rounded-lg border border-border bg-secondary/30 group relative">
-                                            <button onClick={() => handleRemoveAcceso(i)} className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-500 transition-opacity">
-                                                <X className="w-3.5 h-3.5" />
-                                            </button>
-                                            <p className="text-xs font-bold text-foreground">{acceso.servicio}</p>
-                                            <p className="text-[10px] text-muted-foreground break-all">{acceso.usuario} • {acceso.password}</p>
-                                            {acceso.url && <a href={acceso.url} target="_blank" rel="noopener" className="text-[10px] text-primary hover:underline mt-1 inline-block">🔗 {acceso.url}</a>}
+                                        <div key={i} className="p-3 rounded-xl border border-border bg-secondary/30 flex items-center justify-between">
+                                            <div>
+                                                <p className="text-xs font-bold text-foreground">{acceso.servicio}</p>
+                                                <p className="text-[11px] text-muted-foreground">{acceso.usuario} • {acceso.password}</p>
+                                            </div>
+                                            <button onClick={() => handleRemoveAcceso(i)} className="text-rose-400 hover:text-rose-500"><X className="w-4 h-4" /></button>
                                         </div>
                                     ))}
                                 </div>
@@ -468,41 +539,36 @@ function ProyectoDetailModal({
                         </div>
                     )}
 
-                    {/* ── TAB: FASES ────────────────────────────────────── */}
+                    {/* TAB: FASES (LIVE INTERACTIVE) */}
                     {activeTab === "fases" && (
-                        <div className="space-y-4">
-                            {/* Progress */}
-                            <div className="p-4 rounded-xl bg-secondary/50 border border-border">
+                        <div className="space-y-5">
+                            <div className="p-4 rounded-2xl bg-secondary/50 border border-border">
                                 <div className="flex justify-between mb-2">
-                                    <span className="text-xs text-muted-foreground">Progreso por Fases</span>
-                                    <span className="text-sm font-bold text-foreground">{fasesProgress}%</span>
+                                    <span className="text-xs text-muted-foreground font-semibold">Progreso General del Proyecto</span>
+                                    <span className="text-sm font-black text-primary">{fasesProgress}%</span>
                                 </div>
-                                <div className="h-2 rounded-full bg-background overflow-hidden">
+                                <div className="h-2.5 rounded-full bg-background overflow-hidden">
                                     <div className="h-full rounded-full bg-gradient-to-r from-primary to-cyan-400 transition-all duration-500" style={{ width: `${fasesProgress}%` }} />
                                 </div>
-                                <p className="text-[11px] text-muted-foreground mt-2">{completedFases} de {currentFases.length} fases completadas</p>
+                                <p className="text-[11px] text-muted-foreground mt-2">{completedFases} de {fasesList.length} fases completadas</p>
                             </div>
 
-                            {/* Fase checklist */}
                             <div className="space-y-3">
-                                {currentFases.map((fase, i) => {
+                                {fasesList.map((fase, i) => {
                                     const configFase = FASES_POR_TIPO[proyecto.tipo_proyecto]?.find((c) => c.nombre === fase.nombre);
 
                                     return (
-                                        <div key={i} className={cn("flex flex-col gap-2 p-3.5 rounded-xl border transition-all", fase.completada ? "bg-emerald-500/5 border-emerald-500/20" : "bg-card border-border hover:border-primary/40")}>
+                                        <div key={i} className={cn("p-4 rounded-2xl border transition-all", fase.completada ? "bg-emerald-500/5 border-emerald-500/30" : "bg-card border-border hover:border-primary/40")}>
                                             <div className="flex items-start gap-3">
                                                 <button
                                                     onClick={() => !savingFase && toggleFase(i)}
                                                     disabled={savingFase}
-                                                    className={cn("mt-0.5 w-6 h-6 rounded flex items-center justify-center shrink-0 transition-all border", fase.completada ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : "bg-secondary text-muted-foreground border-border")}
+                                                    className={cn("mt-0.5 w-7 h-7 rounded-xl flex items-center justify-center shrink-0 transition-all border font-bold text-xs", fase.completada ? "bg-emerald-500 text-slate-950 border-emerald-400" : "bg-secondary text-muted-foreground border-border hover:border-primary")}
                                                 >
-                                                    {fase.completada
-                                                        ? <CheckCircle2 className="w-4 h-4" />
-                                                        : <span className="text-[10px] font-bold">{i + 1}</span>
-                                                    }
+                                                    {fase.completada ? <Check className="w-4 h-4 stroke-[3]" /> : i + 1}
                                                 </button>
                                                 <div className="flex-1">
-                                                    <button onClick={() => !savingFase && toggleFase(i)} className={cn("text-sm font-semibold text-left transition-colors", fase.completada ? "text-emerald-400/80 line-through" : "text-foreground")}>
+                                                    <button onClick={() => !savingFase && toggleFase(i)} className={cn("text-base font-bold text-left transition-colors", fase.completada ? "text-emerald-400/80 line-through" : "text-foreground")}>
                                                         {fase.nombre}
                                                     </button>
                                                     {configFase?.descripcion && (
@@ -510,29 +576,23 @@ function ProyectoDetailModal({
                                                     )}
 
                                                     {!fase.completada && configFase?.tareas && configFase.tareas.length > 0 && (
-                                                        <div className="mt-4 bg-secondary/30 rounded-lg border border-border/50 p-2.5">
-                                                            <p className="text-[10px] uppercase font-bold text-muted-foreground mb-2.5 flex items-center gap-1.5"><CheckSquare className="w-3 h-3 text-primary" /> Tareas Sugeridas</p>
-                                                            <div className="space-y-2">
+                                                        <div className="mt-4 bg-secondary/30 rounded-xl border border-border/50 p-3 space-y-2">
+                                                            <p className="text-[10px] uppercase font-black text-muted-foreground tracking-wider flex items-center gap-1.5"><CheckSquare className="w-3 h-3 text-primary" /> Tareas Sugeridas</p>
+                                                            <div className="space-y-1.5">
                                                                 {configFase.tareas.map((t, idx) => {
                                                                     const isAdded = tareas.some(tarea => tarea.titulo === t.titulo);
                                                                     return (
-                                                                        <div key={idx} className="flex flex-col xl:flex-row xl:items-center justify-between p-2 rounded-md bg-background border border-border/50 text-xs gap-2">
-                                                                            <span className="truncate flex-1 font-medium">{t.titulo}</span>
-                                                                            <div className="flex items-center justify-between xl:justify-end gap-2">
-                                                                                <span className="text-[9px] px-1.5 py-0.5 rounded border border-border bg-secondary uppercase text-muted-foreground font-bold">{t.categoria}</span>
-                                                                                {isAdded ? (
-                                                                                    <span className="text-[9px] font-bold text-emerald-500 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Agregada</span>
-                                                                                ) : (
-                                                                                    <button
-                                                                                        onClick={() => addRecommendedTask(t)}
-                                                                                        className="text-[10px] font-bold text-primary bg-primary/10 hover:bg-primary/20 transition-colors px-2 py-1 rounded"
-                                                                                    >
-                                                                                        + Agregar
-                                                                                    </button>
-                                                                                )}
-                                                                            </div>
+                                                                        <div key={idx} className="flex items-center justify-between p-2 rounded-lg bg-background border border-border/50 text-xs">
+                                                                            <span className="truncate font-medium">{t.titulo}</span>
+                                                                            {isAdded ? (
+                                                                                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded">Agregada</span>
+                                                                            ) : (
+                                                                                <button onClick={() => addRecommendedTask(t)} className="text-[10px] font-bold text-primary bg-primary/10 hover:bg-primary/20 px-2.5 py-1 rounded-md">
+                                                                                    + Agregar
+                                                                                </button>
+                                                                            )}
                                                                         </div>
-                                                                    )
+                                                                    );
                                                                 })}
                                                             </div>
                                                         </div>
@@ -540,251 +600,183 @@ function ProyectoDetailModal({
                                                 </div>
                                             </div>
                                         </div>
-                                    )
+                                    );
                                 })}
                             </div>
                         </div>
                     )}
 
-                    {/* ── TAB: NOVEDADES ────────────────────────────────── */}
+                    {/* TAB: DOCUMENTOS / STRATEGY WIKI (ISSUE #8) */}
+                    {activeTab === "documentos" && (
+                        <div className="space-y-5">
+                            <div className="flex items-center justify-between">
+                                <div>
+                                    <h4 className="text-sm font-bold text-foreground">Wiki de Estrategia y Documentación</h4>
+                                    <p className="text-xs text-muted-foreground">Pega manuales, estrategias o briefs de Claude Code directamente sin resubir archivos</p>
+                                </div>
+                                <button
+                                    onClick={() => openDocEditor()}
+                                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 transition-all shadow-md shadow-primary/20"
+                                >
+                                    <Plus className="w-4 h-4" /> Nuevo Documento
+                                </button>
+                            </div>
+
+                            {/* Form de edición de documento */}
+                            {showDocEdit && (
+                                <div className="p-5 rounded-2xl border border-primary/30 bg-primary/5 space-y-4 animate-fade-in">
+                                    <div className="flex items-center justify-between">
+                                        <h4 className="text-sm font-bold text-foreground">{editingDoc ? "Editar Documento" : "Nuevo Documento de Estrategia"}</h4>
+                                        <button onClick={() => setShowDocEdit(false)} className="p-1 text-muted-foreground hover:text-foreground"><X className="w-4 h-4" /></button>
+                                    </div>
+
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                        <div>
+                                            <label className="text-[10px] font-bold text-muted-foreground uppercase">Título</label>
+                                            <input
+                                                value={docForm.titulo}
+                                                onChange={(e) => setDocForm({ ...docForm, titulo: e.target.value })}
+                                                placeholder="Ej: Estrategia de Contenido Q3, Manual de Prospección..."
+                                                className="w-full h-10 px-3 rounded-xl bg-background border border-border text-xs text-foreground focus:ring-2 focus:ring-primary/50 outline-none mt-1 font-medium"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] font-bold text-muted-foreground uppercase">Categoría</label>
+                                            <select
+                                                value={docForm.categoria}
+                                                onChange={(e) => setDocForm({ ...docForm, categoria: e.target.value as any })}
+                                                className="w-full h-10 px-3 rounded-xl bg-background border border-border text-xs text-foreground outline-none mt-1"
+                                            >
+                                                <option value="estrategia">📊 Estrategia</option>
+                                                <option value="marketing">📣 Marketing</option>
+                                                <option value="contenido">✍️ Contenido</option>
+                                                <option value="prospeccion">🎯 Prospección</option>
+                                                <option value="manual">📖 Manual / Guía</option>
+                                                <option value="otro">📁 Otro</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div>
+                                        <label className="text-[10px] font-bold text-muted-foreground uppercase mb-1 block">Contenido (Markdown)</label>
+                                        <textarea
+                                            value={docForm.contenido}
+                                            onChange={(e) => setDocForm({ ...docForm, contenido: e.target.value })}
+                                            placeholder="Pega aquí el contenido en Markdown generado por Claude Code..."
+                                            rows={12}
+                                            className="w-full p-4 rounded-xl bg-background border border-border text-xs font-mono text-foreground focus:ring-2 focus:ring-primary/50 outline-none resize-none leading-relaxed"
+                                        />
+                                    </div>
+
+                                    <div className="flex justify-end gap-2">
+                                        <button onClick={() => setShowDocEdit(false)} className="px-4 py-2 rounded-xl text-xs font-medium text-muted-foreground hover:bg-secondary">Cancelar</button>
+                                        <button onClick={handleSaveDoc} className="flex items-center gap-1.5 px-5 py-2 rounded-xl text-xs bg-primary text-primary-foreground font-bold hover:opacity-90">
+                                            <Save className="w-3.5 h-3.5" /> Guardar Documento
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Lista de documentos */}
+                            <div className="space-y-3">
+                                {documentosList.map((doc) => (
+                                    <div key={doc.id} className="p-4 rounded-2xl border border-border bg-card hover:border-primary/40 transition-all space-y-3 group">
+                                        <div className="flex items-start justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <span className={cn("text-[9px] px-2.5 py-0.5 rounded-full border font-bold uppercase tracking-wider", DOC_CATEGORIA_BADGE[doc.categoria])}>
+                                                    {doc.categoria}
+                                                </span>
+                                                <h5 className="text-sm font-bold text-foreground">{doc.titulo}</h5>
+                                            </div>
+                                            <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={() => openDocEditor(doc)} className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground">
+                                                    <Edit3 className="w-3.5 h-3.5" />
+                                                </button>
+                                                <button onClick={() => handleDeleteDoc(doc.id)} className="p-1.5 rounded-lg hover:bg-destructive/20 text-muted-foreground hover:text-destructive">
+                                                    <Trash2 className="w-3.5 h-3.5" />
+                                                </button>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-3 rounded-xl bg-secondary/30 border border-border/50 text-xs font-mono text-muted-foreground whitespace-pre-wrap max-h-48 overflow-y-auto custom-scrollbar">
+                                            {doc.contenido || "Sin contenido."}
+                                        </div>
+                                    </div>
+                                ))}
+
+                                {documentosList.length === 0 && !showDocEdit && (
+                                    <div className="py-12 text-center text-muted-foreground rounded-2xl border border-dashed border-border bg-card/50">
+                                        <BookOpen className="w-10 h-10 mx-auto mb-2 opacity-30" />
+                                        <p className="text-sm font-semibold">No hay documentos de estrategia guardados aún</p>
+                                        <p className="text-xs opacity-60 mt-1">Crea un nuevo documento para guardar la estrategia generada por Claude Code.</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* TAB: TAREAS */}
+                    {activeTab === "tareas" && (
+                        <div className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <p className="text-xs text-muted-foreground">{tareas.length} tareas asociadas a este proyecto</p>
+                                <button onClick={() => setShowNewTarea(!showNewTarea)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold">
+                                    <Plus className="w-3.5 h-3.5" /> Crear tarea
+                                </button>
+                            </div>
+
+                            {showNewTarea && (
+                                <div className="p-4 rounded-xl border border-primary/30 bg-primary/5 space-y-3">
+                                    <input value={tareaForm.titulo} onChange={(e) => setTareaForm({ ...tareaForm, titulo: e.target.value })} placeholder="Título de la tarea..." className="w-full h-9 px-3 rounded-lg bg-background border border-border text-xs" />
+                                    <div className="flex justify-end gap-2">
+                                        <button onClick={() => setShowNewTarea(false)} className="px-3 py-1 text-xs text-muted-foreground">Cancelar</button>
+                                        <button onClick={handleAddTarea} disabled={savingTarea} className="px-3 py-1 text-xs bg-primary text-primary-foreground font-bold rounded">Guardar</button>
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="space-y-2 max-h-[350px] overflow-y-auto">
+                                {tareas.map((t) => (
+                                    <div key={t.id} className="p-3 rounded-xl bg-secondary/30 border border-border flex items-center justify-between">
+                                        <span className="text-xs font-semibold text-foreground">{t.titulo}</span>
+                                        <span className="text-[10px] px-2 py-0.5 rounded bg-card border border-border uppercase font-bold text-muted-foreground">{t.estado}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* TAB: NOVEDADES */}
                     {activeTab === "novedades" && (
                         <div className="space-y-4">
                             <div className="flex items-center justify-between">
-                                <p className="text-xs text-muted-foreground">Registros de cambios, avances y estado del proyecto</p>
-                                <button
-                                    onClick={() => setShowNewLog(!showNewLog)}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-all"
-                                >
+                                <p className="text-xs text-muted-foreground">Registros de avances del proyecto</p>
+                                <button onClick={() => setShowNewLog(!showNewLog)} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold">
                                     <Plus className="w-3.5 h-3.5" /> Nueva entrada
                                 </button>
                             </div>
 
-                            {/* New log form */}
                             {showNewLog && (
-                                <div className="p-4 rounded-xl border border-primary/30 bg-primary/5 space-y-3 animate-fade-in">
-                                    <input
-                                        value={logForm.titulo}
-                                        onChange={(e) => setLogForm({ ...logForm, titulo: e.target.value })}
-                                        placeholder="Título del avance / novedad..."
-                                        className="w-full h-9 px-3 rounded-lg bg-background border border-border text-sm text-foreground focus:outline-none"
-                                    />
-                                    <textarea
-                                        value={logForm.descripcion}
-                                        onChange={(e) => setLogForm({ ...logForm, descripcion: e.target.value })}
-                                        placeholder="Descripción detallada: qué se hizo, estado actual, próximos pasos..."
-                                        rows={4}
-                                        className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm text-foreground focus:outline-none resize-none"
-                                    />
-                                    <div className="flex items-center justify-between">
-                                        <input
-                                            type="date"
-                                            value={logForm.fecha}
-                                            onChange={(e) => setLogForm({ ...logForm, fecha: e.target.value })}
-                                            className="h-8 px-2 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none"
-                                        />
-                                        <div className="flex gap-2">
-                                            <button onClick={() => setShowNewLog(false)} className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary">Cancelar</button>
-                                            <button onClick={handleAddLog} disabled={savingLog} className="px-3 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground font-semibold hover:opacity-90 disabled:opacity-50">
-                                                {savingLog ? "Guardando..." : "Guardar"}
-                                            </button>
-                                        </div>
+                                <div className="p-4 rounded-xl border border-primary/30 bg-primary/5 space-y-3">
+                                    <input value={logForm.titulo} onChange={(e) => setLogForm({ ...logForm, titulo: e.target.value })} placeholder="Título..." className="w-full h-9 px-3 rounded-lg bg-background border border-border text-xs" />
+                                    <textarea value={logForm.descripcion} onChange={(e) => setLogForm({ ...logForm, descripcion: e.target.value })} placeholder="Descripción..." rows={3} className="w-full p-3 rounded-lg bg-background border border-border text-xs resize-none" />
+                                    <div className="flex justify-end gap-2">
+                                        <button onClick={() => setShowNewLog(false)} className="px-3 py-1 text-xs text-muted-foreground">Cancelar</button>
+                                        <button onClick={handleAddLog} disabled={savingLog} className="px-3 py-1 text-xs bg-primary text-primary-foreground font-bold rounded">Guardar</button>
                                     </div>
                                 </div>
                             )}
 
-                            {/* Log list */}
-                            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-                                {logs.length === 0 && !showNewLog && (
-                                    <div className="py-10 text-center text-muted-foreground">
-                                        <ScrollText className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                                        <p className="text-sm">Sin novedades registradas</p>
-                                        <p className="text-xs opacity-60">Registrá avances, cambios o el estado actual del proyecto</p>
-                                    </div>
-                                )}
-                                {logs.map((log) => (
-                                    <div key={log.id} className="p-4 rounded-xl border border-border bg-secondary/30 group relative">
-                                        <button
-                                            onClick={() => handleDeleteLog(log.id)}
-                                            className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 text-destructive hover:text-red-400 transition-opacity"
-                                        >
-                                            <Trash2 className="w-3.5 h-3.5" />
-                                        </button>
-                                        <div className="flex items-center gap-2 mb-1.5">
-                                            <span className="flex items-center gap-1 text-[10px] text-muted-foreground bg-secondary px-2 py-0.5 rounded-md">
-                                                <Clock className="w-2.5 h-2.5" />
-                                                {new Date(log.fecha + 'T00:00:00').toLocaleDateString('es-AR', { day: '2-digit', month: 'short', year: 'numeric' })}
-                                            </span>
+                            <div className="space-y-3 max-h-[350px] overflow-y-auto">
+                                {logs.map((l) => (
+                                    <div key={l.id} className="p-3.5 rounded-xl border border-border bg-card space-y-1">
+                                        <div className="flex justify-between items-center">
+                                            <h5 className="text-xs font-bold text-foreground">{l.titulo}</h5>
+                                            <span className="text-[10px] text-muted-foreground">{l.fecha}</span>
                                         </div>
-                                        <h4 className="text-sm font-semibold text-foreground mb-1">{log.titulo}</h4>
-                                        {log.descripcion && <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{log.descripcion}</p>}
+                                        <p className="text-xs text-muted-foreground">{l.descripcion}</p>
                                     </div>
                                 ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* ── TAB: TAREAS ────────────────────────────────── */}
-                    {activeTab === "tareas" && (
-                        <div className="space-y-4">
-                            <div className="flex items-center justify-between">
-                                <p className="text-xs text-muted-foreground">Listado de tareas de este proyecto</p>
-                                <button
-                                    onClick={() => setShowNewTarea(!showNewTarea)}
-                                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground text-xs font-semibold hover:opacity-90 transition-all"
-                                >
-                                    <Plus className="w-3.5 h-3.5" /> Nueva tarea
-                                </button>
-                            </div>
-
-                            {/* New tarea form */}
-                            {showNewTarea && (
-                                <div className="p-4 rounded-xl border border-primary/30 bg-primary/5 space-y-3 animate-fade-in">
-                                    <input
-                                        value={tareaForm.titulo}
-                                        onChange={(e) => setTareaForm({ ...tareaForm, titulo: e.target.value })}
-                                        placeholder="Título de la tarea..."
-                                        className="w-full h-9 px-3 rounded-lg bg-background border border-border text-sm text-foreground focus:outline-none"
-                                    />
-                                    <textarea
-                                        value={tareaForm.descripcion}
-                                        onChange={(e) => setTareaForm({ ...tareaForm, descripcion: e.target.value })}
-                                        placeholder="Descripción o detalles..."
-                                        rows={3}
-                                        className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm text-foreground focus:outline-none resize-none"
-                                    />
-                                    <div className="flex gap-2">
-                                        <select
-                                            value={tareaForm.prioridad}
-                                            onChange={e => setTareaForm({ ...tareaForm, prioridad: e.target.value as any })}
-                                            className="h-8 px-2 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none flex-1 font-medium capitalize"
-                                        >
-                                            <option value="baja">Prioridad Baja</option>
-                                            <option value="media">Prioridad Media</option>
-                                            <option value="alta">Prioridad Alta</option>
-                                        </select>
-                                        <select
-                                            value={tareaForm.categoria}
-                                            onChange={e => setTareaForm({ ...tareaForm, categoria: e.target.value as any })}
-                                            className="h-8 px-2 rounded-lg bg-background border border-border text-xs text-foreground focus:outline-none flex-1 font-medium capitalize"
-                                        >
-                                            <option value="diseno">Diseño</option>
-                                            <option value="dev">Desarrollo</option>
-                                            <option value="seo">SEO</option>
-                                            <option value="otro">Otro</option>
-                                        </select>
-                                    </div>
-                                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-primary/10">
-                                        <button onClick={() => setShowNewTarea(false)} className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary">Cancelar</button>
-                                        <button onClick={handleAddTarea} disabled={savingTarea} className="px-3 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground font-semibold hover:opacity-90 disabled:opacity-50">
-                                            {savingTarea ? "Guardando..." : "Guardar"}
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* Tareas list */}
-                            <div className="space-y-3 max-h-[420px] overflow-y-auto pr-1">
-                                {tareas.length === 0 && !showNewTarea && (
-                                    <div className="py-10 text-center text-muted-foreground">
-                                        <CheckSquare className="w-8 h-8 mx-auto mb-2 opacity-20" />
-                                        <p className="text-sm">Sin tareas registradas</p>
-                                        <p className="text-xs opacity-60">Lista de tareas específicas del proyecto</p>
-                                    </div>
-                                )}
-                                {tareas.map((tarea) => (
-                                    <div key={tarea.id} className="p-3.5 rounded-xl border border-border bg-secondary/30 flex items-start gap-3 transition-colors hover:border-border/80">
-                                        <div className={cn("w-5 h-5 mt-0.5 rounded flex items-center justify-center shrink-0 border",
-                                            tarea.estado === "completada" ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/30" : "bg-background border-border"
-                                        )}>
-                                            {tarea.estado === "completada" && <CheckSquare className="w-3.5 h-3.5" />}
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                            <h4 className={cn("text-sm font-semibold truncate transition-colors", tarea.estado === "completada" ? "text-foreground/40 line-through" : "text-foreground")}>
-                                                {tarea.titulo}
-                                            </h4>
-                                            {tarea.descripcion && (
-                                                <p className={cn("text-xs line-clamp-2 mt-1", tarea.estado === "completada" ? "text-muted-foreground/50" : "text-muted-foreground")}>{tarea.descripcion}</p>
-                                            )}
-                                            <div className={cn("flex items-center gap-2 mt-2", tarea.estado === "completada" && "opacity-50")}>
-                                                <span className={cn("text-[10px] px-1.5 py-0.5 rounded border uppercase font-bold", PRIORIDAD_COLORS[tarea.prioridad] || "bg-secondary text-muted-foreground")}>
-                                                    {tarea.prioridad}
-                                                </span>
-                                                <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground uppercase">{tarea.categoria}</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    )}
-
-                    {/* ── TAB: SAAS ─────────────────────────────────────── */}
-                    {activeTab === "saas" && proyecto.es_interno && (
-                        <div className="space-y-5">
-                            <p className="text-xs text-muted-foreground">Gestión del producto SaaS / Interno</p>
-
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                                <div className="space-y-1.5 sm:col-span-2">
-                                    <label className="text-xs font-medium text-foreground flex items-center gap-1.5"><Globe className="w-3.5 h-3.5 text-primary" /> URL de Producción</label>
-                                    <input
-                                        type="url"
-                                        value={saasForm.saas_url}
-                                        onChange={(e) => setSaasForm({ ...saasForm, saas_url: e.target.value })}
-                                        placeholder="https://app.ejemplo.com"
-                                        className="w-full h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                                    />
-                                    {saasForm.saas_url && (
-                                        <a href={saasForm.saas_url} target="_blank" rel="noopener" className="text-xs text-primary hover:underline flex items-center gap-1">
-                                            <ExternalLink className="w-3 h-3" /> Abrir app
-                                        </a>
-                                    )}
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-medium text-foreground flex items-center gap-1.5"><Tag className="w-3.5 h-3.5 text-primary" /> Versión actual</label>
-                                    <input
-                                        type="text"
-                                        value={saasForm.version}
-                                        onChange={(e) => setSaasForm({ ...saasForm, version: e.target.value })}
-                                        placeholder="v1.0.0"
-                                        className="w-full h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                                    />
-                                </div>
-                                <div className="space-y-1.5">
-                                    <label className="text-xs font-medium text-foreground flex items-center gap-1.5"><Users className="w-3.5 h-3.5 text-primary" /> Usuarios activos</label>
-                                    <input
-                                        type="number"
-                                        value={saasForm.usuarios_activos || ""}
-                                        onChange={(e) => setSaasForm({ ...saasForm, usuarios_activos: parseInt(e.target.value) || 0 })}
-                                        placeholder="0"
-                                        className="w-full h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                                    />
-                                </div>
-                            </div>
-
-                            {/* Stats cards */}
-                            <div className="grid grid-cols-3 gap-3">
-                                <div className="p-3 rounded-xl bg-primary/5 border border-primary/15 text-center">
-                                    <p className="text-xl font-bold text-primary">{saasForm.usuarios_activos || 0}</p>
-                                    <p className="text-[10px] text-muted-foreground mt-0.5">Usuarios</p>
-                                </div>
-                                <div className="p-3 rounded-xl bg-cyan-500/5 border border-cyan-500/15 text-center">
-                                    <p className="text-xl font-bold text-cyan-400">{saasForm.version || "—"}</p>
-                                    <p className="text-[10px] text-muted-foreground mt-0.5">Versión</p>
-                                </div>
-                                <div className="p-3 rounded-xl bg-emerald-500/5 border border-emerald-500/15 text-center">
-                                    <p className="text-xl font-bold text-emerald-400 capitalize">{proyecto.estado}</p>
-                                    <p className="text-[10px] text-muted-foreground mt-0.5">Estado</p>
-                                </div>
-                            </div>
-
-                            <div className="pt-2 flex justify-end">
-                                <button
-                                    onClick={handleSaveSaas}
-                                    disabled={savingSaas}
-                                    className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-semibold hover:opacity-90 disabled:opacity-50"
-                                >
-                                    {savingSaas ? "Guardando..." : "Guardar datos SaaS"}
-                                </button>
                             </div>
                         </div>
                     )}
@@ -794,139 +786,105 @@ function ProyectoDetailModal({
     );
 }
 
-// ── Nuevo Proyecto Modal ──────────────────────────────────────────────────────
+// ── Modal Crear Proyecto ──────────────────────────────────────────────────────
 function NuevoProyectoModal({
     open, onClose, clientes, reload,
 }: {
     open: boolean; onClose: () => void; clientes: Cliente[]; reload: () => void;
 }) {
-    const [form, setForm] = useState({
-        nombre: "",
-        es_interno: false,
-        cliente_id: "",
-        tipo_proyecto: "landing" as Proyecto["tipo_proyecto"],
-        descripcion: "",
-        fecha_entrega: "",
-        figma_url: "",
-        calendly_url: "",
-        slug_portal: "",
-    });
     const [submitting, setSubmitting] = useState(false);
+    const [form, setForm] = useState({
+        nombre: "", tipo_proyecto: "landing" as any, cliente_id: "",
+        figma_url: "", calendly_url: "", slug_portal: "",
+        contrato_url: "", descripcion: "", fecha_entrega: "",
+        es_interno: false, accesos: [] as any[],
+        tipo_propio: "web_propia", stack_tecnologico: "",
+        notas_negocio: "", url_producto: ""
+    });
 
     if (!open) return null;
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!form.nombre.trim()) { toast.error("El nombre es requerido"); return; }
         setSubmitting(true);
         try {
-            const fasesIniciales = FASES_POR_TIPO[form.tipo_proyecto].map((c) => ({ nombre: c.nombre, completada: false }));
-            const data: any = {
-                nombre: form.nombre,
-                tipo_proyecto: form.tipo_proyecto,
-                descripcion: form.descripcion || "",
-                figma_url: form.figma_url || "",
-                calendly_url: form.calendly_url || "",
-                slug_portal: form.slug_portal || form.nombre.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''),
-                estado: "activo" as const,
-                es_interno: form.es_interno,
-                accesos: [],
-                fases: fasesIniciales,
-            };
+            const slug = form.slug_portal.trim() || form.nombre.toLowerCase().replace(/[^a-z0-9]/g, "-");
+            const defaultFases = FASES_POR_TIPO[form.tipo_proyecto as TipoProyecto]?.map((c) => ({ nombre: c.nombre, completada: false })) || [];
 
-            if (form.es_interno) {
-                data.cliente_id = null;
-            } else {
-                if (!form.cliente_id) { toast.error("Seleccione un cliente"); setSubmitting(false); return; }
-                data.cliente_id = form.cliente_id;
-            }
-            if (form.fecha_entrega) data.fecha_entrega = form.fecha_entrega;
-
-            await proyectosStore.create(data);
-            toast.success("Proyecto creado con fases predefinidas");
-            reload();
+            await proyectosStore.create({
+                ...form,
+                tipo_proyecto: form.tipo_proyecto as TipoProyecto,
+                tipo_propio: form.tipo_propio as any,
+                cliente_id: form.cliente_id || null,
+                slug_portal: slug,
+                estado: "activo",
+                fases: defaultFases,
+            });
+            toast.success("Proyecto creado exitosamente");
             onClose();
-            setForm({ nombre: "", es_interno: false, cliente_id: "", tipo_proyecto: "landing", descripcion: "", fecha_entrega: "", figma_url: "", calendly_url: "", slug_portal: "" });
-        } catch (err: any) {
-            toast.error(err?.message || "Error al crear proyecto");
+            reload();
+        } catch (e: any) {
+            console.error(e);
+            toast.error("Error al crear proyecto: " + (e?.message || "intenta de nuevo"));
         } finally {
             setSubmitting(false);
         }
     };
 
-    // Preview phases for selected type
-    const previewFases = FASES_POR_TIPO[form.tipo_proyecto];
+    const previewFases = FASES_POR_TIPO[form.tipo_proyecto as TipoProyecto] || [];
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm overflow-y-auto py-8 px-4">
-            <div className="w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in my-auto">
-                <div className="flex items-center justify-between mb-5">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm overflow-y-auto py-8 px-4">
+            <div className="w-full max-w-lg rounded-3xl border border-border bg-card p-6 shadow-2xl animate-fade-in space-y-4">
+                <div className="flex items-center justify-between border-b border-border pb-3">
                     <h3 className="text-lg font-bold text-foreground">Crear Nuevo Proyecto</h3>
                     <button onClick={onClose} className="p-1 rounded-lg hover:bg-secondary"><X className="w-5 h-5 text-muted-foreground" /></button>
                 </div>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <div className="space-y-1.5 md:col-span-2">
-                            <label className="text-xs font-medium text-foreground">Nombre del Proyecto</label>
-                            <input required type="text" className="w-full h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: E-commerce Galu" />
-                        </div>
+                    <div>
+                        <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">Nombre del Proyecto *</label>
+                        <input value={form.nombre} onChange={(e) => setForm({ ...form, nombre: e.target.value })} placeholder="Ej: Rediseño Ecommerce Camila..." className="w-full h-10 px-3 rounded-xl bg-secondary border border-border text-sm text-foreground focus:ring-2 focus:ring-primary/50 outline-none font-medium" />
+                    </div>
 
-                        <div className="space-y-1.5 flex flex-col justify-end">
-                            <label className="flex items-center gap-2 cursor-pointer p-2 rounded-lg border border-border bg-secondary/50 hover:bg-secondary transition-colors">
-                                <input type="checkbox" className="rounded border-border text-primary h-4 w-4" checked={form.es_interno} onChange={(e) => setForm({ ...form, es_interno: e.target.checked, cliente_id: "" })} />
-                                <span className="text-sm font-medium text-foreground">Producto SaaS / Interno</span>
-                            </label>
-                        </div>
-
-                        {!form.es_interno && (
-                            <div className="space-y-1.5">
-                                <label className="text-xs font-medium text-foreground">Cliente</label>
-                                <select required={!form.es_interno} className="w-full h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" value={form.cliente_id} onChange={(e) => setForm({ ...form, cliente_id: e.target.value })}>
-                                    <option value="">Seleccione un cliente...</option>
-                                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                                </select>
-                            </div>
-                        )}
-
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-medium text-foreground">Tipo de Proyecto</label>
-                            <select className="w-full h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" value={form.tipo_proyecto} onChange={(e) => setForm({ ...form, tipo_proyecto: e.target.value as Proyecto["tipo_proyecto"] })}>
-                                <option value="landing">Landing Page</option>
-                                <option value="institucional">Institucional</option>
-                                <option value="ecommerce">E-Commerce</option>
-                                <option value="webapp">Web App</option>
-                                <option value="saas">SaaS / Producto</option>
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">Tipo</label>
+                            <select value={form.tipo_proyecto} onChange={(e) => setForm({ ...form, tipo_proyecto: e.target.value as any })} className="w-full h-10 px-3 rounded-xl bg-secondary border border-border text-sm text-foreground outline-none">
+                                {Object.entries(TIPO_PROYECTO_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                             </select>
                         </div>
-
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-medium text-foreground">Fecha Estimada Entrega</label>
-                            <input type="date" className="w-full h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" value={form.fecha_entrega} onChange={(e) => setForm({ ...form, fecha_entrega: e.target.value })} />
+                        <div>
+                            <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">Cliente</label>
+                            <select value={form.cliente_id} onChange={(e) => setForm({ ...form, cliente_id: e.target.value })} className="w-full h-10 px-3 rounded-xl bg-secondary border border-border text-sm text-foreground outline-none">
+                                <option value="">Sin cliente (Interno)</option>
+                                {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                            </select>
                         </div>
                     </div>
 
-                    <div className="space-y-1.5">
-                        <label className="text-xs font-medium text-foreground">Descripción</label>
-                        <textarea className="w-full p-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 min-h-[70px]" value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Detalles del proyecto..." />
+                    <div>
+                        <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">Descripción</label>
+                        <textarea value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} placeholder="Detalles clave del proyecto..." rows={3} className="w-full p-3 rounded-xl bg-secondary border border-border text-sm text-foreground focus:ring-2 focus:ring-primary/50 outline-none resize-none" />
                     </div>
 
-                    {/* Phase preview */}
                     <div className="p-3 rounded-xl border border-border bg-secondary/30">
-                        <p className="text-[10px] text-muted-foreground uppercase font-semibold mb-2 flex items-center gap-1.5">
-                            <Layers className="w-3 h-3" /> Fases que se crearán automáticamente
+                        <p className="text-[10px] text-muted-foreground uppercase font-bold mb-2 flex items-center gap-1.5">
+                            <Layers className="w-3.5 h-3.5 text-primary" /> Fases a inicializar ({previewFases.length})
                         </p>
                         <div className="flex flex-wrap gap-1.5">
                             {previewFases.map((f, i) => (
-                                <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary border border-border text-foreground font-medium">
+                                <span key={i} className="text-[10px] px-2 py-0.5 rounded-full bg-secondary border border-border text-foreground font-bold">
                                     {i + 1}. {f.nombre}
                                 </span>
                             ))}
                         </div>
                     </div>
 
-                    <div className="pt-4 border-t border-border flex justify-end gap-2">
-                        <button type="button" onClick={onClose} className="px-4 py-2 text-sm font-medium text-muted-foreground hover:text-foreground">Cancelar</button>
-                        <button disabled={submitting} type="submit" className="px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 disabled:opacity-50">
+                    <div className="pt-3 border-t border-border flex justify-end gap-2">
+                        <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-medium text-muted-foreground hover:bg-secondary rounded-lg">Cancelar</button>
+                        <button disabled={submitting} type="submit" className="px-5 py-2.5 bg-primary text-primary-foreground rounded-xl text-xs font-bold hover:opacity-90 disabled:opacity-50">
                             {submitting ? "Creando..." : "Crear Proyecto"}
                         </button>
                     </div>
@@ -955,10 +913,16 @@ function ProyectosContent() {
                 tareasStore.getAll(),
                 clientesStore.getAll(),
             ]);
-            // Filter strictly client projects
-            setProyectos(p.filter(item => !item.es_interno && item.tipo_proyecto !== 'saas'));
+            const filteredProys = p.filter(item => !item.es_interno && item.tipo_proyecto !== 'saas');
+            setProyectos(filteredProys);
             setTareas(t);
             setClientes(c);
+
+            // Keep selected modal project in sync with reloaded data
+            if (selected) {
+                const refreshed = filteredProys.find(item => item.id === selected.id);
+                if (refreshed) setSelected(refreshed);
+            }
         } catch {
             console.error("Error reloading projects:");
         }
@@ -967,8 +931,8 @@ function ProyectosContent() {
 
     if (!mounted) {
         return (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
-                {[...Array(3)].map((_, i) => <div key={i} className="h-[200px] rounded-xl skeleton" />)}
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
+                {[...Array(3)].map((_, i) => <div key={i} className="h-[200px] rounded-xl bg-secondary/30" />)}
             </div>
         );
     }
@@ -976,14 +940,14 @@ function ProyectosContent() {
     const filtered = filter === "todos" ? proyectos : proyectos.filter((p) => p.estado === filter);
 
     return (
-        <div className="space-y-5 animate-fade-in">
+        <div className="p-6 space-y-6 animate-fade-in pb-20">
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-2xl font-bold text-foreground">Proyectos Clientes</h2>
-                    <p className="text-sm text-muted-foreground">{proyectos.filter((p) => p.estado === "activo").length} proyectos de clientes activos</p>
+                    <p className="text-sm text-muted-foreground">{proyectos.filter((p) => p.estado === "activo").length} proyectos activos</p>
                 </div>
                 <div className="flex items-center gap-3">
-                    <button onClick={() => setShowNew(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg text-sm font-semibold hover:bg-primary/90 transition-all glow-primary">
+                    <button onClick={() => setShowNew(true)} className="flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-xl text-sm font-bold hover:opacity-90 transition-all shadow-lg shadow-primary/20">
                         <Plus className="w-4 h-4" /> Nuevo Proyecto
                     </button>
                     <div className="h-6 w-px bg-border hidden md:block" />
@@ -1019,6 +983,7 @@ function ProyectosContent() {
                 onClose={() => { setShowDetail(false); setSelected(null); }}
                 proyecto={selected}
                 reload={reload}
+                onUpdateProyecto={(updatedP) => setSelected(updatedP)}
             />
             <NuevoProyectoModal
                 open={showNew}
@@ -1033,7 +998,7 @@ function ProyectosContent() {
 export default function ProyectosPage() {
     return (
         <Suspense fallback={
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">
                 {[...Array(3)].map((_, i) => <div key={i} className="h-[200px] rounded-xl bg-secondary/30" />)}
             </div>
         }>

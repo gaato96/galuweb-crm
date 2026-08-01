@@ -76,7 +76,7 @@ export default function RecursosPage() {
     if (filterTag) filtered = filtered.filter((r) => r.tags.includes(filterTag));
 
     if (!mounted) {
-        return <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">{[...Array(6)].map((_, i) => <div key={i} className="h-48 rounded-xl skeleton" />)}</div>;
+        return <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 animate-pulse">{[...Array(6)].map((_, i) => <div key={i} className="h-48 rounded-xl skeleton" />)}</div>;
     }
 
     const isYoutube = (url: string) => url.includes("youtube.com") || url.includes("youtu.be");
@@ -86,7 +86,7 @@ export default function RecursosPage() {
     };
 
     return (
-        <div className="space-y-5 animate-fade-in">
+        <div className="p-6 space-y-5 animate-fade-in">
             <div className="flex items-center justify-between">
                 <div>
                     <h2 className="text-2xl font-bold text-foreground">Recursos</h2>
@@ -152,7 +152,7 @@ export default function RecursosPage() {
                                     </select>
                                 </div>
                                 <div>
-                                    <label className="text-xs text-muted-foreground mb-1 block">Tags (comma separated)</label>
+                                    <label className="text-xs text-muted-foreground mb-1 block">Tags (separados por coma)</label>
                                     <input value={form.tags} onChange={(e) => setForm({ ...form, tags: e.target.value })} placeholder="diseño, figma, ui" className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
                                 </div>
                             </div>
@@ -194,7 +194,7 @@ export default function RecursosPage() {
                                     </div>
                                     <div className="flex items-center gap-1">
                                         {r.url && (
-                                            <a href={r.url} target="_blank" rel="noopener" className="p-1 rounded hover:bg-secondary transition-colors">
+                                            <a href={r.url} target="_blank" rel="noopener noreferrer" className="p-1 rounded hover:bg-secondary transition-colors">
                                                 <ExternalLink className="w-3.5 h-3.5 text-muted-foreground" />
                                             </a>
                                         )}

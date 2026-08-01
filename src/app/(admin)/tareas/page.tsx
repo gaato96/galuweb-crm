@@ -4,11 +4,12 @@ import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import {
     Plus, CheckCircle2, Circle, Clock, Filter, Trash2,
-    CalendarClock, X, FileText, AlignLeft, CheckSquare, CalendarPlus
+    CalendarClock, X, FileText, AlignLeft, CheckSquare, CalendarPlus,
+    LayoutGrid, List, Layers, Tag, Search, ArrowRight, ChevronRight, Zap
 } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { cn, formatDate } from "@/lib/utils";
 import { tareasStore, proyectosStore } from "@/lib/store";
-import type { Tarea, Prioridad, EstadoTarea, CategoriaTarea, BloqueTarea } from "@/lib/types";
+import type { Tarea, Prioridad, EstadoTarea, CategoriaTarea, BloqueTarea, Proyecto } from "@/lib/types";
 import { PRIORIDAD_COLORS, ESTADO_TAREA_COLORS, BLOQUE_COLORS } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -31,7 +32,7 @@ function generarUrlGoogleCalendar(titulo: string, descripcion: string, fecha?: s
         const endH = String(fechaFin.getHours()).padStart(2, '0');
         const endMn = String(fechaFin.getMinutes()).padStart(2, '0');
         const end = `${endY}${endM}${endD}T${endH}${endMn}00`;
-        dates = `&dates=${start}/${end}&ctz=America/Argentina/Buenos_Aires`;
+        dates = `&dates=${start}/${end}`;
     } else {
         const nextDay = new Date(parseInt(y), parseInt(m) - 1, parseInt(d) + 1);
         const ndY = String(nextDay.getFullYear());
@@ -43,7 +44,31 @@ function generarUrlGoogleCalendar(titulo: string, descripcion: string, fecha?: s
     return `${baseUrl}&text=${text}${dates}&details=${details}`;
 }
 
-// ── Modal de Detalle de Tarea ─────────────────────────────────────────────────
+const CATEGORIA_LABELS: Record<CategoriaTarea, string> = {
+    diseno: "Diseño UI/UX",
+    dev: "Desarrollo",
+    marketing: "Marketing",
+    contenido: "Contenido",
+    seo: "SEO",
+    otro: "General",
+};
+
+const CATEGORIA_BADGE: Record<CategoriaTarea, string> = {
+    diseno: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+    dev: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+    marketing: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+    contenido: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+    seo: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+    otro: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+};
+
+const KANBAN_COLUMNS: { id: EstadoTarea; title: string; color: string; badgeColor: string }[] = [
+    { id: "pendiente", title: "Pendientes", color: "border-slate-500/30 bg-slate-500/5", badgeColor: "bg-slate-500/20 text-slate-300" },
+    { id: "en_progreso", title: "En Progreso", color: "border-blue-500/30 bg-blue-500/5", badgeColor: "bg-blue-500/20 text-blue-300" },
+    { id: "completada", title: "Completadas", color: "border-emerald-500/30 bg-emerald-500/5", badgeColor: "bg-emerald-500/20 text-emerald-300" },
+];
+
+// ── Modal / Drawer Detalle de Tarea ───────────────────────────────────────────
 function TareaDetailModal({
     tarea,
     proyectos,
@@ -51,19 +76,24 @@ function TareaDetailModal({
     onUpdated,
 }: {
     tarea: Tarea;
-    proyectos: any[];
+    proyectos: Proyecto[];
     onClose: () => void;
     onUpdated: () => void;
 }) {
+    const [titulo, setTitulo] = useState(tarea.titulo);
     const [descripcion, setDescripcion] = useState(tarea.descripcion || "");
-    const [bloque, setBloque] = useState<BloqueTarea | undefined>(tarea.bloque);
+    const [prioridad, setPrioridad] = useState<Prioridad>(tarea.prioridad || "media");
+    const [estado, setEstado] = useState<EstadoTarea>(tarea.estado || "pendiente");
+    const [categoria, setCategoria] = useState<CategoriaTarea>(tarea.categoria || "otro");
+    const [proyectoId, setProyectoId] = useState<string>(tarea.proyecto_id || "");
     const [fechaVenc, setFechaVenc] = useState(tarea.fecha_vencimiento || "");
     const [horaRec, setHoraRec] = useState(tarea.hora_recordatorio || "");
     const [pasos, setPasos] = useState<{ id: string; texto: string; completado: boolean }[]>(tarea.pasos || []);
     const [nuevoPasoTexto, setNuevoPasoTexto] = useState("");
     const [saving, setSaving] = useState(false);
-    const proyecto = tarea.proyecto_id ? proyectos.find((p) => p.id === tarea.proyecto_id) : null;
-    const gcalUrl = generarUrlGoogleCalendar(tarea.titulo, descripcion, fechaVenc, horaRec);
+
+    const proyecto = proyectoId ? proyectos.find((p) => p.id === proyectoId) : null;
+    const gcalUrl = generarUrlGoogleCalendar(titulo, descripcion, fechaVenc, horaRec);
 
     const handleAddPaso = () => {
         if (!nuevoPasoTexto.trim()) return;
@@ -81,631 +111,468 @@ function TareaDetailModal({
     };
 
     const handleSave = async () => {
+        if (!titulo.trim()) { toast.error("El título es requerido"); return; }
         setSaving(true);
         try {
-            const updateData: any = {
+            await tareasStore.update(tarea.id, {
+                titulo,
                 descripcion,
-                bloque: bloque || null,
-                fecha_vencimiento: fechaVenc || null,
-                hora_recordatorio: horaRec || null,
+                prioridad,
+                estado,
+                categoria,
+                proyecto_id: proyectoId || null,
+                fecha_vencimiento: fechaVenc || undefined,
+                hora_recordatorio: horaRec || undefined,
                 pasos: pasos
-            };
-
-            await tareasStore.update(tarea.id, updateData);
+            });
             toast.success("Tarea actualizada");
             onUpdated();
             onClose();
         } catch {
-            toast.error("Error al guardar");
+            toast.error("Error al guardar tarea");
         } finally {
             setSaving(false);
         }
     };
 
-    const ICON_MAP = { pendiente: Circle, en_progreso: Clock, completada: CheckCircle2 };
-    const Icon = ICON_MAP[tarea.estado];
+    const handleDelete = async () => {
+        if (!confirm("¿Eliminar esta tarea?")) return;
+        try {
+            await tareasStore.delete(tarea.id);
+            toast.success("Tarea eliminada");
+            onUpdated();
+            onClose();
+        } catch { toast.error("Error al eliminar"); }
+    };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onClose}>
-            <div
-                className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in space-y-5"
-                onClick={(e) => e.stopPropagation()}
-            >
-                {/* Header */}
-                <div className="flex items-start justify-between gap-3">
-                    <div className="flex items-center gap-3 flex-1 min-w-0">
-                        <Icon className={cn("w-5 h-5 shrink-0",
-                            tarea.estado === "completada" ? "text-emerald-400" :
-                                tarea.estado === "en_progreso" ? "text-blue-400" : "text-muted-foreground"
-                        )} />
-                        <h3 className={cn("text-base font-semibold",
-                            tarea.estado === "completada" ? "line-through text-muted-foreground" : "text-foreground"
-                        )}>
-                            {tarea.titulo}
-                        </h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 overflow-y-auto">
+            <div className="w-full max-w-xl rounded-3xl border border-border bg-card p-6 shadow-2xl animate-fade-in space-y-5">
+                <div className="flex items-center justify-between border-b border-border pb-3">
+                    <h3 className="text-lg font-bold text-foreground">Editar Tarea</h3>
+                    <div className="flex items-center gap-2">
+                        <button onClick={handleDelete} className="p-1.5 rounded-lg text-rose-400 hover:bg-rose-500/10"><Trash2 className="w-4 h-4" /></button>
+                        <button onClick={onClose} className="p-1.5 rounded-lg text-muted-foreground hover:bg-secondary"><X className="w-5 h-5" /></button>
                     </div>
-                    <button onClick={onClose} className="p-1 rounded-lg hover:bg-secondary shrink-0">
-                        <X className="w-4 h-4 text-muted-foreground" />
-                    </button>
                 </div>
 
-                {/* Badges */}
-                <div className="flex flex-wrap gap-2">
-                    <span className={cn("text-[10px] px-2.5 py-1 rounded-full border font-medium uppercase tracking-wide", PRIORIDAD_COLORS[tarea.prioridad])}>
-                        {tarea.prioridad}
-                    </span>
-                    <span className={cn("text-[10px] px-2.5 py-1 rounded-full font-medium uppercase tracking-wide", ESTADO_TAREA_COLORS[tarea.estado])}>
-                        {tarea.estado.replace("_", " ")}
-                    </span>
-                    <span className="text-[10px] px-2.5 py-1 rounded-full bg-secondary text-muted-foreground uppercase">
-                        {tarea.categoria}
-                    </span>
-                    {bloque && (
-                        <span className={cn("text-[10px] px-2.5 py-1 rounded-full border font-medium uppercase tracking-wide", BLOQUE_COLORS[bloque])}>
-                            {bloque}
-                        </span>
-                    )}
-                    {proyecto && (
-                        <span className="text-[10px] px-2.5 py-1 rounded-full bg-primary/10 text-primary border border-primary/20">
-                            {proyecto.nombre}
-                        </span>
-                    )}
-                    {tarea.fecha_vencimiento && (
-                        <span className="flex items-center gap-1 text-[10px] px-2.5 py-1 rounded-full bg-secondary text-muted-foreground">
-                            <CalendarClock className="w-3 h-3" />
-                            {new Date(tarea.fecha_vencimiento + 'T00:00:00').toLocaleDateString()}
-                        </span>
-                    )}
-                </div>
-
-                {/* Fecha y Hora */}
-                <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                        <CalendarClock className="w-3.5 h-3.5" /> Fecha y Hora
-                    </label>
-                    <div className="flex gap-2">
+                <div className="space-y-4">
+                    <div>
+                        <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">Título</label>
                         <input
-                            type="date"
-                            value={fechaVenc}
-                            onChange={(e) => setFechaVenc(e.target.value)}
-                            className="flex-1 h-9 px-3 rounded-xl bg-secondary/50 border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                        />
-                        <input
-                            type="time"
-                            value={horaRec}
-                            onChange={(e) => setHoraRec(e.target.value)}
-                            className="w-28 h-9 px-3 rounded-xl bg-secondary/50 border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
+                            value={titulo}
+                            onChange={(e) => setTitulo(e.target.value)}
+                            className="w-full h-11 px-3 rounded-xl bg-secondary border border-border text-sm font-bold text-foreground focus:ring-2 focus:ring-primary/50 outline-none"
                         />
                     </div>
-                </div>
 
-                {/* Descripción editable */}
-                <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                        <AlignLeft className="w-3.5 h-3.5" /> Descripción / Notas
-                    </label>
-                    <textarea
-                        className="w-full min-h-[120px] px-3 py-2.5 rounded-xl bg-secondary/50 border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none placeholder:text-muted-foreground/50"
-                        placeholder="Agrega notas, pasos a seguir, o cualquier detalle relevante..."
-                        value={descripcion}
-                        onChange={(e) => setDescripcion(e.target.value)}
-                    />
-                </div>
-
-                {/* Subpasos / Checklist */}
-                <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                        <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                            <CheckSquare className="w-3.5 h-3.5" /> Checklist de Subpasos {pasos.length > 0 && `(${pasos.filter(p => p.completado).length}/${pasos.length})`}
-                        </label>
+                    <div className="grid grid-cols-3 gap-3">
+                        <div>
+                            <label className="text-[10px] font-bold text-muted-foreground uppercase mb-1 block">Estado</label>
+                            <select value={estado} onChange={(e) => setEstado(e.target.value as EstadoTarea)} className="w-full h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground outline-none font-medium">
+                                <option value="pendiente">Pendiente</option>
+                                <option value="en_progreso">En Progreso</option>
+                                <option value="completada">Completada</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-bold text-muted-foreground uppercase mb-1 block">Prioridad</label>
+                            <select value={prioridad} onChange={(e) => setPrioridad(e.target.value as Prioridad)} className="w-full h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground outline-none font-medium">
+                                <option value="baja">Baja</option>
+                                <option value="media">Media</option>
+                                <option value="alta font-bold">Alta</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-bold text-muted-foreground uppercase mb-1 block">Categoría</label>
+                            <select value={categoria} onChange={(e) => setCategoria(e.target.value as CategoriaTarea)} className="w-full h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground outline-none font-medium">
+                                {Object.entries(CATEGORIA_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                            </select>
+                        </div>
                     </div>
 
-                    <div className="space-y-1.5 max-h-[160px] overflow-y-auto pr-1">
-                        {pasos.map((paso) => (
-                            <div key={paso.id} className="flex items-center gap-2 p-2 rounded-lg bg-secondary/30 border border-border text-xs">
-                                <button
-                                    type="button"
-                                    onClick={() => handleTogglePaso(paso.id)}
-                                    className="shrink-0 text-muted-foreground hover:text-primary"
-                                >
-                                    {paso.completado ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : <Circle className="w-4 h-4 text-muted-foreground" />}
-                                </button>
-                                <span className={cn("flex-1 text-xs", paso.completado ? "line-through text-muted-foreground" : "text-foreground")}>
-                                    {paso.texto}
-                                </span>
-                                <button
-                                    type="button"
-                                    onClick={() => handleRemovePaso(paso.id)}
-                                    className="p-1 text-muted-foreground hover:text-red-400"
-                                >
-                                    <X className="w-3 h-3" />
-                                </button>
-                            </div>
-                        ))}
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="text-[10px] font-bold text-muted-foreground uppercase mb-1 block">Proyecto Vinculado</label>
+                            <select value={proyectoId} onChange={(e) => setProyectoId(e.target.value)} className="w-full h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground outline-none">
+                                <option value="">Sin proyecto</option>
+                                {proyectos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
+                            </select>
+                        </div>
+                        <div>
+                            <label className="text-[10px] font-bold text-muted-foreground uppercase mb-1 block">Fecha Vencimiento</label>
+                            <input type="date" value={fechaVenc} onChange={(e) => setFechaVenc(e.target.value)} className="w-full h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground outline-none" />
+                        </div>
                     </div>
 
-                    <div className="flex gap-2">
-                        <input
-                            type="text"
-                            value={nuevoPasoTexto}
-                            onChange={(e) => setNuevoPasoTexto(e.target.value)}
-                            placeholder="Agregar un subpaso específico (ej: Exportar SVGs)..."
-                            className="flex-1 h-8 px-3 rounded-lg bg-secondary/50 border border-border text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary/50"
-                            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddPaso(); } }}
-                        />
-                        <button
-                            type="button"
-                            onClick={handleAddPaso}
-                            className="px-3 h-8 rounded-lg bg-secondary border border-border text-xs font-bold text-foreground hover:bg-secondary/80"
-                        >
-                            + Paso
-                        </button>
+                    <div>
+                        <label className="text-xs font-bold text-muted-foreground uppercase mb-1 block">Descripción</label>
+                        <textarea value={descripcion} onChange={(e) => setDescripcion(e.target.value)} rows={3} className="w-full p-3 rounded-xl bg-secondary border border-border text-xs text-foreground focus:ring-2 focus:ring-primary/50 outline-none resize-none" placeholder="Detalles de la tarea..." />
                     </div>
-                </div>
 
-                {/* Bloque selector */}
-                <div className="space-y-2">
-                    <label className="flex items-center gap-2 text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                        Bloque de Tiempo
-                    </label>
-                    <div className="flex gap-2">
-                        {(["construccion", "crecimiento"] as BloqueTarea[]).map((b) => (
-                            <button
-                                key={b}
-                                onClick={() => setBloque(bloque === b ? undefined : b)}
-                                className={cn(
-                                    "flex-1 py-2 rounded-xl border text-[10px] font-bold uppercase tracking-wider transition-all",
-                                    bloque === b
-                                        ? BLOQUE_COLORS[b]
-                                        : "bg-secondary/50 border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
-                                )}
-                            >
-                                {b}
-                            </button>
-                        ))}
+                    {/* Subpasos / Checklist */}
+                    <div className="p-3.5 rounded-xl border border-border bg-secondary/30 space-y-3">
+                        <div className="flex items-center justify-between">
+                            <span className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                <CheckSquare className="w-3.5 h-3.5 text-primary" /> Subpasos ({pasos.filter(p => p.completado).length}/{pasos.length})
+                            </span>
+                        </div>
+
+                        <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                            {pasos.map((p) => (
+                                <div key={p.id} className="flex items-center justify-between gap-2 p-2 rounded-lg bg-background border border-border text-xs">
+                                    <button onClick={() => handleTogglePaso(p.id)} className="flex items-center gap-2 text-left min-w-0 flex-1">
+                                        <div className={cn("w-4 h-4 rounded border flex items-center justify-center shrink-0", p.completado ? "bg-emerald-500 border-emerald-400 text-slate-950" : "border-border")}>
+                                            {p.completado && <CheckCircle2 className="w-3.5 h-3.5" />}
+                                        </div>
+                                        <span className={cn("truncate", p.completado && "line-through text-muted-foreground")}>{p.texto}</span>
+                                    </button>
+                                    <button onClick={() => handleRemovePaso(p.id)} className="text-muted-foreground hover:text-rose-400"><X className="w-3.5 h-3.5" /></button>
+                                </div>
+                            ))}
+                        </div>
+
+                        <div className="flex gap-2">
+                            <input
+                                value={nuevoPasoTexto}
+                                onChange={(e) => setNuevoPasoTexto(e.target.value)}
+                                onKeyDown={(e) => e.key === "Enter" && handleAddPaso()}
+                                placeholder="Añadir subpaso (Presiona Enter)..."
+                                className="flex-1 h-8 px-3 rounded-lg bg-background border border-border text-xs text-foreground outline-none"
+                            />
+                            <button onClick={handleAddPaso} className="px-3 py-1.5 rounded-lg bg-secondary text-foreground text-xs font-bold hover:bg-secondary/80">+</button>
+                        </div>
                     </div>
-                </div>
 
-                {/* Actions */}
-                <div className="flex items-center justify-between gap-2 pt-1">
-                    {gcalUrl ? (
-                        <a
-                            href={gcalUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium bg-gradient-to-r from-blue-600/20 to-cyan-500/20 text-cyan-300 border border-cyan-500/30 hover:from-blue-600/30 hover:to-cyan-500/30 transition-all active:scale-95"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <CalendarPlus className="w-4 h-4" />
-                            Google Calendar
+                    {gcalUrl && (
+                        <a href={gcalUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-2 rounded-xl bg-blue-500/10 border border-blue-500/20 text-blue-400 text-xs font-bold hover:bg-blue-500/20 transition-all">
+                            <CalendarPlus className="w-4 h-4" /> Programar en Google Calendar
                         </a>
-                    ) : <div />}
-                    <div className="flex gap-2">
-                        <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-secondary transition-colors">
-                            Cancelar
-                        </button>
-                        <button
-                            onClick={handleSave}
-                            disabled={saving}
-                            className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-semibold hover:opacity-90 disabled:opacity-50 transition-all"
-                        >
-                            {saving ? "Guardando..." : "Guardar"}
-                        </button>
-                    </div>
+                    )}
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-border">
+                    <button onClick={onClose} className="px-4 py-2 rounded-xl text-xs font-medium text-muted-foreground hover:bg-secondary">Cancelar</button>
+                    <button onClick={handleSave} disabled={saving} className="px-5 py-2 rounded-xl text-xs bg-primary text-primary-foreground font-bold hover:opacity-90 disabled:opacity-50">
+                        {saving ? "Guardando..." : "Guardar Cambios"}
+                    </button>
                 </div>
             </div>
         </div>
     );
 }
 
-// ── Main Component ─────────────────────────────────────────────────────────────
+// ── Tareas Component ─────────────────────────────────────────────────────────
 function TareasContent() {
     const searchParams = useSearchParams();
     const [tareas, setTareas] = useState<Tarea[]>([]);
+    const [proyectos, setProyectos] = useState<Proyecto[]>([]);
     const [mounted, setMounted] = useState(false);
-    const [showNew, setShowNew] = useState(searchParams.get("new") === "true");
-    const [filterPrioridad, setFilterPrioridad] = useState<string>("todas");
-    const [filterProyecto, setFilterProyecto] = useState<string>("todos");
-    const [filterEstado, setFilterEstado] = useState<string>("todos");
-    const [filterBloque, setFilterBloque] = useState<BloqueTarea | "todos">("todos");
-    const [showHistory, setShowHistory] = useState(false);
-    const [detailTarea, setDetailTarea] = useState<Tarea | null>(null);
+    const [viewMode, setViewMode] = useState<"kanban" | "lista">("kanban");
+    const [selectedTarea, setSelectedTarea] = useState<Tarea | null>(null);
 
-    const [proyectos, setProyectos] = useState<any[]>([]);
+    // Filters
+    const [searchQuery, setSearchQuery] = useState("");
+    const [filterPrioridad, setFilterPrioridad] = useState<string>("todas");
+    const [filterCategoria, setFilterCategoria] = useState<string>("todas");
+    const [filterProyecto, setFilterProyecto] = useState<string>("todos");
+
+    // Quick add per column
+    const [quickAddTitles, setQuickAddTitles] = useState<Record<string, string>>({});
 
     const reload = async () => {
         try {
             const [t, p] = await Promise.all([
                 tareasStore.getAll(),
-                proyectosStore.getAll()
+                proyectosStore.getAll(),
             ]);
-            // Exclude marketing content ideas — those always have workflow_stage set by the marketing module
-            setTareas(t.filter((x: Tarea) => !x.workflow_stage));
+            // Exclude recurring routines from main task board
+            setTareas(t.filter((item) => item.tipo_tarea !== "recurrente"));
             setProyectos(p);
         } catch {
-            console.error("Error reloading tasks/projects:");
-        }
-    };
-    useEffect(() => {
-        reload().then(() => setMounted(true));
-    }, []);
-
-    // New task form
-    const [form, setForm] = useState({
-        titulo: "",
-        descripcion: "",
-        prioridad: "media" as Prioridad,
-        categoria: "otro" as CategoriaTarea,
-        bloque: undefined as BloqueTarea | undefined,
-        proyecto_id: "",
-        fecha_vencimiento: "",
-        hora_recordatorio: ""
-    });
-
-    const handleCreate = async () => {
-        if (!form.titulo.trim()) { toast.error("Título requerido"); return; }
-        try {
-            const data: any = { ...form, proyecto_id: form.proyecto_id || null, estado: "pendiente" as EstadoTarea };
-            if (!data.fecha_vencimiento) delete data.fecha_vencimiento;
-            if (!data.hora_recordatorio) delete data.hora_recordatorio;
-            await tareasStore.create(data);
-            setForm({ titulo: "", descripcion: "", prioridad: "media", categoria: "otro", bloque: undefined, proyecto_id: "", fecha_vencimiento: "", hora_recordatorio: "" });
-            setShowNew(false);
-            await reload();
-            toast.success("Tarea creada");
-        } catch (error: any) {
-            toast.error(`Error al crear tarea: ${error?.message || "Desconocido"}`);
+            toast.error("Error al cargar tareas");
         }
     };
 
-    const toggleTarea = async (id: string, estado: EstadoTarea) => {
-        const next = estado === "completada" ? "pendiente" : estado === "pendiente" ? "en_progreso" : "completada";
+    useEffect(() => { reload().then(() => setMounted(true)); }, []);
+
+    const handleQuickAdd = async (columnId: EstadoTarea) => {
+        const title = quickAddTitles[columnId]?.trim();
+        if (!title) return;
+
         try {
-            await tareasStore.update(id, { estado: next });
+            await tareasStore.create({
+                titulo: title,
+                descripcion: "",
+                estado: columnId,
+                prioridad: "media",
+                categoria: "otro",
+                proyecto_id: filterProyecto !== "todos" ? filterProyecto : null,
+            });
+            setQuickAddTitles({ ...quickAddTitles, [columnId]: "" });
+            toast.success("Tarea agregada");
             await reload();
         } catch {
-            toast.error("Error al actualizar tarea");
+            toast.error("Error al crear tarea rápida");
         }
     };
 
-    const deleteTarea = async (id: string) => {
+    const handleMoveState = async (tarea: Tarea, nextState: EstadoTarea) => {
         try {
-            await tareasStore.delete(id);
+            await tareasStore.update(tarea.id, { estado: nextState });
             await reload();
-            toast.success("Tarea eliminada");
-        } catch {
-            toast.error("Error al eliminar tarea");
-        }
+        } catch { toast.error("Error al mover tarea"); }
     };
-
-    const limpiarCompletadas = async () => {
-        const completadasIds = tareas.filter(t => t.estado === "completada").map(t => t.id);
-        if (completadasIds.length === 0) {
-            toast.error("No hay tareas completadas para limpiar");
-            return;
-        }
-
-        if (!confirm(`¿Estás seguro de que quieres borrar ${completadasIds.length} tareas completadas?`)) return;
-
-        try {
-            await Promise.all(completadasIds.map(id => tareasStore.delete(id)));
-            await reload();
-            toast.success("Tareas completadas eliminadas");
-        } catch {
-            toast.error("Error al limpiar tareas");
-        }
-    };
-
-    let filtered = [...tareas];
-    if (filterPrioridad !== "todas") filtered = filtered.filter((t) => t.prioridad === filterPrioridad);
-    if (filterProyecto !== "todos") {
-        if (filterProyecto === "sin_proyecto") filtered = filtered.filter((t) => !t.proyecto_id);
-        else filtered = filtered.filter((t) => t.proyecto_id === filterProyecto);
-    }
-    if (filterEstado !== "todos") filtered = filtered.filter((t) => t.estado === filterEstado);
-    if (filterBloque !== "todos") filtered = filtered.filter((t) => t.bloque === filterBloque);
-
-    const pendientes = filtered.filter((t) => t.estado === "pendiente");
-    const enProgreso = filtered.filter((t) => t.estado === "en_progreso");
-    const completadas = filtered.filter((t) => t.estado === "completada");
 
     if (!mounted) {
-        return <div className="space-y-3 animate-pulse">{[...Array(5)].map((_, i) => <div key={i} className="h-14 rounded-lg skeleton" />)}</div>;
-    }
-
-    const getDueDateStatus = (dateStr?: string) => {
-        if (!dateStr) return null;
-        const [year, month, day] = dateStr.split("-").map(Number);
-        const due = new Date(year, month - 1, day);
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const diffDays = Math.round((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-        if (diffDays < 0) return { label: "Vencida", classes: "text-red-500 bg-red-500/10 border-red-500/30 font-bold" };
-        if (diffDays === 0) return { label: "Vence Hoy", classes: "text-orange-500 bg-orange-500/10 border-orange-500/30 font-bold" };
-        if (diffDays <= 2) return { label: `En ${diffDays} día${diffDays > 1 ? 's' : ''}`, classes: "text-amber-500 bg-amber-500/10 border-amber-500/30" };
-        return { label: due.toLocaleDateString(), classes: "text-muted-foreground bg-secondary/50 border-border" };
-    };
-
-    const ICON_MAP = { pendiente: Circle, en_progreso: Clock, completada: CheckCircle2 };
-
-    const renderTarea = (t: Tarea) => {
-        const Icon = ICON_MAP[t.estado];
-        const proyecto = t.proyecto_id ? proyectos.find((p) => p.id === t.proyecto_id) : null;
-        const dueStatus = t.estado !== "completada" ? getDueDateStatus(t.fecha_vencimiento) : null;
-        const hasDesc = !!t.descripcion?.trim();
-        const tareaGcalUrl = generarUrlGoogleCalendar(t.titulo, t.descripcion || '', t.fecha_vencimiento, t.hora_recordatorio);
-
         return (
-            <div
-                key={t.id}
-                className={cn(
-                    "flex flex-col sm:flex-row sm:items-center gap-3 p-3 rounded-lg border transition-all group cursor-pointer",
-                    t.estado === "completada"
-                        ? "bg-emerald-500/5 border-emerald-500/20"
-                        : dueStatus && dueStatus.classes.includes("red")
-                            ? "bg-red-500/5 border-red-500/30"
-                            : "bg-secondary/30 border-border hover:border-primary/30"
-                )}
-                onClick={() => setDetailTarea(t)}
-            >
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                    <button
-                        onClick={(e) => { e.stopPropagation(); toggleTarea(t.id, t.estado); }}
-                        className="shrink-0"
-                    >
-                        <Icon className={cn("w-5 h-5",
-                            t.estado === "completada" ? "text-emerald-400" :
-                                t.estado === "en_progreso" ? "text-blue-400" : "text-muted-foreground"
-                        )} />
-                    </button>
-                    <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5">
-                            <p className={cn("text-sm font-medium truncate", t.estado === "completada" ? "text-muted-foreground line-through" : "text-foreground")}>
-                                {t.titulo}
-                            </p>
-                            {hasDesc && <FileText className="w-3 h-3 text-muted-foreground/60 shrink-0" />}
-                            {t.pasos && t.pasos.length > 0 && (
-                                <span className="text-[10px] px-1.5 py-0.2 bg-primary/10 text-primary border border-primary/20 rounded font-semibold shrink-0">
-                                    {t.pasos.filter(p => p.completado).length}/{t.pasos.length} pasos
-                                </span>
-                            )}
-                        </div>
-                        {proyecto && <p className="text-[11px] text-muted-foreground">{proyecto.nombre}</p>}
-                    </div>
-                </div>
-
-                <div className="flex items-center gap-2 pl-8 sm:pl-0 sm:ml-auto" onClick={(e) => e.stopPropagation()}>
-                    {dueStatus && (
-                        <span className={cn("flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-md border", dueStatus.classes)}>
-                            <CalendarClock className="w-3 h-3" /> {dueStatus.label}
-                            {t.hora_recordatorio && <span className="ml-0.5">{t.hora_recordatorio}hs</span>}
-                        </span>
-                    )}
-                    {tareaGcalUrl && t.estado !== "completada" && (
-                        <a
-                            href={tareaGcalUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="p-1 rounded hover:bg-cyan-500/20 transition-all"
-                            title="Añadir a Google Calendar"
-                            onClick={(e) => e.stopPropagation()}
-                        >
-                            <CalendarPlus className="w-3.5 h-3.5 text-cyan-400" />
-                        </a>
-                    )}
-                    <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium", PRIORIDAD_COLORS[t.prioridad])}>{t.prioridad}</span>
-                    {t.bloque && (
-                        <span className={cn("text-[10px] px-2 py-0.5 rounded-full border font-medium uppercase", BLOQUE_COLORS[t.bloque])}>
-                            {t.bloque}
-                        </span>
-                    )}
-                    <span className="text-[10px] text-muted-foreground uppercase hidden md:block">{t.categoria}</span>
-                    <button
-                        onClick={(e) => { e.stopPropagation(); deleteTarea(t.id); }}
-                        className="p-1 rounded opacity-100 sm:opacity-0 sm:group-hover:opacity-100 hover:bg-destructive/20 transition-all"
-                    >
-                        <Trash2 className="w-3.5 h-3.5 text-destructive" />
-                    </button>
+            <div className="p-6 space-y-4 animate-pulse">
+                <div className="h-10 w-48 bg-secondary/50 rounded-xl" />
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    {[...Array(3)].map((_, i) => <div key={i} className="h-96 rounded-2xl bg-secondary/30" />)}
                 </div>
             </div>
         );
-    };
+    }
+
+    // Filter logic
+    let filteredTareas = tareas;
+    if (searchQuery.trim()) {
+        const q = searchQuery.toLowerCase();
+        filteredTareas = filteredTareas.filter(t => t.titulo.toLowerCase().includes(q) || t.descripcion?.toLowerCase().includes(q));
+    }
+    if (filterPrioridad !== "todas") {
+        filteredTareas = filteredTareas.filter(t => t.prioridad === filterPrioridad);
+    }
+    if (filterCategoria !== "todas") {
+        filteredTareas = filteredTareas.filter(t => t.categoria === filterCategoria);
+    }
+    if (filterProyecto !== "todos") {
+        filteredTareas = filteredTareas.filter(t => t.proyecto_id === filterProyecto);
+    }
 
     return (
-        <div className="space-y-5 animate-fade-in">
-            <div className="flex items-center justify-between">
+        <div className="p-6 space-y-6 animate-fade-in pb-20">
+            {/* Header + View Switcher */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
                 <div>
-                    <h2 className="text-2xl font-bold text-foreground">Tareas</h2>
-                    <p className="text-sm text-muted-foreground">
-                        {tareas.filter((t) => t.estado !== "completada").length} pendientes de {tareas.length}
-                    </p>
+                    <h2 className="text-2xl font-bold text-foreground flex items-center gap-2">
+                        <CheckSquare className="w-6 h-6 text-primary" /> Tablero de Tareas
+                    </h2>
+                    <p className="text-sm text-muted-foreground">{filteredTareas.length} tareas activas</p>
                 </div>
-                <div className="flex gap-2">
-                    <button onClick={limpiarCompletadas} className="hidden sm:flex items-center gap-2 px-4 py-2 rounded-lg border border-red-500/30 text-red-400 text-sm font-medium hover:bg-red-500/10 transition-colors active:scale-95 transition-all">
-                        <Trash2 className="w-4 h-4" /> Limpiar
-                    </button>
-                    <button onClick={() => setShowNew(!showNew)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90 active:scale-95 transition-all">
-                        <Plus className="w-4 h-4" /> Nueva Tarea
-                    </button>
+
+                <div className="flex items-center gap-3">
+                    {/* View Switcher */}
+                    <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1 shadow-sm">
+                        <button
+                            onClick={() => setViewMode("kanban")}
+                            className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all", viewMode === "kanban" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
+                        >
+                            <LayoutGrid className="w-3.5 h-3.5" /> Kanban
+                        </button>
+                        <button
+                            onClick={() => setViewMode("lista")}
+                            className={cn("flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all", viewMode === "lista" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground")}
+                        >
+                            <List className="w-3.5 h-3.5" /> Lista
+                        </button>
+                    </div>
                 </div>
             </div>
 
-            {/* Filters */}
-            <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl bg-card border border-border">
-                <Filter className="w-4 h-4 text-muted-foreground" />
-                <select value={filterPrioridad} onChange={(e) => setFilterPrioridad(e.target.value)} className="h-8 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground focus:outline-none">
-                    <option value="todas">Toda prioridad</option>
-                    <option value="alta">Alta</option>
-                    <option value="media">Media</option>
-                    <option value="baja">Baja</option>
+            {/* Filter Bar */}
+            <div className="flex flex-wrap items-center gap-3 p-4 rounded-2xl border border-border bg-card shadow-sm">
+                <div className="relative flex-1 min-w-[200px]">
+                    <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="Buscar tareas por título o descripción..."
+                        className="w-full h-10 pl-9 pr-3 rounded-xl bg-secondary border border-border text-xs text-foreground focus:ring-2 focus:ring-primary/50 outline-none"
+                    />
+                </div>
+
+                <select value={filterPrioridad} onChange={(e) => setFilterPrioridad(e.target.value)} className="h-10 px-3 rounded-xl bg-secondary border border-border text-xs text-foreground outline-none font-medium">
+                    <option value="todas">Todas las Prioridades</option>
+                    <option value="alta">🔴 Alta</option>
+                    <option value="media">🟡 Media</option>
+                    <option value="baja">🟢 Baja</option>
                 </select>
-                <select value={filterProyecto} onChange={(e) => setFilterProyecto(e.target.value)} className="h-8 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground focus:outline-none">
-                    <option value="todos">Todo proyecto</option>
-                    <option value="sin_proyecto">Sin proyecto</option>
+
+                <select value={filterCategoria} onChange={(e) => setFilterCategoria(e.target.value)} className="h-10 px-3 rounded-xl bg-secondary border border-border text-xs text-foreground outline-none font-medium">
+                    <option value="todas">Todas las Categorías</option>
+                    {Object.entries(CATEGORIA_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+                </select>
+
+                <select value={filterProyecto} onChange={(e) => setFilterProyecto(e.target.value)} className="h-10 px-3 rounded-xl bg-secondary border border-border text-xs text-foreground outline-none font-medium">
+                    <option value="todos">Todos los Proyectos</option>
                     {proyectos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
                 </select>
-                <select value={filterEstado} onChange={(e) => setFilterEstado(e.target.value)} className="h-8 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground focus:outline-none">
-                    <option value="todos">Todo estado</option>
-                    <option value="pendiente">Pendiente</option>
-                    <option value="en_progreso">En Progreso</option>
-                    <option value="completada">Completada</option>
-                </select>
-
-                <div className="flex gap-2 ml-auto sm:ml-0">
-                    {(["construccion", "crecimiento"] as BloqueTarea[]).map((b) => (
-                        <button
-                            key={b}
-                            onClick={() => setFilterBloque(filterBloque === b ? "todos" : b)}
-                            className={cn(
-                                "h-8 px-3 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all",
-                                filterBloque === b
-                                    ? BLOQUE_COLORS[b]
-                                    : "bg-secondary/50 border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
-                            )}
-                        >
-                            {b}
-                        </button>
-                    ))}
-                </div>
             </div>
 
-            {/* New Task Form */}
-            {
-                showNew && (
-                    <div className="p-4 rounded-xl bg-card border border-primary/30 space-y-3 animate-fade-in">
-                        <input
-                            value={form.titulo}
-                            onChange={(e) => setForm({ ...form, titulo: e.target.value })}
-                            placeholder="Título de la tarea..."
-                            className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
-                            onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-                        />
-                        <textarea
-                            value={form.descripcion}
-                            onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
-                            placeholder="Descripción o notas (opcional)..."
-                            rows={2}
-                            className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 resize-none"
-                        />
-                        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                            <select value={form.prioridad} onChange={(e) => setForm({ ...form, prioridad: e.target.value as Prioridad })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground">
-                                <option value="baja">Baja</option>
-                                <option value="media">Media</option>
-                                <option value="alta">Alta</option>
-                            </select>
-                            <select value={form.categoria} onChange={(e) => setForm({ ...form, categoria: e.target.value as CategoriaTarea })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground">
-                                <option value="diseno">Diseño</option>
-                                <option value="dev">Desarrollo</option>
-                                <option value="seo">SEO</option>
-                                <option value="otro">Otro</option>
-                            </select>
-                            <select value={form.proyecto_id} onChange={(e) => setForm({ ...form, proyecto_id: e.target.value })} className="h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground">
-                                <option value="">Sin proyecto</option>
-                                {proyectos.map((p) => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                            </select>
-                            <div className="flex gap-1.5">
-                                <input type="date" value={form.fecha_vencimiento} onChange={(e) => setForm({ ...form, fecha_vencimiento: e.target.value })} className="flex-1 h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground focus:outline-none" />
-                                <input type="time" value={form.hora_recordatorio} onChange={(e) => setForm({ ...form, hora_recordatorio: e.target.value })} className="w-24 h-9 px-2 rounded-lg bg-secondary border border-border text-xs text-foreground focus:outline-none" placeholder="Hora" />
-                            </div>
-                        </div>
-                        {/* New Task Bloque Selection */}
-                        <div className="flex gap-3">
-                            <div className="flex-1 space-y-1.5">
-                                <label className="text-[10px] font-semibold text-muted-foreground uppercase px-1">Bloque</label>
-                                <div className="flex gap-2">
-                                    {(["construccion", "crecimiento"] as BloqueTarea[]).map((b) => (
-                                        <button
-                                            key={b}
-                                            onClick={() => setForm({ ...form, bloque: form.bloque === b ? undefined : b })}
-                                            className={cn(
-                                                "flex-1 py-1.5 rounded-lg border text-[10px] font-bold uppercase tracking-wider transition-all",
-                                                form.bloque === b
-                                                    ? BLOQUE_COLORS[b]
-                                                    : "bg-secondary/50 border-border text-muted-foreground hover:bg-secondary hover:text-foreground"
-                                            )}
-                                        >
-                                            {b}
-                                        </button>
-                                    ))}
+            {/* KANBAN VIEW */}
+            {viewMode === "kanban" && (
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    {KANBAN_COLUMNS.map((col) => {
+                        const colTasks = filteredTareas.filter(t => t.estado === col.id);
+
+                        return (
+                            <div key={col.id} className={cn("flex flex-col rounded-2xl border p-4 space-y-3 min-h-[500px]", col.color)}>
+                                {/* Column Header */}
+                                <div className="flex items-center justify-between pb-2 border-b border-border/50">
+                                    <div className="flex items-center gap-2">
+                                        <h3 className="text-sm font-bold text-foreground">{col.title}</h3>
+                                        <span className={cn("text-[10px] font-black px-2 py-0.5 rounded-full", col.badgeColor)}>
+                                            {colTasks.length}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                {/* Quick Add Input */}
+                                <div className="flex gap-1.5">
+                                    <input
+                                        value={quickAddTitles[col.id] || ""}
+                                        onChange={(e) => setQuickAddTitles({ ...quickAddTitles, [col.id]: e.target.value })}
+                                        onKeyDown={(e) => e.key === "Enter" && handleQuickAdd(col.id)}
+                                        placeholder="+ Nueva tarea rápida..."
+                                        className="w-full h-8 px-3 rounded-lg bg-card border border-border text-xs text-foreground outline-none focus:border-primary"
+                                    />
+                                </div>
+
+                                {/* Task Cards */}
+                                <div className="space-y-3 flex-1">
+                                    {colTasks.map((t) => {
+                                        const proy = t.proyecto_id ? proyectos.find(p => p.id === t.proyecto_id) : null;
+                                        const pasosCount = t.pasos?.length || 0;
+                                        const pasosDone = t.pasos?.filter(p => p.completado).length || 0;
+
+                                        return (
+                                            <div
+                                                key={t.id}
+                                                onClick={() => setSelectedTarea(t)}
+                                                className="p-4 rounded-xl border border-border bg-card hover:border-primary/40 transition-all cursor-pointer shadow-sm hover:shadow-md space-y-3 group"
+                                            >
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <span className={cn("text-[9px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wider", CATEGORIA_BADGE[t.categoria || "otro"])}>
+                                                        {CATEGORIA_LABELS[t.categoria || "otro"]}
+                                                    </span>
+
+                                                    <span className={cn("text-[9px] px-2 py-0.5 rounded-full border font-bold uppercase tracking-wider", PRIORIDAD_COLORS[t.prioridad || "media"])}>
+                                                        {t.prioridad}
+                                                    </span>
+                                                </div>
+
+                                                <div>
+                                                    <h4 className="text-sm font-bold text-foreground leading-snug group-hover:text-primary transition-colors">
+                                                        {t.titulo}
+                                                    </h4>
+                                                    {t.descripcion && <p className="text-xs text-muted-foreground line-clamp-2 mt-1">{t.descripcion}</p>}
+                                                </div>
+
+                                                {/* Meta Info */}
+                                                <div className="flex items-center justify-between text-[10px] text-muted-foreground pt-2 border-t border-border/40">
+                                                    <div className="flex items-center gap-2">
+                                                        {proy && <span className="font-semibold text-foreground bg-secondary px-1.5 py-0.5 rounded truncate max-w-[120px]">{proy.nombre}</span>}
+                                                        {pasosCount > 0 && <span className="flex items-center gap-1"><CheckSquare className="w-3 h-3 text-primary" /> {pasosDone}/{pasosCount}</span>}
+                                                    </div>
+
+                                                    {/* Move state action button */}
+                                                    <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity" onClick={(e) => e.stopPropagation()}>
+                                                        {col.id !== "completada" && (
+                                                            <button
+                                                                onClick={() => handleMoveState(t, col.id === "pendiente" ? "en_progreso" : "completada")}
+                                                                className="p-1 rounded bg-primary/10 text-primary hover:bg-primary/20"
+                                                                title="Mover a siguiente columna"
+                                                            >
+                                                                <ArrowRight className="w-3 h-3" />
+                                                            </button>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+
+                                    {colTasks.length === 0 && (
+                                        <div className="py-12 text-center text-muted-foreground border-2 border-dashed border-border/40 rounded-xl">
+                                            <p className="text-xs font-medium">Sin tareas</p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
-                        </div>
-                        <div className="flex justify-end gap-2">
-                            <button onClick={() => setShowNew(false)} className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary">Cancelar</button>
-                            <button onClick={handleCreate} className="px-3 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground hover:opacity-90">Guardar</button>
-                        </div>
-                    </div>
-                )
-            }
+                        );
+                    })}
+                </div>
+            )}
 
-            {/* Task Groups */}
-            {
-                enProgreso.length > 0 && (
-                    <div>
-                        <h3 className="text-sm font-semibold text-blue-400 mb-2 flex items-center gap-2"><Clock className="w-4 h-4" /> En Progreso ({enProgreso.length})</h3>
-                        <div className="space-y-1.5">{enProgreso.map(renderTarea)}</div>
-                    </div>
-                )
-            }
-            {
-                pendientes.length > 0 && (
-                    <div>
-                        <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-2"><Circle className="w-4 h-4" /> Pendientes ({pendientes.length})</h3>
-                        <div className="space-y-1.5">{pendientes.map(renderTarea)}</div>
-                    </div>
-                )
-            }
-            {
-                completadas.length > 0 && (
-                    <div>
-                        <div className="flex items-center justify-between mb-2">
-                            <h3 className="text-sm font-semibold text-emerald-400 flex items-center gap-2">
-                                <CheckCircle2 className="w-4 h-4" /> Completadas ({completadas.length})
-                            </h3>
-                            {completadas.length > 3 && (
-                                <button onClick={() => setShowHistory(!showHistory)} className="text-xs text-muted-foreground hover:text-foreground underline">
-                                    {showHistory ? "Ocultar historial" : `Ver historial (${completadas.length - 3} más)`}
-                                </button>
-                            )}
-                        </div>
-                        <div className="space-y-1.5">
-                            {(showHistory ? completadas : completadas.slice(0, 3)).map(renderTarea)}
-                        </div>
-                    </div>
-                )
-            }
+            {/* LIST VIEW */}
+            {viewMode === "lista" && (
+                <div className="rounded-2xl border border-border bg-card p-5 space-y-2">
+                    {filteredTareas.map((t) => {
+                        const proy = t.proyecto_id ? proyectos.find(p => p.id === t.proyecto_id) : null;
+                        const esCompletada = t.estado === "completada";
 
-            {/* Empty state */}
-            {
-                filtered.length === 0 && (
-                    <div className="py-16 text-center text-muted-foreground">
-                        <CheckSquare className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                        <p className="text-sm">No hay tareas que mostrar</p>
-                        <p className="text-xs mt-1 opacity-60">Creá una nueva tarea para empezar</p>
-                    </div>
-                )
-            }
+                        return (
+                            <div
+                                key={t.id}
+                                onClick={() => setSelectedTarea(t)}
+                                className={cn("flex items-center justify-between p-3.5 rounded-xl border border-border hover:border-primary/40 transition-all cursor-pointer group bg-secondary/30", esCompletada && "opacity-60")}
+                            >
+                                <div className="flex items-center gap-3 min-w-0 flex-1">
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleMoveState(t, esCompletada ? "pendiente" : "completada");
+                                        }}
+                                        className={cn("w-5 h-5 rounded-md border flex items-center justify-center shrink-0 transition-colors", esCompletada ? "bg-emerald-500 text-slate-950 border-emerald-400" : "border-border hover:border-primary")}
+                                    >
+                                        {esCompletada && <CheckCircle2 className="w-4 h-4" />}
+                                    </button>
 
-            {/* Detail Modal */}
-            {
-                detailTarea && (
-                    <TareaDetailModal
-                        tarea={detailTarea}
-                        proyectos={proyectos}
-                        onClose={() => setDetailTarea(null)}
-                        onUpdated={reload}
-                    />
-                )
-            }
-        </div >
+                                    <div className="min-w-0 flex-1">
+                                        <p className={cn("text-sm font-bold text-foreground truncate", esCompletada && "line-through text-muted-foreground")}>
+                                            {t.titulo}
+                                        </p>
+                                        <div className="flex items-center gap-2 text-[10px] text-muted-foreground mt-0.5">
+                                            <span className={cn("px-1.5 py-0.2 rounded border font-bold uppercase", CATEGORIA_BADGE[t.categoria || "otro"])}>
+                                                {CATEGORIA_LABELS[t.categoria || "otro"]}
+                                            </span>
+                                            {proy && <span>Proyecto: <strong className="text-foreground">{proy.nombre}</strong></span>}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex items-center gap-3 shrink-0">
+                                    <span className={cn("text-[10px] px-2.5 py-0.5 rounded-full border font-bold uppercase", PRIORIDAD_COLORS[t.prioridad || "media"])}>
+                                        {t.prioridad}
+                                    </span>
+                                    <ChevronRight className="w-4 h-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
+
+            {/* Task Detail Modal */}
+            {selectedTarea && (
+                <TareaDetailModal
+                    tarea={selectedTarea}
+                    proyectos={proyectos}
+                    onClose={() => setSelectedTarea(null)}
+                    onUpdated={reload}
+                />
+            )}
+        </div>
     );
 }
 
 export default function TareasPage() {
     return (
         <Suspense fallback={
-            <div className="space-y-3 animate-pulse">
-                {[...Array(5)].map((_, i) => <div key={i} className="h-14 rounded-lg bg-secondary/30" />)}
+            <div className="p-6 space-y-4 animate-pulse">
+                <div className="h-10 w-48 bg-secondary/50 rounded-xl" />
             </div>
         }>
             <TareasContent />

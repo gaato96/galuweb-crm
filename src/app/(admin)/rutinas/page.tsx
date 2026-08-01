@@ -24,10 +24,10 @@ const FRECUENCIA_COLORS: Record<FrecuenciaRecurrente, string> = {
 
 // Preset habits for freelancers/agencies
 const PRESET_RUTINAS = [
-    { titulo: "Hacer contacto en frío / Prosperar", frecuencia: "diaria" as FrecuenciaRecurrente, categoria: "marketing" as CategoriaTarea },
+    { titulo: "Hacer contacto en frío / Prospectar", frecuencia: "diaria" as FrecuenciaRecurrente, categoria: "marketing" as CategoriaTarea },
     { titulo: "Revisar y responder correos", frecuencia: "diaria" as FrecuenciaRecurrente, categoria: "otro" as CategoriaTarea },
     { titulo: "Responder consultas de prospectos", frecuencia: "diaria" as FrecuenciaRecurrente, categoria: "otro" as CategoriaTarea },
-    { titulo: "Publicar contenido en Redes Social", frecuencia: "semanal" as FrecuenciaRecurrente, categoria: "marketing" as CategoriaTarea },
+    { titulo: "Publicar contenido en Redes Sociales", frecuencia: "semanal" as FrecuenciaRecurrente, categoria: "marketing" as CategoriaTarea },
     { titulo: "Revisar métricas y finanzas del mes", frecuencia: "mensual" as FrecuenciaRecurrente, categoria: "otro" as CategoriaTarea },
 ];
 

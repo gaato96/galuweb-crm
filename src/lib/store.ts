@@ -181,6 +181,17 @@ export const finanzasStore = {
         if (error) throw error;
         return updated;
     },
+    marcarCobrado: async (id: string, cobrado: boolean = true): Promise<Finanza> => {
+        const today = new Date().toISOString().split("T")[0];
+        const { data: updated, error } = await supabase
+            .from("finanzas")
+            .update({ cobrado, fecha_cobrado: cobrado ? today : null })
+            .eq("id", id)
+            .select()
+            .single();
+        if (error) throw error;
+        return updated;
+    },
     delete: async (id: string): Promise<void> => {
         const { error } = await supabase.from("finanzas").delete().eq("id", id);
         if (error) throw error;
@@ -337,6 +348,23 @@ export const storageStore = {
         const fileExt = file.name.split(".").pop();
         const fileName = `${Math.random().toString(36).slice(2)}.${fileExt}`;
         const filePath = `contratos/${fileName}`;
+
+        const { error: uploadError } = await supabase.storage
+            .from("galu-assets")
+            .upload(filePath, file);
+
+        if (uploadError) throw uploadError;
+
+        const { data } = supabase.storage
+            .from("galu-assets")
+            .getPublicUrl(filePath);
+
+        return data.publicUrl;
+    },
+    uploadLogo: async (file: File): Promise<string> => {
+        const fileExt = file.name.split(".").pop();
+        const fileName = `logo_${Date.now()}_${Math.random().toString(36).slice(2)}.${fileExt}`;
+        const filePath = `logos/${fileName}`;
 
         const { error: uploadError } = await supabase.storage
             .from("galu-assets")

@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import {
     Plus, Trash2, X, FileText, Sparkles, Upload, Link as LinkIcon,
-    Code2, Globe, Download, ChevronDown, ChevronUp, AlignLeft
+    Code2, Globe, Download, ChevronDown, ChevronUp, AlignLeft, Archive
 } from "lucide-react";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { cotizacionesStore, clientesStore, storageStore } from "@/lib/store";
@@ -22,6 +22,7 @@ const ESTADO_BADGE: Record<EstadoCotizacion, string> = {
     enviada: "bg-blue-500/20 text-blue-300 border-blue-500/30",
     aceptada: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
     rechazada: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+    archivada: "bg-purple-500/20 text-purple-300 border-purple-500/30",
 };
 
 const TIPO_BADGE: Record<TipoCotizacion, string> = {
@@ -271,6 +272,7 @@ function CotizacionesContent() {
     const [showNew, setShowNew] = useState(false);
     const [showAI, setShowAI] = useState(false);
     const [promptView, setPromptView] = useState<Cotizacion | null>(null);
+    const [filterEstado, setFilterEstado] = useState<string>("todas");
     const [transcript, setTranscript] = useState("");
     const [aiClienteId, setAiClienteId] = useState("");
     const [generatedPrompt, setGeneratedPrompt] = useState("");
@@ -729,14 +731,40 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                 </div>
             )}
 
+            {/* Filter Tabs */}
+            <div className="flex flex-wrap items-center gap-2 border-b border-border pb-3">
+                {(["todas", "borrador", "enviada", "aceptada", "rechazada", "archivada"] as const).map((st) => (
+                    <button
+                        key={st}
+                        onClick={() => setFilterEstado(st)}
+                        className={cn(
+                            "px-3 py-1.5 rounded-lg text-xs font-semibold uppercase tracking-wider transition-all flex items-center gap-1.5",
+                            filterEstado === st
+                                ? "bg-primary text-primary-foreground"
+                                : "bg-secondary text-muted-foreground hover:text-foreground"
+                        )}
+                    >
+                        {st === "archivada" && <Archive className="w-3 h-3" />}
+                        {st === "todas" ? "Todas" : st}
+                    </button>
+                ))}
+            </div>
+
             {/* Quote Cards */}
             <div className="space-y-3">
-                {cotizaciones.map((q) => {
+                {cotizaciones
+                    .filter((q) => {
+                        if (filterEstado === "todas") return q.estado !== "archivada"; // Por defecto no mostrar archivadas en 'todas'
+                        return q.estado === filterEstado;
+                    })
+                    .map((q) => {
                     const cliente = clientes.find((c) => c.id === q.cliente_id);
                     if (!cliente) return null;
                     const tipo = (q.tipo_cotizacion || "web") as TipoCotizacion;
+                    const esArchivada = q.estado === "archivada";
+
                     return (
-                        <div key={q.id} className="rounded-xl border border-border bg-card p-4 card-hover">
+                        <div key={q.id} className={cn("rounded-xl border border-border bg-card p-4 card-hover transition-all", esArchivada && "opacity-60 bg-secondary/20")}>
                             <div className="flex items-start justify-between mb-3">
                                 <div>
                                     <div className="flex items-center gap-2 mb-0.5">
@@ -775,9 +803,10 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
 
                             {/* Actions */}
                             <div className="flex items-center justify-between mt-4">
-                                <div className="flex gap-1.5">
-                                    {(["borrador", "enviada", "aceptada", "rechazada"] as EstadoCotizacion[]).map((e) => (
-                                        <button key={e} onClick={() => updateEstado(q.id, e)} className={cn("px-2 py-1 rounded text-[10px] capitalize transition-colors", q.estado === e ? "bg-primary/20 text-primary" : "text-muted-foreground hover:bg-secondary")}>
+                                <div className="flex flex-wrap gap-1.5">
+                                    {(["borrador", "enviada", "aceptada", "rechazada", "archivada"] as EstadoCotizacion[]).map((e) => (
+                                        <button key={e} onClick={() => updateEstado(q.id, e)} className={cn("px-2 py-1 rounded text-[10px] capitalize transition-colors flex items-center gap-1", q.estado === e ? "bg-primary/20 text-primary font-bold" : "text-muted-foreground hover:bg-secondary")}>
+                                            {e === "archivada" && <Archive className="w-2.5 h-2.5" />}
                                             {e}
                                         </button>
                                     ))}
@@ -789,7 +818,7 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                                     <button onClick={() => setPromptView(q)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-semibold hover:bg-violet-500/20">
                                         <Sparkles className="w-4 h-4" /> Armar Prompt
                                     </button>
-                                    <button onClick={() => deleteCotizacion(q.id)} className="p-1.5 rounded-lg bg-secondary/50 hover:bg-destructive/20">
+                                    <button onClick={() => deleteCotizacion(q.id)} className="p-1.5 rounded-lg bg-secondary/50 hover:bg-destructive/20" title="Eliminar">
                                         <Trash2 className="w-4 h-4 text-destructive" />
                                     </button>
                                 </div>

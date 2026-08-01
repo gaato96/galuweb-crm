@@ -30,7 +30,7 @@ export interface SubpasoTarea {
     completado: boolean;
 }
 
-export type EstadoCotizacion = "borrador" | "enviada" | "aceptada" | "rechazada";
+export type EstadoCotizacion = "borrador" | "enviada" | "aceptada" | "rechazada" | "archivada";
 export type TipoCotizacion = "web" | "webapp";
 export type TipoFinanza = "ingreso" | "ads" | "gasto" | "herramienta";
 export type TipoRecurso = "link" | "video" | "archivo" | "curso" | "plugin" | "inspiracion";
@@ -176,6 +176,14 @@ export interface NotaSeguimiento {
     texto: string;
 }
 
+export interface DocumentoProyecto {
+    id: string;
+    titulo: string;
+    contenido: string;
+    categoria: 'estrategia' | 'marketing' | 'contenido' | 'prospeccion' | 'manual' | 'otro';
+    updated_at: string;
+}
+
 export interface Proyecto {
     id: string;
     created_at: string;
@@ -205,6 +213,9 @@ export interface Proyecto {
     version?: string;
     usuarios_activos?: number;
     membresias?: { nombre: string; precio: number; activas: number; }[];
+    // Logo y documentos
+    logo_url?: string;
+    documentos?: DocumentoProyecto[];
 }
 
 export interface Tarea {
@@ -266,6 +277,10 @@ export interface Finanza {
     cuota_actual: number;
     fecha_cobro: string;
     descripcion: string;
+    cobrado?: boolean;
+    fecha_cobrado?: string | null;
+    es_recurrente?: boolean;
+    grupo_cuota?: string | null;
     proyecto?: Proyecto;
 }
 
