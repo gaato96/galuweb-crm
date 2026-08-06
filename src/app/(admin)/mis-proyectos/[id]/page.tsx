@@ -8,10 +8,11 @@ import {
     Download, Copy
 } from "lucide-react";
 import { cn, formatDate, slugify, descargarTexto, descargarMarkdownCombinado } from "@/lib/utils";
-import { proyectosStore, tareasStore, logsProyectoStore } from "@/lib/store";
+import { proyectosStore, tareasStore, logsProyectoStore, mensajeError } from "@/lib/store";
 import { toast } from "sonner";
 import type { Proyecto, Tarea, LogProyecto, TipoProyectoPropio, FaseProyecto, DocumentoProyecto } from "@/lib/types";
-import { FASES_POR_TIPO } from "@/lib/types";
+import { FASES_POR_TIPO, PRIORIDAD_COLORS } from "@/lib/types";
+import { calcularEstado, haceCuanto, SALUD_LABELS, SALUD_COLORS } from "@/lib/proyectos-estado";
 import MarkdownViewer from "@/components/markdown-viewer";
 
 const TIPO_PROPIO_LABELS: Record<TipoProyectoPropio, string> = {
@@ -159,6 +160,23 @@ export default function MisProyectoDetailPage() {
         const updated = localFases.map((f, i) => i === index ? { ...f, completada: !f.completada } : f);
         setLocalFases(updated);
         setHasUnsavedFases(true);
+    };
+
+    /**
+     * Cierre de fase desde la cabecera: guarda en el momento. Obligar a ir a otra
+     * pestaña a confirmar hacía que el avance quedara sin registrar.
+     */
+    const completarFaseActual = async (index: number) => {
+        const updated = localFases.map((f, i) => i === index ? { ...f, completada: true } : f);
+        setLocalFases(updated);
+        try {
+            await proyectosStore.update(proyecto.id, { fases: updated });
+            setHasUnsavedFases(false);
+            toast.success(`Fase "${updated[index].nombre}" completada`);
+        } catch (e) {
+            setLocalFases(localFases); // revertir si no se pudo guardar
+            toast.error(mensajeError(e));
+        }
     };
 
     const saveFases = async () => {
@@ -332,15 +350,21 @@ export default function MisProyectoDetailPage() {
         finally { setSavingLog(false); }
     };
 
+    // Etiquetas cortas: con las largas, en el celular la barra era un scroll
+    // horizontal donde no se leía en qué sección estabas.
     const TABS: { id: PageTab; label: string; icon: any; count?: number }[] = [
-        { id: "dashboard", label: "Vista General & Status", icon: Zap },
-        { id: "fases", label: "Fases Roadmap", icon: Layers, count: localFases.length },
-        { id: "documentos", label: "Wiki / Docs Markdown", icon: BookOpen, count: documentosList.length || undefined },
-        { id: "tareas", label: "Tareas Pendientes", icon: CheckSquare, count: tareasPendientes.length || undefined },
-        { id: "novedades", label: "Novedades & Log", icon: ScrollText, count: logs.length || undefined },
-        { id: "specs", label: "Specs & Notas", icon: Rocket },
-        { id: "accesos", label: "Accesos & Keys", icon: Lock, count: (proyecto.accesos || []).length || undefined },
+        { id: "dashboard", label: "Estado", icon: Zap },
+        { id: "fases", label: "Roadmap", icon: Layers, count: localFases.length },
+        { id: "tareas", label: "Tareas", icon: CheckSquare, count: tareasPendientes.length || undefined },
+        { id: "novedades", label: "Bitácora", icon: ScrollText, count: logs.length || undefined },
+        { id: "documentos", label: "Docs", icon: BookOpen, count: documentosList.length || undefined },
+        { id: "specs", label: "Specs", icon: Rocket },
+        { id: "accesos", label: "Accesos", icon: Lock, count: (proyecto.accesos || []).length || undefined },
     ];
+
+    // Un único cálculo de "dónde estoy parado", igual al de la lista.
+    const estadoProyecto = calcularEstado({ ...proyecto, fases: localFases }, tareas, logs);
+    const quieto = (estadoProyecto.diasSinMovimiento ?? 0) > 14 && estadoProyecto.salud !== "terminado";
 
     return (
         <div className="p-3 sm:p-6 space-y-5 animate-fade-in pb-20 max-w-7xl mx-auto">
@@ -389,6 +413,99 @@ export default function MisProyectoDetailPage() {
                 </div>
             </div>
 
+            {/* ── Dónde estoy parado — visible en todas las pestañas ── */}
+            <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-4">
+                <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">
+                            {estadoProyecto.faseActual ? `Fase ${estadoProyecto.faseActualIndice} de ${estadoProyecto.fases.length}` : "Roadmap"}
+                        </p>
+                        <h2 className="text-lg sm:text-2xl font-black text-foreground mt-0.5 break-words">
+                            {estadoProyecto.faseActual?.nombre || "Todas las fases completadas"}
+                        </h2>
+                    </div>
+                    <div className="text-right shrink-0">
+                        <p className="text-2xl sm:text-3xl font-black text-primary tabular-nums leading-none">
+                            {estadoProyecto.progreso}%
+                        </p>
+                        <span className={cn(
+                            "inline-block mt-1.5 text-[10px] px-2 py-0.5 rounded-full border font-bold",
+                            SALUD_COLORS[estadoProyecto.salud]
+                        )}>
+                            {SALUD_LABELS[estadoProyecto.salud]}
+                        </span>
+                    </div>
+                </div>
+
+                {/* Barra segmentada: cada tramo es una fase, la ámbar es donde estás */}
+                {estadoProyecto.fases.length > 0 && (
+                    <button
+                        onClick={() => setActiveTab("fases")}
+                        className="w-full flex items-center gap-[3px] py-1 group"
+                        title="Ver el roadmap completo"
+                    >
+                        {estadoProyecto.fases.map((f, i) => (
+                            <span
+                                key={i}
+                                className={cn(
+                                    "h-2 flex-1 rounded-full transition-all group-hover:opacity-80",
+                                    f.completada ? "bg-primary" : i + 1 === estadoProyecto.faseActualIndice ? "bg-amber-400" : "bg-secondary"
+                                )}
+                            />
+                        ))}
+                    </button>
+                )}
+
+                {/* Próximo paso + señales */}
+                <div className="grid sm:grid-cols-2 gap-3">
+                    {estadoProyecto.proximoPaso && estadoProyecto.faseActual && (
+                        <div className="flex items-start gap-2 rounded-xl bg-secondary/40 border border-border/60 px-3 py-2.5 min-w-0">
+                            <ChevronRight className="w-4 h-4 text-primary shrink-0 mt-0.5" />
+                            <div className="min-w-0">
+                                <p className="text-[10px] font-bold text-muted-foreground uppercase tracking-wide">Lo que sigue</p>
+                                <p className="text-xs sm:text-sm text-foreground/90 break-words">{estadoProyecto.proximoPaso}</p>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="flex items-center gap-3 flex-wrap text-[11px] sm:text-xs sm:justify-end">
+                        {estadoProyecto.tareasVencidas.length > 0 && (
+                            <button
+                                onClick={() => setActiveTab("tareas")}
+                                className="flex items-center gap-1.5 text-rose-300 font-bold hover:underline min-h-[36px]"
+                            >
+                                <Clock className="w-3.5 h-3.5" />
+                                {estadoProyecto.tareasVencidas.length} vencida{estadoProyecto.tareasVencidas.length !== 1 ? "s" : ""}
+                            </button>
+                        )}
+                        <button
+                            onClick={() => setActiveTab("tareas")}
+                            className="flex items-center gap-1.5 text-muted-foreground hover:text-foreground min-h-[36px]"
+                        >
+                            <CheckSquare className="w-3.5 h-3.5" />
+                            {estadoProyecto.tareasPendientes.length} pendiente{estadoProyecto.tareasPendientes.length !== 1 ? "s" : ""}
+                        </button>
+                        <button
+                            onClick={() => setActiveTab("novedades")}
+                            className={cn("flex items-center gap-1.5 min-h-[36px] hover:underline", quieto ? "text-amber-300 font-semibold" : "text-muted-foreground")}
+                        >
+                            <ScrollText className="w-3.5 h-3.5" />
+                            {quieto ? "Sin movimiento " : "Último avance "}{haceCuanto(estadoProyecto.diasSinMovimiento)}
+                        </button>
+                    </div>
+                </div>
+
+                {estadoProyecto.faseActual && (
+                    <button
+                        onClick={() => completarFaseActual(estadoProyecto.faseActualIndice - 1)}
+                        className="w-full sm:w-auto flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 active:scale-95 transition-all min-h-[44px]"
+                    >
+                        <Check className="w-4 h-4" />
+                        Completar &ldquo;{estadoProyecto.faseActual.nombre}&rdquo;
+                    </button>
+                )}
+            </div>
+
             {/* Navigation Tabs */}
             <div className="flex gap-1.5 border-b border-border/80 bg-card/50 p-1.5 rounded-2xl overflow-x-auto scrollbar-none">
                 {TABS.map((tab) => (
@@ -416,88 +533,104 @@ export default function MisProyectoDetailPage() {
                 ))}
             </div>
 
-            {/* TAB 1: VISTA GENERAL & STATUS (ACTION CENTER) */}
+            {/* TAB 1: ESTADO — el progreso ya está en la cabecera, acá va el trabajo del día */}
             {activeTab === "dashboard" && (
-                <div className="space-y-5">
-                    {/* Status & Progress Cards */}
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                        {/* Card 1: Progreso General */}
-                        <div className="rounded-2xl border border-primary/30 bg-gradient-to-br from-primary/10 via-card to-card p-5 space-y-3 relative overflow-hidden shadow-sm">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold uppercase tracking-wider text-primary flex items-center gap-1.5">
-                                    <Zap className="w-4 h-4" /> Progreso del Roadmap
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    {/* Tareas a mano */}
+                    <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                                <CheckSquare className="w-4 h-4 text-cyan-400 shrink-0" />
+                                Tareas pendientes
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-secondary text-muted-foreground tabular-nums">
+                                    {tareasPendientes.length}
                                 </span>
-                                <span className="text-2xl font-black text-primary">{fasesProgress}%</span>
-                            </div>
-
-                            <div className="h-3 rounded-full bg-secondary overflow-hidden">
-                                <div className="h-full rounded-full bg-gradient-to-r from-primary via-indigo-500 to-cyan-400 transition-all duration-700" style={{ width: `${fasesProgress}%` }} />
-                            </div>
-
-                            <div className="flex items-center justify-between text-xs text-muted-foreground pt-1">
-                                <span>{completedFases} de {localFases.length} fases completadas</span>
-                                <button onClick={() => setActiveTab("fases")} className="text-primary hover:underline font-bold text-xs flex items-center gap-1">
-                                    Ver Fases <ChevronRight className="w-3 h-3" />
-                                </button>
-                            </div>
+                            </h3>
+                            <button
+                                onClick={() => setShowNewTarea(true)}
+                                className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs text-primary font-bold hover:bg-primary/10 min-h-[40px]"
+                            >
+                                <Plus className="w-3.5 h-3.5" /> Nueva
+                            </button>
                         </div>
 
-                        {/* Card 2: Siguiente Fase Pendiente (¿Qué me falta?) */}
-                        <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5 space-y-3 relative">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                                    <Clock className="w-4 h-4" /> Siguiente Fase a Trabajar
-                                </span>
-                                {siguienteFaseIndex !== -1 && (
-                                    <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-0.5 rounded-full border border-amber-500/30">
-                                        Fase {siguienteFaseIndex + 1} de {localFases.length}
-                                    </span>
-                                )}
-                            </div>
-
-                            {siguienteFase ? (
-                                <div className="space-y-2">
-                                    <div className="flex items-center justify-between">
-                                        <h3 className="text-base font-bold text-foreground">{siguienteFase.nombre}</h3>
+                        <div className="space-y-1.5">
+                            {tareasPendientes.slice(0, 6).map((t) => {
+                                const vencida = t.fecha_vencimiento && new Date(t.fecha_vencimiento) < new Date();
+                                return (
+                                    <div
+                                        key={t.id}
+                                        className={cn(
+                                            "flex items-center gap-3 p-3 rounded-xl border text-xs",
+                                            vencida ? "bg-rose-500/5 border-rose-500/25" : "bg-secondary/40 border-border/50"
+                                        )}
+                                    >
                                         <button
-                                            onClick={() => toggleFaseLocal(siguienteFaseIndex)}
-                                            className="px-3 py-1 bg-amber-500 text-slate-950 text-xs font-bold rounded-lg hover:bg-amber-400 active:scale-95 transition-all shadow-sm"
-                                        >
-                                            Marcar Completada
-                                        </button>
+                                            onClick={() => toggleTareaEstado(t)}
+                                            className="w-5 h-5 rounded-md border-2 border-border hover:border-primary hover:bg-primary/10 transition-all shrink-0"
+                                            title="Marcar como completada"
+                                        />
+                                        <div className="min-w-0 flex-1">
+                                            <p className="font-semibold text-foreground/90 truncate">{t.titulo}</p>
+                                            {t.fecha_vencimiento && (
+                                                <p className={cn("text-[10px] mt-0.5", vencida ? "text-rose-300 font-bold" : "text-muted-foreground")}>
+                                                    {vencida ? "Vencida el " : "Vence el "}{formatDate(t.fecha_vencimiento)}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <span className={cn("text-[9px] px-1.5 py-0.5 rounded border font-bold uppercase shrink-0", PRIORIDAD_COLORS[t.prioridad])}>
+                                            {t.prioridad}
+                                        </span>
                                     </div>
-                                </div>
-                            ) : (
-                                <div className="py-2 text-center text-emerald-400 font-bold text-sm flex items-center justify-center gap-2">
-                                    <CheckCircle2 className="w-5 h-5" /> ¡Roadmap 100% completado!
-                                </div>
+                                );
+                            })}
+
+                            {tareasPendientes.length === 0 && (
+                                <p className="text-xs text-muted-foreground py-6 text-center">
+                                    Sin tareas pendientes. El próximo paso es cerrar la fase actual.
+                                </p>
+                            )}
+                            {tareasPendientes.length > 6 && (
+                                <button onClick={() => setActiveTab("tareas")} className="w-full text-center text-xs text-primary font-bold py-2.5 hover:underline min-h-[40px]">
+                                    Ver las {tareasPendientes.length - 6} restantes
+                                </button>
                             )}
                         </div>
+                    </div>
 
-                        {/* Card 3: Tareas Pendientes */}
-                        <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
-                            <div className="flex items-center justify-between">
-                                <span className="text-xs font-bold uppercase tracking-wider text-foreground flex items-center gap-1.5">
-                                    <CheckSquare className="w-4 h-4 text-cyan-400" /> Tareas Pendientes ({tareasPendientes.length})
-                                </span>
-                                <button onClick={() => setShowNewTarea(true)} className="text-xs text-primary font-bold hover:underline flex items-center gap-1">
-                                    <Plus className="w-3 h-3" /> Crear
-                                </button>
-                            </div>
+                    {/* Últimos avances */}
+                    <div className="rounded-2xl border border-border bg-card p-4 sm:p-5 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                            <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                                <ScrollText className="w-4 h-4 text-primary shrink-0" />
+                                Últimos avances
+                            </h3>
+                            <button
+                                onClick={() => setShowNewLog(true)}
+                                className="flex items-center gap-1 px-2.5 py-2 rounded-lg text-xs text-primary font-bold hover:bg-primary/10 min-h-[40px]"
+                            >
+                                <Plus className="w-3.5 h-3.5" /> Registrar
+                            </button>
+                        </div>
 
-                            <div className="space-y-1.5 max-h-[90px] overflow-y-auto custom-scrollbar">
-                                {tareasPendientes.slice(0, 3).map((t) => (
-                                    <div key={t.id} className="flex items-center justify-between p-2 rounded-xl bg-secondary/40 border border-border/50 text-xs">
-                                        <span className="truncate font-semibold text-foreground/90">{t.titulo}</span>
-                                        <button onClick={() => toggleTareaEstado(t)} className="text-[10px] font-bold text-primary hover:underline shrink-0">
-                                            Completar
-                                        </button>
+                        <div className="space-y-1.5">
+                            {logs.slice(0, 5).map((l) => (
+                                <div key={l.id} className="p-3 rounded-xl bg-secondary/40 border border-border/50">
+                                    <div className="flex items-baseline justify-between gap-2">
+                                        <p className="text-xs font-bold text-foreground truncate">{l.titulo}</p>
+                                        <span className="text-[10px] text-muted-foreground shrink-0">{formatDate(l.fecha)}</span>
                                     </div>
-                                ))}
-                                {tareasPendientes.length === 0 && (
-                                    <p className="text-xs text-muted-foreground italic py-2">Sin tareas pendientes 🎉</p>
-                                )}
-                            </div>
+                                    {l.descripcion && (
+                                        <p className="text-[11px] text-muted-foreground mt-1 line-clamp-2">{l.descripcion}</p>
+                                    )}
+                                </div>
+                            ))}
+
+                            {logs.length === 0 && (
+                                <p className="text-xs text-muted-foreground py-6 text-center">
+                                    Sin avances registrados. Anotar lo que hacés es lo que después te dice dónde quedaste.
+                                </p>
+                            )}
                         </div>
                     </div>
                 </div>

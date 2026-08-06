@@ -429,6 +429,16 @@ export const storageStore = {
 
 // --- Logs de Proyecto (Changelog / Seguimiento) ---
 export const logsProyectoStore = {
+    /** Últimas novedades de todos los proyectos, para calcular actividad reciente. */
+    getRecientes: async (limite = 500): Promise<LogProyecto[]> => {
+        const { data, error } = await supabase
+            .from("logs_proyecto")
+            .select("*")
+            .order("fecha", { ascending: false })
+            .limit(limite);
+        if (error) throw error;
+        return data || [];
+    },
     getByProyecto: async (proyectoId: string): Promise<LogProyecto[]> => {
         const { data, error } = await supabase
             .from("logs_proyecto")
@@ -733,7 +743,7 @@ export function mensajeError(e: unknown): string {
     // Traducción de los códigos que más aparecen, con la acción concreta.
     const explicaciones: Record<string, string> = {
         "42P01": "La tabla no existe. Falta correr la migración en el SQL Editor de Supabase.",
-        "42501": "Permiso denegado sobre la tabla. Revisá si quedó RLS activada.",
+        "42501": "La tabla tiene RLS activada sin políticas. Corré: ALTER TABLE <tabla> DISABLE ROW LEVEL SECURITY;",
         "23505": "Ya existe un registro con ese negocio y ciudad.",
         "23503": "Referencia inválida a otra tabla.",
         PGRST204: "La tabla no tiene alguna de las columnas que enviamos. Volvé a correr la migración completa.",
