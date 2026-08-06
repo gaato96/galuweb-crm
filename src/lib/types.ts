@@ -245,6 +245,10 @@ export interface Tarea {
     publicado?: boolean;
     fecha_vencimiento?: string;
     hora_recordatorio?: string;
+    // Historial: las completadas se archivan en vez de acumularse en el tablero.
+    archivada?: boolean;
+    fecha_completada?: string | null;
+    fecha_archivada?: string | null;
 }
 
 export interface CotizacionItem {

@@ -4,9 +4,10 @@ import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
     ArrowLeft, ExternalLink, Plus, X, CheckSquare, Layers, BookOpen, ScrollText,
-    Zap, Rocket, Check, Trash2, Edit3, Save, Lock, FileUp, Eye, CheckCircle2, Clock, ChevronRight
+    Zap, Rocket, Check, Trash2, Edit3, Save, Lock, FileUp, Eye, CheckCircle2, Clock, ChevronRight,
+    Download, Copy
 } from "lucide-react";
-import { cn, formatDate } from "@/lib/utils";
+import { cn, formatDate, slugify, descargarTexto, descargarMarkdownCombinado } from "@/lib/utils";
 import { proyectosStore, tareasStore, logsProyectoStore } from "@/lib/store";
 import { toast } from "sonner";
 import type { Proyecto, Tarea, LogProyecto, TipoProyectoPropio, FaseProyecto, DocumentoProyecto } from "@/lib/types";
@@ -558,9 +559,23 @@ export default function MisProyectoDetailPage() {
                             <h3 className="text-xs font-bold text-foreground uppercase tracking-wider flex items-center gap-1.5">
                                 <BookOpen className="w-4 h-4 text-primary" /> Documentos ({documentosList.length})
                             </h3>
-                            <button onClick={() => openDocEditor()} className="p-1 rounded-lg hover:bg-secondary text-primary" title="Nuevo documento">
-                                <Plus className="w-4 h-4" />
-                            </button>
+                            <div className="flex items-center gap-1">
+                                {documentosList.length > 0 && (
+                                    <button
+                                        onClick={() => descargarMarkdownCombinado(
+                                            `${slugify(proyecto.nombre)}-docs.md`,
+                                            documentosList.map(d => ({ titulo: d.titulo, contenido: d.contenido }))
+                                        )}
+                                        className="p-1.5 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground"
+                                        title="Descargar todos los documentos en un .md"
+                                    >
+                                        <Download className="w-4 h-4" />
+                                    </button>
+                                )}
+                                <button onClick={() => openDocEditor()} className="p-1.5 rounded-lg hover:bg-secondary text-primary" title="Nuevo documento">
+                                    <Plus className="w-4 h-4" />
+                                </button>
+                            </div>
                         </div>
 
                         {/* Sync with Claude file button */}
@@ -612,22 +627,36 @@ export default function MisProyectoDetailPage() {
                                         </span>
                                     </div>
 
-                                    <div className="flex items-center gap-2">
+                                    <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                                         <div className="flex items-center rounded-xl bg-secondary p-1 border border-border">
                                             <button
                                                 onClick={() => setDocMode("read")}
-                                                className={cn("px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1", docMode === "read" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+                                                className={cn("px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5", docMode === "read" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
                                             >
-                                                <Eye className="w-3.5 h-3.5" /> Lectura (MD Rendered)
+                                                <Eye className="w-3.5 h-3.5" /> Leer
                                             </button>
                                             <button
                                                 onClick={() => { openDocEditor(activeDoc); setDocMode("edit"); }}
-                                                className={cn("px-3 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1", docMode === "edit" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
+                                                className={cn("px-2.5 sm:px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5", docMode === "edit" ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground")}
                                             >
-                                                <Edit3 className="w-3.5 h-3.5" /> Editar Markdown
+                                                <Edit3 className="w-3.5 h-3.5" /> Editar
                                             </button>
                                         </div>
 
+                                        <button
+                                            onClick={() => descargarTexto(`${slugify(activeDoc.titulo)}.md`, activeDoc.contenido)}
+                                            className="p-2 rounded-xl text-muted-foreground hover:text-primary hover:bg-primary/10 transition-colors"
+                                            title="Descargar este documento como .md"
+                                        >
+                                            <Download className="w-4 h-4" />
+                                        </button>
+                                        <button
+                                            onClick={() => { navigator.clipboard.writeText(activeDoc.contenido); toast.success("Markdown copiado"); }}
+                                            className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+                                            title="Copiar el Markdown crudo"
+                                        >
+                                            <Copy className="w-4 h-4" />
+                                        </button>
                                         <button onClick={() => handleDeleteDoc(activeDoc.id)} className="p-2 rounded-xl text-rose-400 hover:bg-rose-500/10 transition-colors" title="Eliminar documento">
                                             <Trash2 className="w-4 h-4" />
                                         </button>

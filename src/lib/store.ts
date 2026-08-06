@@ -90,8 +90,11 @@ export const proyectosStore = {
 
 // --- Tareas ---
 export const tareasStore = {
+    /** Solo las activas: las archivadas viven en el historial. */
     getAll: async (): Promise<Tarea[]> => {
-        const { data, error } = await supabase.from("tareas").select("*").order("created_at", { ascending: false });
+        const { data, error } = await supabase
+            .from("tareas").select("*").or("archivada.is.null,archivada.eq.false")
+            .order("created_at", { ascending: false });
         if (error) throw error;
         return data || [];
     },
@@ -99,6 +102,40 @@ export const tareasStore = {
         const { data, error } = await supabase.from("tareas").select("*").eq("id", id).single();
         if (error) return null;
         return data;
+    },
+    getArchivadas: async (): Promise<Tarea[]> => {
+        const { data, error } = await supabase
+            .from("tareas").select("*").eq("archivada", true)
+            .order("fecha_archivada", { ascending: false });
+        if (error) throw error;
+        return data || [];
+    },
+    /** Saca del tablero todo lo completado. Devuelve cuántas archivó. */
+    archivarCompletadas: async (): Promise<number> => {
+        const ahora = new Date().toISOString();
+        const { data, error } = await supabase
+            .from("tareas")
+            .update({ archivada: true, fecha_archivada: ahora })
+            .eq("estado", "completada")
+            .or("archivada.is.null,archivada.eq.false")
+            .select("id");
+        if (error) throw error;
+        return (data || []).length;
+    },
+    restaurar: async (id: string): Promise<Tarea> => {
+        const { data, error } = await supabase
+            .from("tareas")
+            .update({ archivada: false, fecha_archivada: null, estado: "pendiente" })
+            .eq("id", id).select().single();
+        if (error) throw error;
+        return data;
+    },
+    /** Borrado definitivo de todo el historial. */
+    vaciarHistorial: async (): Promise<number> => {
+        const { data, error } = await supabase
+            .from("tareas").delete().eq("archivada", true).select("id");
+        if (error) throw error;
+        return (data || []).length;
     },
     getByProyecto: async (proyectoId: string): Promise<Tarea[]> => {
         const { data, error } = await supabase.from("tareas").select("*").eq("proyecto_id", proyectoId).order("created_at", { ascending: false });
@@ -116,7 +153,12 @@ export const tareasStore = {
         return created;
     },
     update: async (id: string, data: Partial<Tarea>): Promise<Tarea> => {
-        const { data: updated, error } = await supabase.from("tareas").update(data).eq("id", id).select().single();
+        // Sellar la fecha al completar es lo que hace ordenable el historial.
+        const payload: Partial<Tarea> = { ...data };
+        if (data.estado === "completada") payload.fecha_completada = new Date().toISOString();
+        else if (data.estado) payload.fecha_completada = null;
+
+        const { data: updated, error } = await supabase.from("tareas").update(payload).eq("id", id).select().single();
         if (error) throw error;
         return updated;
     },
@@ -672,6 +714,41 @@ export const scraperStore = {
 // --- Planilla de Prospectos (prospección en frío) ---
 // ============================================================
 
+/**
+ * Los errores de supabase-js son objetos planos ({ message, code, details, hint }),
+ * NO instancias de Error. Un `e instanceof Error` los descarta y deja el mensaje
+ * genérico, que es exactamente lo que impide diagnosticar una importación fallida.
+ */
+export function mensajeError(e: unknown): string {
+    if (!e) return "Error desconocido";
+    if (typeof e === "string") return e;
+    if (e instanceof Error) return e.message;
+
+    const err = e as { message?: string; code?: string; details?: string; hint?: string };
+    const partes = [err.message, err.details, err.hint].filter(Boolean);
+    const texto = partes.join(" · ") || JSON.stringify(e);
+
+    if (!err.code) return texto;
+
+    // Traducción de los códigos que más aparecen, con la acción concreta.
+    const explicaciones: Record<string, string> = {
+        "42P01": "La tabla no existe. Falta correr la migración en el SQL Editor de Supabase.",
+        "42501": "Permiso denegado sobre la tabla. Revisá si quedó RLS activada.",
+        "23505": "Ya existe un registro con ese negocio y ciudad.",
+        "23503": "Referencia inválida a otra tabla.",
+        PGRST204: "La tabla no tiene alguna de las columnas que enviamos. Volvé a correr la migración completa.",
+        PGRST205: "PostgREST no ve la tabla todavía. En Supabase: Settings → API → Reload schema cache.",
+    };
+    const explicacion = explicaciones[err.code];
+    return explicacion ? `${texto} — ${explicacion} [${err.code}]` : `${texto} [${err.code}]`;
+}
+
+export interface ResultadoImportacion {
+    insertados: Prospecto[];
+    duplicados: number;
+    fallidos: { negocio: string; motivo: string }[];
+}
+
 /** Los rows vienen de Postgres; `escaneo` puede llegar null o como string JSON. */
 function rowToProspecto(row: Record<string, unknown>): Prospecto {
     let escaneo = row.escaneo;
@@ -778,7 +855,7 @@ export const prospectosStore = {
     createBulk: async (
         items: Partial<Prospecto>[],
         universo: Prospecto[] = []
-    ): Promise<{ insertados: Prospecto[]; duplicados: number }> => {
+    ): Promise<ResultadoImportacion> => {
         const yaCargados = new Set(
             universo.map((p) => `${normalizar(p.negocio)}|${normalizar(p.ciudad)}`)
         );
@@ -800,17 +877,57 @@ export const prospectosStore = {
             limpios.push(payload);
         }
 
-        if (limpios.length === 0) return { insertados: [], duplicados };
+        if (limpios.length === 0) return { insertados: [], duplicados, fallidos: [] };
 
         const insertados: Prospecto[] = [];
-        // Chunks de 200 para no pasarse del límite de payload de PostgREST.
-        for (let i = 0; i < limpios.length; i += 200) {
-            const chunk = limpios.slice(i, i + 200);
+        const fallidos: { negocio: string; motivo: string }[] = [];
+
+        // Chunks de 100 para no pasarse del límite de payload de PostgREST.
+        for (let i = 0; i < limpios.length; i += 100) {
+            const chunk = limpios.slice(i, i + 100);
             const { data, error } = await supabase.from("prospectos").insert(chunk).select();
-            if (error) throw error;
-            insertados.push(...(data || []).map((r) => rowToProspecto(r as Record<string, unknown>)));
+
+            if (!error) {
+                insertados.push(...(data || []).map((r) => rowToProspecto(r as Record<string, unknown>)));
+                continue;
+            }
+
+            // Un solo registro conflictivo tumba el lote entero. En vez de perder las
+            // 100 filas, se reintenta de a una para salvar las buenas y poder decir
+            // exactamente cuál falló y por qué.
+            const codigosDeFila = ["23505", "23503", "22P02", "23514"];
+            const esProblemaDeFila = codigosDeFila.includes((error as { code?: string }).code || "");
+            if (!esProblemaDeFila) throw error;
+
+            for (const fila of chunk) {
+                const { data: uno, error: errFila } = await supabase
+                    .from("prospectos").insert(fila).select().single();
+                if (errFila) {
+                    if ((errFila as { code?: string }).code === "23505") duplicados++;
+                    else fallidos.push({ negocio: fila.negocio, motivo: mensajeError(errFila) });
+                } else if (uno) {
+                    insertados.push(rowToProspecto(uno as Record<string, unknown>));
+                }
+            }
         }
-        return { insertados, duplicados };
+        return { insertados, duplicados, fallidos };
+    },
+
+    /**
+     * Comprueba que la tabla exista y que se pueda escribir en ella, y devuelve el
+     * error crudo de Supabase. Sirve para no adivinar cuando una importación falla.
+     */
+    diagnosticar: async (): Promise<{ ok: boolean; detalle: string }> => {
+        const { error: errLectura } = await supabase.from("prospectos").select("id").limit(1);
+        if (errLectura) return { ok: false, detalle: `Lectura: ${mensajeError(errLectura)}` };
+
+        const sonda = { ...prospectoVacio(), negocio: `__diagnostico_${Date.now()}`, ciudad: "__test" };
+        const { data, error: errEscritura } = await supabase
+            .from("prospectos").insert(sonda).select("id").single();
+        if (errEscritura) return { ok: false, detalle: `Escritura: ${mensajeError(errEscritura)}` };
+
+        if (data?.id) await supabase.from("prospectos").delete().eq("id", data.id);
+        return { ok: true, detalle: "La tabla existe y acepta lectura y escritura." };
     },
 
     /** Recalcula el score de todos: el percentil de reseñas cambia al crecer la lista (§8). */
@@ -830,7 +947,7 @@ export const prospectosStore = {
     importarDesdeScraper: async (
         scrapeados: ProspectoScraped[],
         universo: Prospecto[] = []
-    ): Promise<{ insertados: Prospecto[]; duplicados: number }> => {
+    ): Promise<ResultadoImportacion> => {
         const items: Partial<Prospecto>[] = scrapeados.map((s) => {
             const webUrl = s.sitioWebUrl || s.redesSociales?.instagram || s.redesSociales?.facebook || "";
             return {

@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     ClipboardList, Plus, Upload, Download, RefreshCw, Search, Target,
     Table2, Columns3, BarChart3, Loader2, ExternalLink, Instagram, Phone,
-    AlertTriangle, CheckCircle2, Clock,
+    AlertTriangle, CheckCircle2, Clock, Stethoscope,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -13,7 +13,7 @@ import {
     ESTADO_PROSPECTO_LABELS, ESTADO_PROSPECTO_COLORS, CLASIFICACION_WEB_LABELS,
     QUIEN_LEYO_LABELS,
 } from "@/lib/types";
-import { prospectosStore, scraperStore } from "@/lib/store";
+import { prospectosStore, scraperStore, mensajeError, type ResultadoImportacion } from "@/lib/store";
 import {
     calcularNivelDato, normalizarEscaneo, normalizar, proximaAccion, hoyISO,
     prospectoVacio, fueEnviado, respondio, tasaPorNivelDato, tasaPorRubro,
@@ -65,7 +65,7 @@ export default function ProspeccionPage() {
             const data = await prospectosStore.getAll();
             setProspectos(data);
         } catch (e) {
-            const msg = e instanceof Error ? e.message : "Error al cargar prospectos";
+            const msg = mensajeError(e);
             setErrorCarga(msg);
         } finally {
             setCargando(false);
@@ -148,7 +148,7 @@ export default function ProspeccionPage() {
             setProspectos((prev) => [creado, ...prev]);
             setSeleccionado(creado);
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : "No se pudo crear");
+            toast.error(mensajeError(e));
         }
     };
 
@@ -166,36 +166,65 @@ export default function ProspeccionPage() {
             setSeleccionado(null);
             toast.success(`${cliente.nombre} pasó al pipeline de clientes`);
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : "No se pudo convertir");
+            toast.error(mensajeError(e));
+        }
+    };
+
+    /** Un solo lugar para reportar el resultado, con el detalle de lo que no entró. */
+    const reportarImportacion = (r: ResultadoImportacion, sufijo: string) => {
+        const partes = [`${r.insertados.length} prospectos ${sufijo}`];
+        if (r.duplicados > 0) partes.push(`${r.duplicados} ya estaban o venían sin nombre`);
+        if (r.fallidos.length > 0) partes.push(`${r.fallidos.length} con error`);
+
+        if (r.fallidos.length > 0) {
+            console.warn("[prospeccion] Registros rechazados:", r.fallidos);
+            toast.warning(partes.join(" · "), {
+                description: `Primero: ${r.fallidos[0].negocio} — ${r.fallidos[0].motivo}`,
+                duration: 10000,
+            });
+        } else if (r.insertados.length === 0) {
+            toast.info(partes.join(" · "));
+        } else {
+            toast.success(partes.join(" · "));
         }
     };
 
     const importarFilas = async (items: Partial<Prospecto>[]) => {
         try {
-            const { insertados, duplicados } = await prospectosStore.createBulk(items, prospectos);
+            const r = await prospectosStore.createBulk(items, prospectos);
             await cargar();
             setMostrarImportar(false);
-            toast.success(
-                `${insertados.length} prospectos importados` +
-                (duplicados > 0 ? ` · ${duplicados} salteados por duplicado o sin nombre` : "")
-            );
+            reportarImportacion(r, "importados");
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : "Error al importar");
+            console.error("[prospeccion] Error al importar filas:", e);
+            toast.error(mensajeError(e), { duration: 12000 });
         }
     };
 
     const importarScraper = async (b: ScraperBusqueda) => {
+        const lista = Array.isArray(b.prospectos) ? b.prospectos : [];
+        if (lista.length === 0) {
+            toast.error("Esa búsqueda del Scraper no tiene prospectos guardados. Volvé a correrla desde el Scraper.");
+            return;
+        }
         try {
-            const { insertados, duplicados } = await prospectosStore.importarDesdeScraper(b.prospectos, prospectos);
+            const r = await prospectosStore.importarDesdeScraper(lista, prospectos);
             await cargar();
             setMostrarImportar(false);
-            toast.success(
-                `${insertados.length} prospectos traídos del Scraper` +
-                (duplicados > 0 ? ` · ${duplicados} ya estaban` : "")
-            );
+            reportarImportacion(r, "traídos del Scraper");
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : "Error al importar");
+            console.error("[prospeccion] Error al importar del Scraper:", e);
+            toast.error(mensajeError(e), { duration: 12000 });
         }
+    };
+
+    const diagnosticar = async () => {
+        const t = toast.loading("Probando lectura y escritura sobre la tabla...");
+        const r = await prospectosStore.diagnosticar();
+        toast.dismiss(t);
+        if (r.ok) toast.success(r.detalle);
+        else toast.error(r.detalle, { duration: 20000 });
+        console.log("[prospeccion] Diagnóstico:", r);
     };
 
     const recalcular = async () => {
@@ -205,7 +234,7 @@ export default function ProspeccionPage() {
             setProspectos([...actualizados].sort((a, b) => b.score - a.score));
             toast.success("Scores recalculados sobre la distribución actual de cada rubro");
         } catch (e) {
-            toast.error(e instanceof Error ? e.message : "No se pudo recalcular");
+            toast.error(mensajeError(e));
         } finally {
             setRecalculando(false);
         }
@@ -274,6 +303,7 @@ export default function ProspeccionPage() {
                     <BotonHeader onClick={crearNuevo} icon={Plus} label="Nuevo" />
                     <BotonHeader onClick={exportarCsv} icon={Download} label="Exportar" />
                     <BotonHeader onClick={recalcular} icon={RefreshCw} label="Recalcular" cargando={recalculando} />
+                    <BotonHeader onClick={diagnosticar} icon={Stethoscope} label="Diagnóstico" />
                 </div>
             </div>
 

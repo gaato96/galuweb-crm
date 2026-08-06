@@ -5,10 +5,11 @@ import { useSearchParams } from "next/navigation";
 import {
     Plus, CheckCircle2, Circle, Clock, Filter, Trash2,
     CalendarClock, X, FileText, AlignLeft, CheckSquare, CalendarPlus,
-    LayoutGrid, List, Layers, Tag, Search, ArrowRight, ChevronRight, Zap
+    LayoutGrid, List, Layers, Tag, Search, ArrowRight, ChevronRight, Zap,
+    Archive, History, RotateCcw, Inbox
 } from "lucide-react";
 import { cn, formatDate } from "@/lib/utils";
-import { tareasStore, proyectosStore } from "@/lib/store";
+import { tareasStore, proyectosStore, mensajeError } from "@/lib/store";
 import type { Tarea, Prioridad, EstadoTarea, CategoriaTarea, BloqueTarea, Proyecto } from "@/lib/types";
 import { PRIORIDAD_COLORS, ESTADO_TAREA_COLORS, BLOQUE_COLORS } from "@/lib/types";
 import { toast } from "sonner";
@@ -280,6 +281,61 @@ function TareasContent() {
     // Quick add per column
     const [quickAddTitles, setQuickAddTitles] = useState<Record<string, string>>({});
 
+    // Historial de completadas
+    const [showHistorial, setShowHistorial] = useState(false);
+    const [archivadas, setArchivadas] = useState<Tarea[]>([]);
+    const [limpiando, setLimpiando] = useState(false);
+
+    const cargarArchivadas = async () => {
+        try {
+            setArchivadas(await tareasStore.getArchivadas());
+        } catch (e) {
+            toast.error(mensajeError(e));
+        }
+    };
+
+    const handleLimpiarCompletadas = async () => {
+        const completadas = tareas.filter((t) => t.estado === "completada").length;
+        if (completadas === 0) {
+            toast.info("No hay tareas completadas para archivar");
+            return;
+        }
+        setLimpiando(true);
+        try {
+            const n = await tareasStore.archivarCompletadas();
+            await reload();
+            if (showHistorial) await cargarArchivadas();
+            toast.success(`${n} tarea${n !== 1 ? "s" : ""} al historial`, {
+                description: "Salen del tablero pero podés consultarlas o restaurarlas cuando quieras.",
+            });
+        } catch (e) {
+            toast.error(mensajeError(e));
+        } finally {
+            setLimpiando(false);
+        }
+    };
+
+    const handleRestaurar = async (t: Tarea) => {
+        try {
+            await tareasStore.restaurar(t.id);
+            await Promise.all([reload(), cargarArchivadas()]);
+            toast.success(`"${t.titulo}" volvió al tablero como pendiente`);
+        } catch (e) {
+            toast.error(mensajeError(e));
+        }
+    };
+
+    const handleVaciarHistorial = async () => {
+        if (!window.confirm(`¿Borrar definitivamente ${archivadas.length} tareas del historial? No se puede deshacer.`)) return;
+        try {
+            const n = await tareasStore.vaciarHistorial();
+            await cargarArchivadas();
+            toast.success(`${n} tareas eliminadas`);
+        } catch (e) {
+            toast.error(mensajeError(e));
+        }
+    };
+
     const reload = async () => {
         try {
             const [t, p] = await Promise.all([
@@ -335,6 +391,8 @@ function TareasContent() {
         );
     }
 
+    const completadasEnTablero = tareas.filter((t) => t.estado === "completada").length;
+
     // Filter logic
     let filteredTareas = tareas;
     if (searchQuery.trim()) {
@@ -362,7 +420,31 @@ function TareasContent() {
                     <p className="text-sm text-muted-foreground">{filteredTareas.length} tareas activas</p>
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                        onClick={handleLimpiarCompletadas}
+                        disabled={limpiando || completadasEnTablero === 0}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 text-xs font-bold hover:bg-emerald-500/20 transition-all disabled:opacity-40 disabled:cursor-not-allowed"
+                        title="Archiva las completadas: salen del tablero y quedan en el historial"
+                    >
+                        <Archive className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Limpiar completadas</span>
+                        <span className="sm:hidden">Limpiar</span>
+                        {completadasEnTablero > 0 && (
+                            <span className="px-1.5 py-0.5 rounded-full bg-emerald-500/25 text-[10px] tabular-nums">
+                                {completadasEnTablero}
+                            </span>
+                        )}
+                    </button>
+
+                    <button
+                        onClick={() => { setShowHistorial(true); cargarArchivadas(); }}
+                        className="flex items-center gap-1.5 px-3 py-2 rounded-xl border border-border bg-secondary/60 text-muted-foreground hover:text-foreground text-xs font-bold transition-all"
+                    >
+                        <History className="w-3.5 h-3.5" />
+                        <span className="hidden sm:inline">Historial</span>
+                    </button>
+
                     {/* View Switcher */}
                     <div className="flex items-center gap-1 bg-card border border-border rounded-xl p-1 shadow-sm">
                         <button
@@ -564,6 +646,155 @@ function TareasContent() {
                     onUpdated={reload}
                 />
             )}
+
+            {showHistorial && (
+                <HistorialModal
+                    archivadas={archivadas}
+                    proyectos={proyectos}
+                    onRestaurar={handleRestaurar}
+                    onVaciar={handleVaciarHistorial}
+                    onClose={() => setShowHistorial(false)}
+                />
+            )}
+        </div>
+    );
+}
+
+// ── Historial de tareas archivadas ────────────────────────────────────────────
+function HistorialModal({
+    archivadas,
+    proyectos,
+    onRestaurar,
+    onVaciar,
+    onClose,
+}: {
+    archivadas: Tarea[];
+    proyectos: Proyecto[];
+    onRestaurar: (t: Tarea) => void;
+    onVaciar: () => void;
+    onClose: () => void;
+}) {
+    const [q, setQ] = useState("");
+
+    const filtradas = archivadas.filter((t) =>
+        !q.trim() || t.titulo.toLowerCase().includes(q.toLowerCase())
+    );
+
+    // Agrupa por mes para que el historial se lea como una bitácora.
+    const grupos = filtradas.reduce<Record<string, Tarea[]>>((acc, t) => {
+        const ref = t.fecha_completada || t.fecha_archivada || t.created_at;
+        const clave = new Intl.DateTimeFormat("es-AR", { month: "long", year: "numeric" }).format(new Date(ref));
+        (acc[clave] ||= []).push(t);
+        return acc;
+    }, {});
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center bg-black/75 backdrop-blur-md p-2 sm:p-4 overflow-y-auto">
+            <div className="w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl sm:rounded-3xl border border-border bg-card shadow-2xl animate-fade-in my-2">
+                <div className="flex items-center justify-between gap-3 p-4 sm:p-5 border-b border-border">
+                    <div className="min-w-0">
+                        <h3 className="text-base sm:text-lg font-bold text-foreground flex items-center gap-2">
+                            <History className="w-5 h-5 text-primary shrink-0" />
+                            Historial de tareas
+                        </h3>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            {archivadas.length} tarea{archivadas.length !== 1 ? "s" : ""} archivada{archivadas.length !== 1 ? "s" : ""}
+                        </p>
+                    </div>
+                    <button onClick={onClose} className="p-2 rounded-lg text-muted-foreground hover:bg-secondary shrink-0">
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+
+                {archivadas.length > 0 && (
+                    <div className="p-4 sm:p-5 pb-3 border-b border-border">
+                        <div className="relative">
+                            <Search className="w-4 h-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
+                            <input
+                                value={q}
+                                onChange={(e) => setQ(e.target.value)}
+                                placeholder="Buscar en el historial..."
+                                className="w-full h-10 pl-9 pr-3 rounded-xl bg-secondary border border-border text-xs text-foreground focus:ring-2 focus:ring-primary/50 outline-none"
+                            />
+                        </div>
+                    </div>
+                )}
+
+                <div className="flex-1 overflow-y-auto custom-scrollbar p-4 sm:p-5 space-y-5">
+                    {archivadas.length === 0 && (
+                        <div className="py-14 text-center">
+                            <Inbox className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
+                            <p className="text-sm font-bold text-foreground">El historial está vacío</p>
+                            <p className="text-xs text-muted-foreground mt-1 max-w-sm mx-auto">
+                                Usá &quot;Limpiar completadas&quot; en el tablero para mandar acá lo que ya terminaste.
+                            </p>
+                        </div>
+                    )}
+
+                    {Object.entries(grupos).map(([mes, items]) => (
+                        <div key={mes} className="space-y-2">
+                            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide sticky top-0 bg-card py-1">
+                                {mes} · {items.length}
+                            </p>
+                            {items.map((t) => {
+                                const proyecto = proyectos.find((p) => p.id === t.proyecto_id);
+                                const ref = t.fecha_completada || t.fecha_archivada;
+                                return (
+                                    <div
+                                        key={t.id}
+                                        className="flex items-start gap-3 p-3 rounded-xl border border-border bg-background/40 group"
+                                    >
+                                        <CheckCircle2 className="w-4 h-4 text-emerald-400/70 shrink-0 mt-0.5" />
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-xs font-semibold text-muted-foreground line-through decoration-muted-foreground/40 truncate">
+                                                {t.titulo}
+                                            </p>
+                                            <div className="flex items-center gap-2 mt-1 flex-wrap">
+                                                {ref && (
+                                                    <span className="text-[10px] text-muted-foreground/70">{formatDate(ref)}</span>
+                                                )}
+                                                {proyecto && (
+                                                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-secondary text-muted-foreground truncate max-w-[140px]">
+                                                        {proyecto.nombre}
+                                                    </span>
+                                                )}
+                                                <span className={cn("text-[10px] px-1.5 py-0.5 rounded border", CATEGORIA_BADGE[t.categoria || "otro"])}>
+                                                    {CATEGORIA_LABELS[t.categoria || "otro"]}
+                                                </span>
+                                            </div>
+                                        </div>
+                                        <button
+                                            onClick={() => onRestaurar(t)}
+                                            className="p-2 rounded-lg text-muted-foreground hover:text-primary hover:bg-primary/10 transition-all shrink-0"
+                                            title="Devolver al tablero como pendiente"
+                                        >
+                                            <RotateCcw className="w-3.5 h-3.5" />
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    ))}
+                </div>
+
+                {archivadas.length > 0 && (
+                    <div className="p-4 sm:p-5 border-t border-border flex items-center justify-between gap-3">
+                        <button
+                            onClick={onVaciar}
+                            className="flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-semibold text-rose-400 hover:bg-rose-500/10 transition-all"
+                        >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            Vaciar historial
+                        </button>
+                        <button
+                            onClick={onClose}
+                            className="px-4 py-2 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground"
+                        >
+                            Cerrar
+                        </button>
+                    </div>
+                )}
+            </div>
         </div>
     );
 }
