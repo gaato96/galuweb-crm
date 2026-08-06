@@ -9,27 +9,52 @@
 -- Este script deja las tablas accesibles SOLO para el rol `service_role`
 -- (la clave secreta del servidor) y sin acceso para `anon`.
 --
--- ⚠️ IMPORTANTE — LEER ANTES DE EJECUTAR:
--- Al correrlo, la app deja de leer datos hasta que muevas las llamadas a
--- Supabase al servidor con SUPABASE_SERVICE_ROLE_KEY. Si hoy necesitás el
--- CRM funcionando ya, ejecutá primero SOLO el bloque 1 (tablas del portal
--- público) y dejá el bloque 2 para cuando hagas la migración al servidor.
+-- 🛑 NO EJECUTAR TODAVÍA — NINGÚN BLOQUE.
+--
+-- Una versión anterior de este archivo decía que el bloque 1 se podía aplicar
+-- de inmediato "porque ninguna pantalla pública usa esas tablas". Estaba mal:
+-- Finanzas, Cotizaciones e Infraestructura son pantallas privadas, pero leen
+-- Supabase DESDE EL NAVEGADOR con la anon key. Al revocarla, dejan de andar.
+--
+-- REGLA: activar RLS en una tabla exige, PRIMERO, que sus lecturas pasen por
+-- el servidor (ver "Requisito previo" abajo). No hay atajo tabla por tabla.
+--
+-- Si ya ejecutaste el bloque 1, corré: 20260806_rollback_bloque1.sql
+--
+-- ─────────────────────────────────────────────────────────────
+-- REQUISITO PREVIO — la "migración al servidor"
+-- ─────────────────────────────────────────────────────────────
+-- Hoy `src/lib/store.ts` corre en el navegador y habla directo con Supabase
+-- usando NEXT_PUBLIC_SUPABASE_ANON_KEY. Esa clave está dentro del JavaScript
+-- que se descarga el visitante: es pública por diseño. Con RLS apagada, esa
+-- clave puede leer y borrar todo.
+--
+-- Activar RLS bloquea a `anon`... y por lo tanto bloquea a la propia app,
+-- porque la app ES `anon`.
+--
+-- La migración consiste en:
+--   1. Crear SUPABASE_SERVICE_ROLE_KEY como variable de entorno (SIN el
+--      prefijo NEXT_PUBLIC_, para que nunca llegue al navegador).
+--   2. Mover las consultas de store.ts a rutas de API en el servidor, que ya
+--      están protegidas por el login del middleware.
+--   3. Que el navegador llame a esas rutas en vez de a Supabase.
+--   4. Recién ahí, activar RLS con este archivo.
+--
+-- El portal del cliente y los briefs también tienen que leer desde el
+-- servidor filtrando por slug, porque los abre gente sin login.
 -- ============================================================
 
 -- ─────────────────────────────────────────────────────────────
--- BLOQUE 1 — Tablas sensibles que NUNCA debe ver el navegador.
--- Ninguna pantalla pública las usa, así que esto se puede aplicar ya.
+-- BLOQUE 1 — Tablas más sensibles.
 -- ─────────────────────────────────────────────────────────────
 
-ALTER TABLE finanzas        ENABLE ROW LEVEL SECURITY;
-ALTER TABLE cotizaciones    ENABLE ROW LEVEL SECURITY;
-ALTER TABLE infraestructura ENABLE ROW LEVEL SECURITY;
-
-REVOKE ALL ON finanzas, cotizaciones, infraestructura FROM anon;
+-- ALTER TABLE finanzas        ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE cotizaciones    ENABLE ROW LEVEL SECURITY;
+-- ALTER TABLE infraestructura ENABLE ROW LEVEL SECURITY;
+-- REVOKE ALL ON finanzas, cotizaciones, infraestructura FROM anon;
 
 -- ─────────────────────────────────────────────────────────────
 -- BLOQUE 2 — El resto del CRM.
--- Ejecutar recién cuando las lecturas pasen por el servidor.
 -- ─────────────────────────────────────────────────────────────
 
 -- ALTER TABLE clientes          ENABLE ROW LEVEL SECURITY;
@@ -44,13 +69,6 @@ REVOKE ALL ON finanzas, cotizaciones, infraestructura FROM anon;
 -- ALTER TABLE prospectos        ENABLE ROW LEVEL SECURITY;
 -- REVOKE ALL ON clientes, proyectos, tareas, briefs, recursos, tickets,
 --               ideas, logs_proyecto, scraper_busquedas, prospectos FROM anon;
-
--- ─────────────────────────────────────────────────────────────
--- Nota sobre el portal del cliente (/portal/[slug]) y /briefs:
--- son las únicas pantallas que un tercero tiene que poder abrir. Cuando
--- actives el bloque 2, esas dos páginas tienen que leer desde el servidor
--- con service_role, filtrando por slug — no desde el navegador.
--- ─────────────────────────────────────────────────────────────
 
 -- Recordatorio aparte: `proyectos.accesos` guarda usuarios y contraseñas de
 -- clientes en texto plano. Aunque cierres la base, conviene sacarlos de ahí
