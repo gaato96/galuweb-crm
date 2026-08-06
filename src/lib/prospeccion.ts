@@ -13,6 +13,7 @@ import type {
     ClasificacionWeb,
     EstadoProspecto,
     FallaVerificable,
+    Sistema,
 } from "./types";
 import { ESCANEO_VACIO, FALLA_LABELS } from "./types";
 
@@ -260,7 +261,7 @@ export function alertasDescarte(p: Prospecto): AlertaDescarte[] {
 // §5 — La escalera de mensajes
 // ─────────────────────────────────────────────────────────────
 
-export type PasoMensaje = "m1" | "m2" | "m3" | "fu1" | "fu2" | "ruteo";
+export type PasoMensaje = "m1" | "m2" | "m3" | "fu1" | "fu2" | "fu3" | "ruteo";
 
 export const PASO_MENSAJE_LABELS: Record<PasoMensaje, string> = {
     m1: "Mensaje 1 — Permiso",
@@ -268,6 +269,7 @@ export const PASO_MENSAJE_LABELS: Record<PasoMensaje, string> = {
     m3: "Mensaje 3 — Caso y oferta",
     fu1: "Follow-up 1 (3-4 días)",
     fu2: "Follow-up 2 (7-10 días)",
+    fu3: "Follow-up 3", // Galu no llega acá (doc 08 no tiene mensaje 4); existe para que el calendario de VivoMenu comparta el mismo tipo.
     ruteo: "Línea de ruteo al decisor",
 };
 
@@ -421,16 +423,30 @@ const ESTADOS_CERRADOS: EstadoProspecto[] = [
     "respondio", "revision_enviada", "reunion", "cliente", "descartado", "sin_respuesta",
 ];
 
+/**
+ * Doc 08 (Galu) define solo dos toques: día 3-4 y día 7-10.
+ * VivoMenu §5 Rama C define tres: día 3, día 7 y día 14 — sin mensaje 4 en ninguno.
+ */
+const CADENCIA_FOLLOWUP: Record<Sistema, { fu1: number; fu2: number; fu3?: number }> = {
+    galu: { fu1: 3, fu2: 7 },
+    vivomenu: { fu1: 3, fu2: 7, fu3: 14 },
+};
+
 export function proximaAccion(p: Prospecto, hoy: Date = new Date()): AccionSeguimiento {
     if (ESTADOS_CERRADOS.includes(p.estado)) return null;
+    const cadencia = CADENCIA_FOLLOWUP[p.sistema] || CADENCIA_FOLLOWUP.galu;
 
     if (p.estado === "enviado" && p.fecha_envio) {
         const dias = diasDesde(p.fecha_envio, hoy);
-        return { paso: "fu1", vencido: dias >= 3, dias };
+        return { paso: "fu1", vencido: dias >= cadencia.fu1, dias };
     }
     if (p.estado === "fu1" && p.fecha_fu1) {
         const dias = diasDesde(p.fecha_fu1, hoy);
-        return { paso: "fu2", vencido: dias >= 7, dias };
+        return { paso: "fu2", vencido: dias >= cadencia.fu2, dias };
+    }
+    if (p.estado === "fu2" && p.fecha_fu2 && cadencia.fu3) {
+        const dias = diasDesde(p.fecha_fu2, hoy);
+        return { paso: "fu3", vencido: dias >= cadencia.fu3, dias };
     }
     return null;
 }
@@ -658,8 +674,9 @@ export function telefonoAWhatsapp(raw: string): string {
     return "549" + d;
 }
 
-export function prospectoVacio(): Omit<Prospecto, "id" | "created_at"> {
+export function prospectoVacio(sistema: Sistema = "galu"): Omit<Prospecto, "id" | "created_at"> {
     return {
+        sistema,
         negocio: "",
         contacto_nombre: "",
         rubro: "",
@@ -689,6 +706,7 @@ export function prospectoVacio(): Omit<Prospecto, "id" | "created_at"> {
         fecha_envio: null,
         fecha_fu1: null,
         fecha_fu2: null,
+        fecha_fu3: null,
         fecha_respuesta: null,
         quien_leyo: null,
         revision_url: "",

@@ -499,8 +499,21 @@ export type DemandaBusqueda = "sin_definir" | "alta" | "baja";
 /** §3.2 punto 4 — el canal lo define si el WhatsApp está publicado por el negocio. */
 export type CanalProspecto = "instagram" | "whatsapp";
 
-/** §11 punto 3 — dice si el rubro se traba en el filtro de la secretaria. */
+/**
+ * §11 punto 3 — dice si el rubro se traba en el filtro de la secretaria.
+ * El mismo campo sirve para VivoMenu ("¿contestó el dueño o el empleado?"):
+ * "secretaria" ahí se lee como "intermediario que no decide", que es el mismo
+ * concepto que el empleado que atiende el WhatsApp de pedidos.
+ */
 export type QuienLeyo = "dueno" | "secretaria" | "no_se";
+
+/** A qué sistema de prospección pertenece: cambia el guion de mensajes y el ritmo de envío. */
+export type Sistema = "galu" | "vivomenu";
+
+export const SISTEMA_LABELS: Record<Sistema, string> = {
+    galu: "Galu — Agencia web",
+    vivomenu: "VivoMenu — Menú digital",
+};
 
 export type OrigenProspecto = "manual" | "sheets" | "scraper";
 
@@ -510,9 +523,10 @@ export type EstadoProspecto =
     | "calificado"        // pasó §3.1 y §3.2, tiene dato de personalización
     | "descartado"        // §3.1 descarte rápido
     | "enviado"           // mensaje 1 enviado
-    | "fu1"               // follow-up 1 enviado (3-4 días)
-    | "fu2"               // follow-up 2 enviado (7-10 días)
-    | "sin_respuesta"     // cerrado tras FU2 — no hay mensaje 4
+    | "fu1"               // follow-up 1 enviado (día 3-4)
+    | "fu2"               // follow-up 2 enviado (día 7-10)
+    | "fu3"               // follow-up 3 — solo VivoMenu (día 14)
+    | "sin_respuesta"     // cerrado tras el último follow-up
     | "respondio"         // dijo "sí" o contestó
     | "revision_enviada"  // §6 — se entregó la revisión de una página
     | "reunion"           // aceptó el diagnóstico de 30 min
@@ -542,6 +556,7 @@ export interface Prospecto {
     created_at: string;
     updated_at?: string;
 
+    sistema: Sistema;
     negocio: string;
     contacto_nombre: string;
     rubro: string;
@@ -574,6 +589,7 @@ export interface Prospecto {
     fecha_envio: string | null;
     fecha_fu1: string | null;
     fecha_fu2: string | null;
+    fecha_fu3: string | null;
     fecha_respuesta: string | null;
     quien_leyo: QuienLeyo | null;
     revision_url: string;
@@ -599,6 +615,7 @@ export const ESTADO_PROSPECTO_LABELS: Record<EstadoProspecto, string> = {
     enviado: "Mensaje 1 enviado",
     fu1: "Follow-up 1",
     fu2: "Follow-up 2",
+    fu3: "Follow-up 3",
     sin_respuesta: "Sin respuesta",
     respondio: "Respondió",
     revision_enviada: "Revisión enviada",
@@ -613,6 +630,7 @@ export const ESTADO_PROSPECTO_COLORS: Record<EstadoProspecto, string> = {
     enviado: "bg-amber-500/20 text-amber-300 border-amber-500/30",
     fu1: "bg-orange-500/20 text-orange-300 border-orange-500/30",
     fu2: "bg-orange-500/20 text-orange-200 border-orange-500/30",
+    fu3: "bg-orange-500/20 text-orange-100 border-orange-500/30",
     sin_respuesta: "bg-gray-500/20 text-gray-400 border-gray-500/30",
     respondio: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
     revision_enviada: "bg-blue-500/20 text-blue-300 border-blue-500/30",

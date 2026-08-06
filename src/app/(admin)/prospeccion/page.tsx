@@ -4,14 +4,14 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
     ClipboardList, Plus, Upload, Download, RefreshCw, Search, Target,
     Table2, Columns3, BarChart3, Loader2, ExternalLink, Instagram, Phone,
-    AlertTriangle, CheckCircle2, Clock, Stethoscope,
+    AlertTriangle, CheckCircle2, Clock, Stethoscope, UtensilsCrossed, Globe,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import type { Prospecto, EstadoProspecto, ClasificacionWeb, ScraperBusqueda } from "@/lib/types";
+import type { Prospecto, EstadoProspecto, ClasificacionWeb, ScraperBusqueda, Sistema } from "@/lib/types";
 import {
     ESTADO_PROSPECTO_LABELS, ESTADO_PROSPECTO_COLORS, CLASIFICACION_WEB_LABELS,
-    QUIEN_LEYO_LABELS,
+    QUIEN_LEYO_LABELS, SISTEMA_LABELS,
 } from "@/lib/types";
 import { prospectosStore, scraperStore, mensajeError, type ResultadoImportacion } from "@/lib/store";
 import {
@@ -21,6 +21,7 @@ import {
     NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS,
     type CorteMetrica,
 } from "@/lib/prospeccion";
+import { calcularRampaVivoMenu, avisoDiaVivoMenu } from "@/lib/vivomenu-mensajes";
 import ProspectoModal from "./prospecto-modal";
 import ImportarPanel from "./importar-panel";
 
@@ -33,12 +34,14 @@ const VISTAS: { id: Vista; label: string; icon: typeof Target }[] = [
     { id: "metricas", label: "Métricas", icon: BarChart3 },
 ];
 
+const SISTEMA_ICONS: Record<Sistema, typeof Globe> = { galu: Globe, vivomenu: UtensilsCrossed };
+
 const COLUMNAS_EMBUDO: EstadoProspecto[] = [
-    "sin_calificar", "calificado", "enviado", "fu1", "fu2", "respondio", "revision_enviada", "reunion", "cliente",
+    "sin_calificar", "calificado", "enviado", "fu1", "fu2", "fu3", "respondio", "revision_enviada", "reunion", "cliente",
 ];
 
-/** Objetivo diario del sistema: 10 mensajes por bloque de trabajo. */
-const OBJETIVO_DIARIO = 10;
+/** Objetivo diario de Galu: 10 mensajes por bloque de trabajo (doc 08). */
+const OBJETIVO_DIARIO_GALU = 10;
 
 export default function ProspeccionPage() {
     const [prospectos, setProspectos] = useState<Prospecto[]>([]);
@@ -46,6 +49,7 @@ export default function ProspeccionPage() {
     const [cargando, setCargando] = useState(true);
     const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
+    const [sistemaActivo, setSistemaActivo] = useState<Sistema>("galu");
     const [vista, setVista] = useState<Vista>("cola");
     const [busqueda, setBusqueda] = useState("");
     const [filtroRubro, setFiltroRubro] = useState("");
@@ -78,14 +82,29 @@ export default function ProspeccionPage() {
     }, [cargar]);
 
     // ─── Derivados ───
+
+    // Cada sistema tiene su propia cola de trabajo, ritmo y métricas — pero
+    // conviven en la misma tabla para reusar scraping, escalera de datos y score.
+    const prospectosDelSistema = useMemo(
+        () => prospectos.filter((p) => p.sistema === sistemaActivo),
+        [prospectos, sistemaActivo]
+    );
+
+    const rampaVivoMenu = useMemo(
+        () => (sistemaActivo === "vivomenu" ? calcularRampaVivoMenu(prospectosDelSistema) : null),
+        [sistemaActivo, prospectosDelSistema]
+    );
+    const objetivoDiario = rampaVivoMenu?.porDia ?? OBJETIVO_DIARIO_GALU;
+    const avisoDia = sistemaActivo === "vivomenu" ? avisoDiaVivoMenu() : null;
+
     const rubros = useMemo(
-        () => Array.from(new Set(prospectos.map((p) => p.rubro).filter(Boolean))).sort(),
-        [prospectos]
+        () => Array.from(new Set(prospectosDelSistema.map((p) => p.rubro).filter(Boolean))).sort(),
+        [prospectosDelSistema]
     );
 
     const filtrados = useMemo(() => {
         const q = normalizar(busqueda);
-        return prospectos.filter((p) => {
+        return prospectosDelSistema.filter((p) => {
             if (q && ![p.negocio, p.rubro, p.especialidad, p.ciudad, p.dato_usado, p.telefono].some(
                 (v) => v && normalizar(v).includes(q)
             )) return false;
@@ -98,7 +117,7 @@ export default function ProspeccionPage() {
             }
             return true;
         });
-    }, [prospectos, busqueda, filtroRubro, filtroEstado, filtroSegmento, filtroNivel]);
+    }, [prospectosDelSistema, busqueda, filtroRubro, filtroEstado, filtroSegmento, filtroNivel]);
 
     /**
      * Orden de trabajo de §8: primero el segmento, después el score.
@@ -115,20 +134,20 @@ export default function ProspeccionPage() {
             });
     }, [filtrados]);
 
-    /** Follow-ups que tocan hoy, según los plazos de 3-4 y 7-10 días. */
+    /** Follow-ups que tocan hoy, según la cadencia del sistema activo. */
     const followUpsPendientes = useMemo(
         () =>
-            prospectos
+            prospectosDelSistema
                 .map((p) => ({ p, accion: proximaAccion(p) }))
                 .filter((x) => x.accion?.vencido)
                 .sort((a, b) => (b.accion?.dias ?? 0) - (a.accion?.dias ?? 0)),
-        [prospectos]
+        [prospectosDelSistema]
     );
 
-    const enviadosHoy = prospectos.filter((p) => p.fecha_envio === hoyISO()).length;
-    const enviadosSemana = prospectos.filter((p) => p.fecha_envio && diasDesde(p.fecha_envio) < 7).length;
-    const totalEnviados = prospectos.filter(fueEnviado).length;
-    const totalRespondio = prospectos.filter(respondio).length;
+    const enviadosHoy = prospectosDelSistema.filter((p) => p.fecha_envio === hoyISO()).length;
+    const enviadosSemana = prospectosDelSistema.filter((p) => p.fecha_envio && diasDesde(p.fecha_envio) < 7).length;
+    const totalEnviados = prospectosDelSistema.filter(fueEnviado).length;
+    const totalRespondio = prospectosDelSistema.filter(respondio).length;
     const tasaGlobal = totalEnviados ? totalRespondio / totalEnviados : 0;
 
     // ─── Acciones ───
@@ -142,7 +161,7 @@ export default function ProspeccionPage() {
     const crearNuevo = async () => {
         try {
             const creado = await prospectosStore.create(
-                { ...prospectoVacio(), negocio: "Nuevo prospecto" },
+                { ...prospectoVacio(sistemaActivo), negocio: "Nuevo prospecto" },
                 prospectos
             );
             setProspectos((prev) => [creado, ...prev]);
@@ -201,14 +220,14 @@ export default function ProspeccionPage() {
         }
     };
 
-    const importarScraper = async (b: ScraperBusqueda) => {
+    const importarScraper = async (b: ScraperBusqueda, sistema: Sistema) => {
         const lista = Array.isArray(b.prospectos) ? b.prospectos : [];
         if (lista.length === 0) {
             toast.error("Esa búsqueda del Scraper no tiene prospectos guardados. Volvé a correrla desde el Scraper.");
             return;
         }
         try {
-            const r = await prospectosStore.importarDesdeScraper(lista, prospectos);
+            const r = await prospectosStore.importarDesdeScraper(lista, prospectos, sistema);
             await cargar();
             setMostrarImportar(false);
             reportarImportacion(r, "traídos del Scraper");
@@ -307,14 +326,55 @@ export default function ProspeccionPage() {
                 </div>
             </div>
 
+            {/* Sistema de prospección — Galu y VivoMenu comparten planilla, no guion de mensajes */}
+            <div className="flex gap-1.5">
+                {(Object.keys(SISTEMA_LABELS) as Sistema[]).map((s) => {
+                    const Icon = SISTEMA_ICONS[s];
+                    const cant = prospectos.filter((p) => p.sistema === s).length;
+                    return (
+                        <button
+                            key={s}
+                            onClick={() => setSistemaActivo(s)}
+                            className={cn(
+                                "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all",
+                                sistemaActivo === s
+                                    ? "bg-primary text-primary-foreground border-primary shadow-md"
+                                    : "bg-card border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+                            )}
+                        >
+                            <Icon className="w-4 h-4" />
+                            {SISTEMA_LABELS[s]}
+                            <span className={cn("px-1.5 py-0.5 rounded-full text-[10px] tabular-nums", sistemaActivo === s ? "bg-black/20" : "bg-secondary")}>
+                                {cant}
+                            </span>
+                        </button>
+                    );
+                })}
+            </div>
+
+            {/* Aviso operativo de VivoMenu: rampa de volumen + días sin envío (§7) */}
+            {sistemaActivo === "vivomenu" && rampaVivoMenu && (
+                <div className="rounded-2xl border border-cyan-500/25 bg-cyan-500/[0.06] p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+                    <UtensilsCrossed className="w-4 h-4 text-cyan-300 shrink-0" />
+                    <p className="text-xs sm:text-sm text-cyan-100 flex-1">
+                        <span className="font-bold">Semana {rampaVivoMenu.semana}</span> del sistema VivoMenu — objetivo{" "}
+                        <span className="font-bold">{rampaVivoMenu.porDia}/día · {rampaVivoMenu.porSemana}/semana</span>
+                        {rampaVivoMenu.esTecho && " (techo)"}. Calentando el número para no activar el bloqueo de WhatsApp.
+                    </p>
+                    {avisoDia && (
+                        <p className="text-xs text-amber-300 font-semibold sm:max-w-xs">{avisoDia}</p>
+                    )}
+                </div>
+            )}
+
             {/* KPIs */}
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
-                <Kpi label="En la planilla" valor={prospectos.length} detalle={`${cola.length} sin contactar`} />
+                <Kpi label="En la planilla" valor={prospectosDelSistema.length} detalle={`${cola.length} sin contactar`} />
                 <Kpi
                     label="Enviados hoy"
                     valor={enviadosHoy}
-                    detalle={`objetivo ${OBJETIVO_DIARIO}`}
-                    tono={enviadosHoy >= OBJETIVO_DIARIO ? "ok" : enviadosHoy > 0 ? "medio" : "neutro"}
+                    detalle={`objetivo ${objetivoDiario}`}
+                    tono={enviadosHoy >= objetivoDiario ? "ok" : enviadosHoy > 0 ? "medio" : "neutro"}
                 />
                 <Kpi label="Últimos 7 días" valor={enviadosSemana} detalle="mensajes 1 enviados" />
                 <Kpi
@@ -439,10 +499,10 @@ export default function ProspeccionPage() {
 
             {!cargando && !errorCarga && (
                 <>
-                    {vista === "cola" && <VistaCola cola={cola} onAbrir={setSeleccionado} />}
+                    {vista === "cola" && <VistaCola cola={cola} onAbrir={setSeleccionado} objetivoDiario={objetivoDiario} />}
                     {vista === "planilla" && <VistaPlanilla prospectos={filtrados} onAbrir={setSeleccionado} onCambiarEstado={(id, estado) => guardar(id, { estado })} />}
                     {vista === "embudo" && <VistaEmbudo prospectos={filtrados} onAbrir={setSeleccionado} />}
-                    {vista === "metricas" && <VistaMetricas prospectos={prospectos} />}
+                    {vista === "metricas" && <VistaMetricas prospectos={prospectosDelSistema} />}
                 </>
             )}
 
@@ -460,6 +520,7 @@ export default function ProspeccionPage() {
             {mostrarImportar && (
                 <ImportarPanel
                     busquedasScraper={busquedas}
+                    sistemaInicial={sistemaActivo}
                     onImportarFilas={importarFilas}
                     onImportarScraper={importarScraper}
                     onCerrar={() => setMostrarImportar(false)}
@@ -473,7 +534,9 @@ export default function ProspeccionPage() {
 // Vista: Cola del día
 // ═══════════════════════════════════════════════════════════
 
-function VistaCola({ cola, onAbrir }: { cola: Prospecto[]; onAbrir: (p: Prospecto) => void }) {
+function VistaCola({
+    cola, onAbrir, objetivoDiario,
+}: { cola: Prospecto[]; onAbrir: (p: Prospecto) => void; objetivoDiario: number }) {
     if (cola.length === 0) {
         return (
             <Vacio
@@ -483,14 +546,14 @@ function VistaCola({ cola, onAbrir }: { cola: Prospecto[]; onAbrir: (p: Prospect
         );
     }
 
-    const bloque = cola.slice(0, OBJETIVO_DIARIO);
-    const resto = cola.slice(OBJETIVO_DIARIO);
+    const bloque = cola.slice(0, objetivoDiario);
+    const resto = cola.slice(objetivoDiario);
 
     return (
         <div className="space-y-5">
             <div>
                 <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">
-                    El bloque de hoy — los {Math.min(OBJETIVO_DIARIO, bloque.length)} de arriba
+                    El bloque de hoy — los {Math.min(objetivoDiario, bloque.length)} de arriba
                 </p>
                 <div className="grid gap-2">
                     {bloque.map((p, i) => <FilaCola key={p.id} p={p} indice={i + 1} onAbrir={onAbrir} destacado />)}
@@ -503,7 +566,7 @@ function VistaCola({ cola, onAbrir }: { cola: Prospecto[]; onAbrir: (p: Prospect
                         Siguientes en la fila ({resto.length})
                     </p>
                     <div className="grid gap-2">
-                        {resto.slice(0, 40).map((p, i) => <FilaCola key={p.id} p={p} indice={OBJETIVO_DIARIO + i + 1} onAbrir={onAbrir} />)}
+                        {resto.slice(0, 40).map((p, i) => <FilaCola key={p.id} p={p} indice={objetivoDiario + i + 1} onAbrir={onAbrir} />)}
                     </div>
                     {resto.length > 40 && (
                         <p className="text-xs text-muted-foreground text-center mt-3">

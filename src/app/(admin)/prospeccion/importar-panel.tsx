@@ -4,8 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { X, Table2, Compass, Loader2, ArrowRight, AlertTriangle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import type { Prospecto, ScraperBusqueda } from "@/lib/types";
-import { ESCANEO_VACIO } from "@/lib/types";
+import type { Prospecto, ScraperBusqueda, Sistema } from "@/lib/types";
+import { ESCANEO_VACIO, SISTEMA_LABELS } from "@/lib/types";
 import {
     parsearPegado, mapearColumnas, clasificarWebDesdeUrl, telefonoAWhatsapp,
     CAMPOS_IMPORTABLES, type CampoImportable, type FilaParseada,
@@ -13,17 +13,19 @@ import {
 
 interface Props {
     busquedasScraper: ScraperBusqueda[];
+    sistemaInicial?: Sistema;
     onImportarFilas: (items: Partial<Prospecto>[]) => Promise<void>;
-    onImportarScraper: (busqueda: ScraperBusqueda) => Promise<void>;
+    onImportarScraper: (busqueda: ScraperBusqueda, sistema: Sistema) => Promise<void>;
     onCerrar: () => void;
 }
 
 type Fuente = "sheets" | "scraper";
 
 export default function ImportarPanel({
-    busquedasScraper, onImportarFilas, onImportarScraper, onCerrar,
+    busquedasScraper, sistemaInicial = "galu", onImportarFilas, onImportarScraper, onCerrar,
 }: Props) {
     const [fuente, setFuente] = useState<Fuente>("sheets");
+    const [sistema, setSistema] = useState<Sistema>(sistemaInicial);
     const [texto, setTexto] = useState("");
     const [mapeo, setMapeo] = useState<(CampoImportable | "")[]>([]);
     const [rubroPorDefecto, setRubroPorDefecto] = useState("");
@@ -43,9 +45,9 @@ export default function ImportarPanel({
     const filasAImportar = useMemo(() => {
         if (!parseado) return [];
         return parseado.filas
-            .map((fila) => construirProspecto(fila, mapeo, rubroPorDefecto, ciudadPorDefecto))
+            .map((fila) => construirProspecto(fila, mapeo, rubroPorDefecto, ciudadPorDefecto, sistema))
             .filter((p) => p.negocio && p.negocio.trim().length > 0);
-    }, [parseado, mapeo, rubroPorDefecto, ciudadPorDefecto]);
+    }, [parseado, mapeo, rubroPorDefecto, ciudadPorDefecto, sistema]);
 
     const faltaNegocio = parseado != null && !mapeo.includes("negocio");
 
@@ -79,9 +81,29 @@ export default function ImportarPanel({
                     </button>
                 </div>
 
-                <div className="flex gap-2 px-5 pt-4">
-                    <BotonFuente activo={fuente === "sheets"} onClick={() => setFuente("sheets")} icon={Table2} label="Pegar desde Google Sheets" />
-                    <BotonFuente activo={fuente === "scraper"} onClick={() => setFuente("scraper")} icon={Compass} label={`Desde el Scraper (${busquedasScraper.length})`} />
+                <div className="px-5 pt-4 space-y-3">
+                    <div className="space-y-1">
+                        <label className="block text-[11px] font-bold text-muted-foreground uppercase">Sistema de prospección</label>
+                        <div className="flex gap-2">
+                            {(Object.keys(SISTEMA_LABELS) as Sistema[]).map((s) => (
+                                <button
+                                    key={s}
+                                    onClick={() => setSistema(s)}
+                                    className={cn(
+                                        "flex-1 sm:flex-none px-4 py-2 rounded-xl text-xs font-bold border transition-all",
+                                        sistema === s ? "bg-primary text-primary-foreground border-primary" : "bg-card border-border text-muted-foreground hover:text-foreground"
+                                    )}
+                                >
+                                    {SISTEMA_LABELS[s]}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+
+                    <div className="flex gap-2">
+                        <BotonFuente activo={fuente === "sheets"} onClick={() => setFuente("sheets")} icon={Table2} label="Pegar desde Google Sheets" />
+                        <BotonFuente activo={fuente === "scraper"} onClick={() => setFuente("scraper")} icon={Compass} label={`Desde el Scraper (${busquedasScraper.length})`} />
+                    </div>
                 </div>
 
                 <div className="p-5 space-y-4">
@@ -212,7 +234,7 @@ export default function ImportarPanel({
                                     <button
                                         onClick={async () => {
                                             setImportando(true);
-                                            try { await onImportarScraper(b); } finally { setImportando(false); }
+                                            try { await onImportarScraper(b, sistema); } finally { setImportando(false); }
                                         }}
                                         disabled={importando}
                                         className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary/15 hover:bg-primary/25 border border-primary/30 text-primary text-xs font-bold shrink-0 disabled:opacity-40"
@@ -236,7 +258,8 @@ function construirProspecto(
     fila: string[],
     mapeo: (CampoImportable | "")[],
     rubroDefecto: string,
-    ciudadDefecto: string
+    ciudadDefecto: string,
+    sistema: Sistema
 ): Partial<Prospecto> {
     const valores: Partial<Record<CampoImportable, string>> = {};
     mapeo.forEach((campo, i) => {
@@ -253,6 +276,7 @@ function construirProspecto(
     };
 
     return {
+        sistema,
         negocio: valores.negocio || "",
         rubro: valores.rubro || rubroDefecto,
         especialidad: valores.especialidad || "",

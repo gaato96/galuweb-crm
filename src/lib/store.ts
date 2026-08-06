@@ -7,7 +7,7 @@ import {
     EtapaCliente, Infraestructura, TicketSoporte, LogProyecto, Idea,
     ScraperBusqueda, ProspectoScraped, Prospecto
 } from "./types";
-import { ESCANEO_VACIO } from "./types";
+import { ESCANEO_VACIO, type Sistema } from "./types";
 import {
     normalizarEscaneo, calcularNivelDato, calcularScore, prospectoVacio,
     clasificarWebDesdeUrl, telefonoAWhatsapp, normalizar
@@ -956,11 +956,13 @@ export const prospectosStore = {
     /** Trae los prospectos de una búsqueda del Scraper a la planilla (sin duplicar). */
     importarDesdeScraper: async (
         scrapeados: ProspectoScraped[],
-        universo: Prospecto[] = []
+        universo: Prospecto[] = [],
+        sistema: Sistema = "galu"
     ): Promise<ResultadoImportacion> => {
         const items: Partial<Prospecto>[] = scrapeados.map((s) => {
             const webUrl = s.sitioWebUrl || s.redesSociales?.instagram || s.redesSociales?.facebook || "";
             return {
+                sistema,
                 negocio: s.nombre,
                 rubro: s.rubro,
                 ciudad: s.lugar,

@@ -12,7 +12,7 @@ import type {
 } from "@/lib/types";
 import {
     ESTADO_PROSPECTO_LABELS, ESTADO_PROSPECTO_COLORS, CLASIFICACION_WEB_LABELS,
-    FALLA_LABELS, QUIEN_LEYO_LABELS,
+    FALLA_LABELS, QUIEN_LEYO_LABELS, SISTEMA_LABELS,
 } from "@/lib/types";
 import {
     calcularNivelDato, calcularScore, normalizarEscaneo, sugerirDatoUsado,
@@ -20,8 +20,20 @@ import {
     NIVEL_DATO_LABELS, NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS,
     type PasoMensaje,
 } from "@/lib/prospeccion";
+import {
+    generarMensajeVivoMenu, PASO_VIVOMENU_LABELS, PASOS_SIN_FUENTE_TEXTUAL,
+    type PasoMensajeVivoMenu,
+} from "@/lib/vivomenu-mensajes";
 
 type Tab = "datos" | "escaneo" | "mensajes" | "seguimiento";
+type PasoUI = PasoMensaje | PasoMensajeVivoMenu;
+
+/** VivoMenu reusa el campo quien_leyo con otra etiqueta: "secretaria" = "empleado que atiende". */
+const QUIEN_LEYO_LABELS_VIVOMENU: Record<QuienLeyo, string> = {
+    dueno: "Dueño / decisor",
+    secretaria: "Empleado (toma pedidos)",
+    no_se: "No sé",
+};
 
 const TABS: { id: Tab; label: string; icon: typeof Building2 }[] = [
     { id: "datos", label: "Datos", icon: Building2 },
@@ -48,7 +60,8 @@ export default function ProspectoModal({
         escaneo: normalizarEscaneo(prospecto.escaneo),
     });
     const [guardando, setGuardando] = useState(false);
-    const [pasoMensaje, setPasoMensaje] = useState<PasoMensaje>("m1");
+    const esVivoMenu = draft.sistema === "vivomenu";
+    const [pasoMensaje, setPasoMensaje] = useState<PasoUI>(esVivoMenu ? "primer_contacto" : "m1");
     const [mensajeEditado, setMensajeEditado] = useState("");
     const [copiado, setCopiado] = useState(false);
     const [generandoIA, setGenerandoIA] = useState(false);
@@ -60,11 +73,22 @@ export default function ProspectoModal({
     const desglose = useMemo(() => calcularScore(draft, universo), [draft, universo]);
     const alertas = useMemo(() => alertasDescarte(draft), [draft]);
 
-    // El mensaje se regenera al cambiar de paso o al cambiar el escaneo, salvo que el usuario lo haya editado.
+    /** Un solo punto de generación: despacha al motor de Galu o al de VivoMenu según el sistema. */
+    const generar = (paso: PasoUI, p: Prospecto): string =>
+        p.sistema === "vivomenu"
+            ? generarMensajeVivoMenu(paso as PasoMensajeVivoMenu, p)
+            : generarMensaje(paso as PasoMensaje, p);
+
+    const labelDePaso = (paso: PasoUI): string =>
+        esVivoMenu ? PASO_VIVOMENU_LABELS[paso as PasoMensajeVivoMenu] : PASO_MENSAJE_LABELS[paso as PasoMensaje];
+
+    // El mensaje se regenera al abrir un prospecto nuevo, empezando por su paso 1.
     useEffect(() => {
-        setMensajeEditado(generarMensaje(pasoMensaje, draft));
+        const inicial: PasoUI = draft.sistema === "vivomenu" ? "primer_contacto" : "m1";
+        setPasoMensaje(inicial);
+        setMensajeEditado(generar(inicial, draft));
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [pasoMensaje, prospecto.id]);
+    }, [prospecto.id]);
 
     const guardar = async (extra: Partial<Prospecto> = {}) => {
         if (!draft.negocio.trim()) {
@@ -122,16 +146,21 @@ export default function ProspectoModal({
         }
         window.open(url.startsWith("http") ? url : `https://${url}`, "_blank", "noopener,noreferrer");
 
+        // Qué paso mueve qué estado — depende del sistema porque los pasos tienen nombres distintos.
+        const primerContacto = esVivoMenu ? "primer_contacto" : "m1";
+        const entregaOferta = esVivoMenu ? "interes_tibio" : "m2";
         const avance: Partial<Prospecto> =
-            pasoMensaje === "m1"
+            pasoMensaje === primerContacto
                 ? { estado: "enviado", fecha_envio: hoyISO(), mensaje_enviado: mensajeEditado }
                 : pasoMensaje === "fu1"
                   ? { estado: "fu1", fecha_fu1: hoyISO() }
                   : pasoMensaje === "fu2"
                     ? { estado: "fu2", fecha_fu2: hoyISO() }
-                    : pasoMensaje === "m2"
-                      ? { estado: "revision_enviada" }
-                      : {};
+                    : pasoMensaje === "fu3"
+                      ? { estado: "fu3", fecha_fu3: hoyISO() }
+                      : pasoMensaje === entregaOferta
+                        ? { estado: "revision_enviada" }
+                        : {};
 
         if (Object.keys(avance).length > 0) {
             setDraft((d) => ({ ...d, ...avance }));
@@ -145,7 +174,7 @@ export default function ProspectoModal({
             const res = await fetch("/api/gemini/mensaje-prospecto", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prospecto: draft, paso: pasoMensaje }),
+                body: JSON.stringify({ prospecto: draft, paso: pasoMensaje, sistema: draft.sistema }),
             });
             const json = await res.json();
             if (!res.ok) throw new Error(json.error || "Error al generar el mensaje");
@@ -173,6 +202,9 @@ export default function ProspectoModal({
                             className="w-full bg-transparent text-xl font-extrabold text-foreground focus:outline-none placeholder:text-muted-foreground/40"
                         />
                         <div className="flex items-center gap-2 mt-2 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-cyan-500/15 text-cyan-300 border border-cyan-500/30">
+                                {SISTEMA_LABELS[draft.sistema]}
+                            </span>
                             <span className={cn("px-2 py-0.5 rounded-full text-[11px] font-bold border", ESTADO_PROSPECTO_COLORS[draft.estado])}>
                                 {ESTADO_PROSPECTO_LABELS[draft.estado]}
                             </span>
@@ -472,10 +504,13 @@ export default function ProspectoModal({
                     {tab === "mensajes" && (
                         <div className="space-y-4">
                             <div className="flex gap-1.5 flex-wrap">
-                                {(Object.keys(PASO_MENSAJE_LABELS) as PasoMensaje[]).map((p) => (
+                                {(esVivoMenu
+                                    ? (Object.keys(PASO_VIVOMENU_LABELS) as PasoMensajeVivoMenu[])
+                                    : (Object.keys(PASO_MENSAJE_LABELS) as PasoMensaje[])
+                                ).map((p) => (
                                     <button
                                         key={p}
-                                        onClick={() => { setPasoMensaje(p); setMensajeEditado(generarMensaje(p, draft)); }}
+                                        onClick={() => { setPasoMensaje(p); setMensajeEditado(generar(p, draft)); }}
                                         className={cn(
                                             "px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all",
                                             pasoMensaje === p
@@ -483,16 +518,37 @@ export default function ProspectoModal({
                                                 : "bg-card border-border text-muted-foreground hover:text-foreground"
                                         )}
                                     >
-                                        {PASO_MENSAJE_LABELS[p]}
+                                        {labelDePaso(p)}
                                     </button>
                                 ))}
                             </div>
 
-                            {pasoMensaje === "m1" && (
+                            {!esVivoMenu && pasoMensaje === "m1" && (
                                 <p className="text-[11px] text-muted-foreground bg-secondary/40 border border-border rounded-lg p-3">
                                     {nivel && nivel <= 2
                                         ? "Nivel 1-2: va la versión completa (dato · consecuencia · permiso). Nunca el caso de éxito, el precio, un link ni un pedido de reunión."
                                         : "Nivel 3-4 o sin dato: va la versión corta, sin diagnóstico de la consecuencia. Un mensaje largo apoyado en un dato flojo se lee como plantilla."}
+                                </p>
+                            )}
+
+                            {esVivoMenu && pasoMensaje === "primer_contacto" && (
+                                <p className="text-[11px] text-muted-foreground bg-secondary/40 border border-border rounded-lg p-3">
+                                    Lo lee un empleado tomando pedidos, no el dueño. La primera línea tiene que sacarlo del &quot;modo pedido&quot;
+                                    antes que nada. El link va directo, sin pedir permiso — el permiso se pide recién en la pregunta final.
+                                </p>
+                            )}
+
+                            {esVivoMenu && pasoMensaje === "fu1" && (
+                                <p className="text-[11px] text-muted-foreground bg-secondary/40 border border-border rounded-lg p-3">
+                                    El chequeo de 3 puntos sale del Escaneo (fallas + queja de reseña). Si faltan hallazgos reales,
+                                    el mensaje te lo marca en vez de inventar observaciones — completá el Escaneo primero.
+                                </p>
+                            )}
+
+                            {esVivoMenu && PASOS_SIN_FUENTE_TEXTUAL.includes(pasoMensaje as PasoMensajeVivoMenu) && (
+                                <p className="text-[11px] text-amber-300 bg-amber-500/10 border border-amber-500/25 rounded-lg p-3">
+                                    Este texto no viene citado del documento de VivoMenu — lo escribí en el mismo tono como punto de partida.
+                                    Reemplazalo por el texto real de tu mensajes-en-frio.md cuando lo tengas a mano.
                                 </p>
                             )}
 
@@ -541,8 +597,8 @@ export default function ProspectoModal({
                                 )}>
                                     <p className={cn("text-xs font-bold", accion.vencido ? "text-amber-300" : "text-muted-foreground")}>
                                         {accion.vencido
-                                            ? `Toca ${PASO_MENSAJE_LABELS[accion.paso]} — pasaron ${accion.dias} días`
-                                            : `${PASO_MENSAJE_LABELS[accion.paso]} en ${(accion.paso === "fu1" ? 3 : 7) - accion.dias} días`}
+                                            ? `Toca ${labelDePaso(accion.paso)} — pasaron ${accion.dias} días`
+                                            : `${labelDePaso(accion.paso)} pronto (${accion.dias} días desde el último toque)`}
                                     </p>
                                 </div>
                             )}
@@ -563,11 +619,13 @@ export default function ProspectoModal({
                                     >
                                         <option value="">Sin definir</option>
                                         {(Object.keys(QUIEN_LEYO_LABELS) as QuienLeyo[]).map((q) => (
-                                            <option key={q} value={q}>{QUIEN_LEYO_LABELS[q]}</option>
+                                            <option key={q} value={q}>
+                                                {(esVivoMenu ? QUIEN_LEYO_LABELS_VIVOMENU : QUIEN_LEYO_LABELS)[q]}
+                                            </option>
                                         ))}
                                     </select>
                                 </Campo>
-                                <Campo label="Fecha de envío (M1)">
+                                <Campo label="Fecha de envío (primer contacto)">
                                     <input type="date" value={draft.fecha_envio ?? ""} onChange={(e) => set("fecha_envio", e.target.value || null)} className={inputCls} />
                                 </Campo>
                                 <Campo label="Fecha de respuesta">
@@ -579,11 +637,24 @@ export default function ProspectoModal({
                                 <Campo label="Fecha FU2">
                                     <input type="date" value={draft.fecha_fu2 ?? ""} onChange={(e) => set("fecha_fu2", e.target.value || null)} className={inputCls} />
                                 </Campo>
+                                {esVivoMenu && (
+                                    <Campo label="Fecha FU3 (día 14)">
+                                        <input type="date" value={draft.fecha_fu3 ?? ""} onChange={(e) => set("fecha_fu3", e.target.value || null)} className={inputCls} />
+                                    </Campo>
+                                )}
                             </div>
 
-                            <Campo label="URL de la revisión" hint="galuweb.com/revision/[negocio] — noindex, sin gate">
+                            <Campo
+                                label={esVivoMenu ? "Link del menú armado" : "URL de la revisión"}
+                                hint={esVivoMenu ? "El demo/menú que se manda en el primer contacto y se personaliza en 'interés tibio'" : "galuweb.com/revision/[negocio] — noindex, sin gate"}
+                            >
                                 <div className="flex gap-2">
-                                    <input value={draft.revision_url} onChange={(e) => set("revision_url", e.target.value)} className={inputCls} placeholder="https://galuweb.com/revision/..." />
+                                    <input
+                                        value={draft.revision_url}
+                                        onChange={(e) => set("revision_url", e.target.value)}
+                                        className={inputCls}
+                                        placeholder={esVivoMenu ? "https://vivomenu.com.ar/m/..." : "https://galuweb.com/revision/..."}
+                                    />
                                     {draft.revision_url && (
                                         <a href={draft.revision_url} target="_blank" rel="noopener noreferrer" className="px-3 py-2 rounded-lg border border-border text-muted-foreground hover:text-foreground">
                                             <ExternalLink className="w-4 h-4" />
