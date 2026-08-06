@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname } from "next/navigation";
-import { Menu, X, Search } from "lucide-react";
+import { Menu, X, Search, LogOut } from "lucide-react";
 import { useState, useEffect } from "react";
 import Link from "next/link";
 import { cn } from "@/lib/utils";
@@ -15,6 +15,7 @@ const PAGE_TITLES: Record<string, string> = {
     "/mis-proyectos": "Mis Proyectos SaaS",
     "/rutinas": "Rutinas & Hábitos",
     "/clientes": "Clientes",
+    "/prospeccion": "Planilla de Prospectos",
     "/scraper": "Scraper Leads",
     "/proyectos": "Proyectos Clientes",
     "/cotizaciones": "Cotizaciones",
@@ -79,6 +80,17 @@ export default function Header() {
                     <div className="flex items-center justify-center w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-gradient-to-br from-primary via-indigo-600 to-cyan-500 text-[11px] font-extrabold text-white shadow-md shadow-primary/20 shrink-0">
                         AG
                     </div>
+                    <button
+                        onClick={async () => {
+                            await fetch("/api/auth/login", { method: "DELETE" });
+                            window.location.href = "/login";
+                        }}
+                        className="p-2 rounded-xl text-muted-foreground hover:text-foreground hover:bg-secondary transition-all shrink-0"
+                        title="Cerrar sesión"
+                        aria-label="Cerrar sesión"
+                    >
+                        <LogOut className="w-4 h-4" />
+                    </button>
                 </div>
             </header>
 

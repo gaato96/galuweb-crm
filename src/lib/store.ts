@@ -5,8 +5,13 @@ import { supabase } from "./supabase";
 import {
     Cliente, Proyecto, Tarea, Cotizacion, Finanza, Brief, Recurso,
     EtapaCliente, Infraestructura, TicketSoporte, LogProyecto, Idea,
-    ScraperBusqueda, ProspectoScraped
+    ScraperBusqueda, ProspectoScraped, Prospecto
 } from "./types";
+import { ESCANEO_VACIO } from "./types";
+import {
+    normalizarEscaneo, calcularNivelDato, calcularScore, prospectoVacio,
+    clasificarWebDesdeUrl, telefonoAWhatsapp, normalizar
+} from "./prospeccion";
 
 // ============================================================
 // CRUD Operations (Supabase-backed)
@@ -437,11 +442,56 @@ export const ideasStore = {
 
 // --- Scraper de Prospectos ---
 const SCRAPER_STORAGE_KEY = "galuweb_scraper_searches";
+/**
+ * localStorage tiene ~5MB y cada búsqueda puede traer 200 prospectos.
+ * Guardar 50 búsquedas completas revienta la cuota y —como el error se
+ * silenciaba— el historial "desaparecía" sin avisar. Supabase es la fuente
+ * de verdad; esto es solo un caché de las últimas búsquedas.
+ */
+const SCRAPER_MAX_LOCAL = 8;
+
+function leerLocal(): ScraperBusqueda[] {
+    if (typeof window === "undefined") return [];
+    try {
+        const raw = localStorage.getItem(SCRAPER_STORAGE_KEY);
+        if (!raw) return [];
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed)) return [];
+        return parsed.map((item) => ({
+            ...item,
+            prospectos: Array.isArray(item.prospectos) ? item.prospectos : [],
+        }));
+    } catch {
+        return [];
+    }
+}
+
+/** Escribe recortando las búsquedas más viejas hasta que entre en la cuota. */
+function escribirLocal(lista: ScraperBusqueda[]): void {
+    if (typeof window === "undefined") return;
+    let candidata = lista.slice(0, SCRAPER_MAX_LOCAL);
+
+    while (candidata.length > 0) {
+        try {
+            localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(candidata));
+            return;
+        } catch {
+            candidata = candidata.slice(0, candidata.length - 1);
+        }
+    }
+    // Ni una sola búsqueda entra: se limpia el caché y se sigue contra Supabase.
+    try {
+        localStorage.removeItem(SCRAPER_STORAGE_KEY);
+        console.warn("[scraperStore] Caché local desactivado por falta de espacio. Se usa Supabase.");
+    } catch {
+        // Sin recuperación posible; no es bloqueante.
+    }
+}
 
 // Mapea un row de Supabase (snake_case) a ScraperBusqueda (camelCase)
 function dbRowToBusqueda(row: Record<string, unknown>): ScraperBusqueda {
     let prospectosParsed: ProspectoScraped[] = [];
-    const rawProspectos = row.prospectos ?? row.prospectos;
+    const rawProspectos = row.prospectos;
     if (Array.isArray(rawProspectos)) {
         prospectosParsed = rawProspectos as ProspectoScraped[];
     } else if (typeof rawProspectos === "string") {
@@ -498,23 +548,7 @@ export const scraperStore = {
             console.warn("[scraperStore] Supabase no disponible:", e);
         }
         
-        let localSearches: ScraperBusqueda[] = [];
-        if (typeof window !== "undefined") {
-            const local = localStorage.getItem(SCRAPER_STORAGE_KEY);
-            if (local) {
-                try {
-                    const parsed = JSON.parse(local);
-                    if (Array.isArray(parsed)) {
-                        localSearches = parsed.map(item => ({
-                            ...item,
-                            prospectos: Array.isArray(item.prospectos) ? item.prospectos : []
-                        }));
-                    }
-                } catch {
-                    localSearches = [];
-                }
-            }
-        }
+        const localSearches: ScraperBusqueda[] = leerLocal();
 
         // Combinar por id eliminando duplicados (preservar el registro con mayor cantidad de prospectos)
         const combinedMap = new Map<string, ScraperBusqueda>();
@@ -537,30 +571,14 @@ export const scraperStore = {
             (a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
 
-        // Actualizar localStorage con la lista combinada
-        if (typeof window !== "undefined" && combined.length > 0) {
-            try {
-                localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(combined.slice(0, 50)));
-            } catch {
-                // Silencioso (quota exceeded)
-            }
-        }
+        if (combined.length > 0) escribirLocal(combined);
 
         return combined;
     },
 
     saveSearch: async (busqueda: ScraperBusqueda): Promise<void> => {
-        // 1. Guardado inmediato en localStorage
-        if (typeof window !== "undefined") {
-            try {
-                const local = localStorage.getItem(SCRAPER_STORAGE_KEY);
-                const current: ScraperBusqueda[] = local ? JSON.parse(local) : [];
-                const updated = [busqueda, ...current.filter(b => b.id !== busqueda.id)];
-                localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated.slice(0, 50)));
-            } catch (e) {
-                console.error("[scraperStore] Error localStorage:", e);
-            }
-        }
+        // 1. Guardado inmediato en localStorage (caché)
+        escribirLocal([busqueda, ...leerLocal().filter(b => b.id !== busqueda.id)]);
 
         // 2. Guardado en Supabase con columnas snake_case
         try {
@@ -578,18 +596,7 @@ export const scraperStore = {
     },
 
     deleteSearch: async (id: string): Promise<void> => {
-        if (typeof window !== "undefined") {
-            try {
-                const local = localStorage.getItem(SCRAPER_STORAGE_KEY);
-                if (local) {
-                    const current: ScraperBusqueda[] = JSON.parse(local);
-                    const updated = current.filter(b => b.id !== id);
-                    localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated));
-                }
-            } catch (e) {
-                console.error("Error al borrar búsqueda:", e);
-            }
-        }
+        escribirLocal(leerLocal().filter(b => b.id !== id));
         try {
             await supabase.from("scraper_busquedas").delete().eq("id", id);
         } catch {
@@ -602,30 +609,33 @@ export const scraperStore = {
             localStorage.removeItem(SCRAPER_STORAGE_KEY);
         }
         try {
-            await supabase.from("scraper_busquedas").delete().neq("id", "");
+            // `neq('id','')` no borra nada si la columna es UUID. Se listan los ids
+            // y se borran explícitamente.
+            const { data } = await supabase.from("scraper_busquedas").select("id");
+            const ids = (data || []).map((r: { id: string }) => r.id);
+            if (ids.length > 0) await supabase.from("scraper_busquedas").delete().in("id", ids);
         } catch {
             // Silencioso
         }
     },
 
     renameSearch: async (id: string, nuevoTitulo: string): Promise<void> => {
-        if (typeof window !== "undefined") {
-            try {
-                const local = localStorage.getItem(SCRAPER_STORAGE_KEY);
-                if (local) {
-                    const current: ScraperBusqueda[] = JSON.parse(local);
-                    const updated = current.map(b => b.id === id ? { ...b, tituloPersonalizado: nuevoTitulo } : b);
-                    localStorage.setItem(SCRAPER_STORAGE_KEY, JSON.stringify(updated));
-                }
-            } catch (e) {
-                console.error("Error al renombrar búsqueda:", e);
-            }
-        }
+        escribirLocal(leerLocal().map(b => b.id === id ? { ...b, tituloPersonalizado: nuevoTitulo } : b));
         try {
-            await supabase.from("scraper_busquedas").update({ tituloPersonalizado: nuevoTitulo }).eq("id", id);
+            // La columna es snake_case: con camelCase el update fallaba en silencio
+            // y el nombre nuevo se perdía al recargar.
+            const { error } = await supabase
+                .from("scraper_busquedas")
+                .update({ titulo_personalizado: nuevoTitulo })
+                .eq("id", id);
+            if (error) console.warn("[scraperStore] No se pudo renombrar en Supabase:", error.message);
         } catch {
             // Silencioso
         }
+    },
+
+    convertirAProspecto: async (prospecto: ProspectoScraped): Promise<void> => {
+        await prospectosStore.importarDesdeScraper([prospecto]);
     },
 
     convertirACliente: async (prospecto: ProspectoScraped): Promise<Cliente> => {
@@ -656,6 +666,230 @@ export const scraperStore = {
         const nuevoCliente = await clientesStore.create(clienteData);
         return nuevoCliente;
     }
+};
+
+// ============================================================
+// --- Planilla de Prospectos (prospección en frío) ---
+// ============================================================
+
+/** Los rows vienen de Postgres; `escaneo` puede llegar null o como string JSON. */
+function rowToProspecto(row: Record<string, unknown>): Prospecto {
+    let escaneo = row.escaneo;
+    if (typeof escaneo === "string") {
+        try { escaneo = JSON.parse(escaneo); } catch { escaneo = null; }
+    }
+    return {
+        ...(row as unknown as Prospecto),
+        escaneo: normalizarEscaneo(escaneo as never),
+    };
+}
+
+/** Recalcula nivel de dato y score antes de persistir, para que la DB sea consultable. */
+function conDerivados(p: Prospecto, universo: Prospecto[]): Prospecto {
+    const escaneo = normalizarEscaneo(p.escaneo);
+    const conEscaneo = { ...p, escaneo };
+    return {
+        ...conEscaneo,
+        nivel_dato: calcularNivelDato(escaneo),
+        score: calcularScore(conEscaneo, universo).total,
+    };
+}
+
+export const prospectosStore = {
+    getAll: async (): Promise<Prospecto[]> => {
+        const { data, error } = await supabase
+            .from("prospectos")
+            .select("*")
+            .order("score", { ascending: false });
+        if (error) throw error;
+        return (data || []).map((r) => rowToProspecto(r as Record<string, unknown>));
+    },
+
+    getById: async (id: string): Promise<Prospecto | null> => {
+        const { data, error } = await supabase.from("prospectos").select("*").eq("id", id).single();
+        if (error) return null;
+        return rowToProspecto(data as Record<string, unknown>);
+    },
+
+    create: async (
+        data: Partial<Prospecto>,
+        universo: Prospecto[] = []
+    ): Promise<Prospecto> => {
+        const base = { ...prospectoVacio(), ...data } as Prospecto;
+        const payload = conDerivados(base, universo);
+        // id y created_at los pone la DB
+        delete (payload as Partial<Prospecto>).id;
+        delete (payload as Partial<Prospecto>).created_at;
+        delete (payload as Partial<Prospecto>).updated_at;
+
+        const { data: created, error } = await supabase
+            .from("prospectos")
+            .insert(payload)
+            .select()
+            .single();
+        if (error) throw error;
+        return rowToProspecto(created as Record<string, unknown>);
+    },
+
+    update: async (
+        id: string,
+        cambios: Partial<Prospecto>,
+        actual?: Prospecto,
+        universo: Prospecto[] = []
+    ): Promise<Prospecto> => {
+        let payload: Partial<Prospecto> = { ...cambios };
+
+        // Si cambió algo que afecta el score, recalcularlo con el prospecto completo.
+        if (actual) {
+            const fusionado = { ...actual, ...cambios } as Prospecto;
+            const derivado = conDerivados(fusionado, universo);
+            payload = { ...cambios, nivel_dato: derivado.nivel_dato, score: derivado.score };
+            if (cambios.escaneo) payload.escaneo = derivado.escaneo;
+        }
+        delete (payload as Partial<Prospecto>).created_at;
+        delete (payload as Partial<Prospecto>).updated_at;
+
+        const { data: updated, error } = await supabase
+            .from("prospectos")
+            .update(payload)
+            .eq("id", id)
+            .select()
+            .single();
+        if (error) throw error;
+        return rowToProspecto(updated as Record<string, unknown>);
+    },
+
+    delete: async (id: string): Promise<void> => {
+        const { error } = await supabase.from("prospectos").delete().eq("id", id);
+        if (error) throw error;
+    },
+
+    deleteMany: async (ids: string[]): Promise<void> => {
+        if (ids.length === 0) return;
+        const { error } = await supabase.from("prospectos").delete().in("id", ids);
+        if (error) throw error;
+    },
+
+    /**
+     * Alta masiva. Deduplica contra lo ya cargado por (negocio, ciudad) —
+     * el índice único de la tabla es la última red, pero filtrar acá permite
+     * informar cuántos se saltearon en vez de fallar el insert entero.
+     */
+    createBulk: async (
+        items: Partial<Prospecto>[],
+        universo: Prospecto[] = []
+    ): Promise<{ insertados: Prospecto[]; duplicados: number }> => {
+        const yaCargados = new Set(
+            universo.map((p) => `${normalizar(p.negocio)}|${normalizar(p.ciudad)}`)
+        );
+        const vistosEnLote = new Set<string>();
+        const limpios: Prospecto[] = [];
+        let duplicados = 0;
+
+        for (const item of items) {
+            const base = { ...prospectoVacio(), ...item } as Prospecto;
+            if (!base.negocio.trim()) { duplicados++; continue; }
+            const clave = `${normalizar(base.negocio)}|${normalizar(base.ciudad)}`;
+            if (yaCargados.has(clave) || vistosEnLote.has(clave)) { duplicados++; continue; }
+            vistosEnLote.add(clave);
+
+            const payload = conDerivados(base, universo);
+            delete (payload as Partial<Prospecto>).id;
+            delete (payload as Partial<Prospecto>).created_at;
+            delete (payload as Partial<Prospecto>).updated_at;
+            limpios.push(payload);
+        }
+
+        if (limpios.length === 0) return { insertados: [], duplicados };
+
+        const insertados: Prospecto[] = [];
+        // Chunks de 200 para no pasarse del límite de payload de PostgREST.
+        for (let i = 0; i < limpios.length; i += 200) {
+            const chunk = limpios.slice(i, i + 200);
+            const { data, error } = await supabase.from("prospectos").insert(chunk).select();
+            if (error) throw error;
+            insertados.push(...(data || []).map((r) => rowToProspecto(r as Record<string, unknown>)));
+        }
+        return { insertados, duplicados };
+    },
+
+    /** Recalcula el score de todos: el percentil de reseñas cambia al crecer la lista (§8). */
+    recalcularScores: async (universo: Prospecto[]): Promise<Prospecto[]> => {
+        const actualizados = universo.map((p) => conDerivados(p, universo));
+        const cambiaron = actualizados.filter((p, i) => p.score !== universo[i].score || p.nivel_dato !== universo[i].nivel_dato);
+
+        await Promise.all(
+            cambiaron.map((p) =>
+                supabase.from("prospectos").update({ score: p.score, nivel_dato: p.nivel_dato }).eq("id", p.id)
+            )
+        );
+        return actualizados;
+    },
+
+    /** Trae los prospectos de una búsqueda del Scraper a la planilla (sin duplicar). */
+    importarDesdeScraper: async (
+        scrapeados: ProspectoScraped[],
+        universo: Prospecto[] = []
+    ): Promise<{ insertados: Prospecto[]; duplicados: number }> => {
+        const items: Partial<Prospecto>[] = scrapeados.map((s) => {
+            const webUrl = s.sitioWebUrl || s.redesSociales?.instagram || s.redesSociales?.facebook || "";
+            return {
+                negocio: s.nombre,
+                rubro: s.rubro,
+                ciudad: s.lugar,
+                direccion: s.direccion,
+                telefono: s.telefono || "",
+                telefono_wa: s.telefonoClean || telefonoAWhatsapp(s.telefono || ""),
+                whatsapp_publicado: !!s.telefonoClean,
+                instagram_url: s.redesSociales?.instagram || "",
+                sitio_web_url: s.sitioWebUrl || "",
+                maps_url: s.mapsUrl || "",
+                clasificacion_web: clasificarWebDesdeUrl(webUrl),
+                canal: s.telefonoClean ? ("whatsapp" as const) : ("instagram" as const),
+                rating: s.rating ?? null,
+                reviews_count: s.reviewsCount ?? null,
+                escaneo: { ...ESCANEO_VACIO },
+                origen: "scraper" as const,
+            };
+        });
+        return prospectosStore.createBulk(items, universo);
+    },
+
+    /** Pasa un prospecto trabajado al pipeline de clientes conservando el análisis. */
+    convertirACliente: async (p: Prospecto): Promise<Cliente> => {
+        const escaneo = normalizarEscaneo(p.escaneo);
+        const debilidades = [
+            escaneo.tiene_queja_cliente ? `Queja pública de un cliente: "${escaneo.queja_textual}"` : "",
+            ...escaneo.fallas.map((f) => `Falla verificable: ${f}`),
+        ].filter(Boolean);
+
+        const cliente = await clientesStore.create({
+            nombre: p.contacto_nombre || p.negocio,
+            negocio: p.negocio,
+            email: "",
+            tel: p.telefono,
+            canal: p.canal === "whatsapp" ? "WhatsApp (prospección en frío)" : "Instagram DM (prospección en frío)",
+            etapa: "contactado" as EtapaCliente,
+            info_investigacion: {
+                que_hace: `${p.rubro}${p.especialidad ? ` — ${p.especialidad}` : ""} en ${p.ciudad}. ${p.direccion}`,
+                puntos_debiles: debilidades.join("\n") || p.dato_usado,
+                soluciones: "Revisión de una página: búsqueda real, volumen de demanda, arreglos gratis y qué haría falta.",
+                enlace: p.sitio_web_url || p.instagram_url || p.maps_url || "",
+                contexto: `Nivel del dato: ${p.nivel_dato ?? "s/d"} · Score ${p.score} · Dato usado: ${p.dato_usado}`,
+            },
+            msg_whatsapp: p.mensaje_enviado,
+            notas_seguimiento: [
+                {
+                    id: `nota-${Date.now()}`,
+                    fecha: new Date().toISOString().split("T")[0],
+                    texto: `Viene de la planilla de prospección. Estado al convertir: ${p.estado}. Leyó: ${p.quien_leyo || "no sé"}.`,
+                },
+            ],
+        });
+
+        await prospectosStore.update(p.id, { estado: "cliente", cliente_id: cliente.id }, p);
+        return cliente;
+    },
 };
 
 

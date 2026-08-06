@@ -461,6 +461,13 @@ export interface ProspectoScraped {
     mapsUrl?: string;
     contactado?: boolean;
     fechaContactado?: string;
+    // --- Enriquecimiento y priorización (opcionales: las búsquedas viejas no los tienen) ---
+    score?: number;
+    categoriaGoogle?: string;
+    sinHorarios?: boolean;
+    lat?: number;
+    lng?: number;
+    enPlanilla?: boolean;
 }
 
 export interface ScraperBusqueda {
@@ -474,4 +481,162 @@ export interface ScraperBusqueda {
     conWhatsappCount: number;
     prospectos: ProspectoScraped[];
 }
+
+// ============================================================
+// --- Planilla de Prospectos (Prospección en frío — doc 08) ---
+// ============================================================
+
+/** §3.2 punto 1 — define el ángulo del mensaje y el orden de trabajo de §8. */
+export type ClasificacionWeb = "sin_definir" | "sin_web" | "solo_redes" | "web_debil" | "web_buena";
+
+/** §8 — si el rubro/especialidad se busca en Google, el ángulo de demanda aplica. */
+export type DemandaBusqueda = "sin_definir" | "alta" | "baja";
+
+/** §3.2 punto 4 — el canal lo define si el WhatsApp está publicado por el negocio. */
+export type CanalProspecto = "instagram" | "whatsapp";
+
+/** §11 punto 3 — dice si el rubro se traba en el filtro de la secretaria. */
+export type QuienLeyo = "dueno" | "secretaria" | "no_se";
+
+export type OrigenProspecto = "manual" | "sheets" | "scraper";
+
+/** Embudo de §5: cada paso pide más que el anterior. */
+export type EstadoProspecto =
+    | "sin_calificar"     // recién pasado en limpio desde Sheets / Scraper
+    | "calificado"        // pasó §3.1 y §3.2, tiene dato de personalización
+    | "descartado"        // §3.1 descarte rápido
+    | "enviado"           // mensaje 1 enviado
+    | "fu1"               // follow-up 1 enviado (3-4 días)
+    | "fu2"               // follow-up 2 enviado (7-10 días)
+    | "sin_respuesta"     // cerrado tras FU2 — no hay mensaje 4
+    | "respondio"         // dijo "sí" o contestó
+    | "revision_enviada"  // §6 — se entregó la revisión de una página
+    | "reunion"           // aceptó el diagnóstico de 30 min
+    | "cliente";          // convertido a cliente del CRM
+
+/** §7.3 + §4 nivel 2 — fallas verificables en 10 segundos. */
+export type FallaVerificable =
+    | "whatsapp_personal"
+    | "ficha_incompleta"
+    | "horarios_mal"
+    | "bio_rota"
+    | "no_aparece_rubro"
+    | "web_lenta"
+    | "sin_responder_resenas";
+
+/** §4 — la escalera del dato. El nivel se deriva de acá tomando el más alto que haya. */
+export interface EscaneoProspecto {
+    tiene_queja_cliente: boolean;   // nivel 1
+    queja_textual: string;
+    fallas: FallaVerificable[];     // nivel 2
+    hito_reciente: string;          // nivel 3
+    detalle_trabajo: string;        // nivel 4
+}
+
+export interface Prospecto {
+    id: string;
+    created_at: string;
+    updated_at?: string;
+
+    negocio: string;
+    contacto_nombre: string;
+    rubro: string;
+    especialidad: string;
+    ciudad: string;
+    direccion: string;
+
+    telefono: string;
+    telefono_wa: string;
+    whatsapp_publicado: boolean;
+    es_whatsapp_business: boolean | null;
+    instagram_url: string;
+    dias_ultimo_post: number | null;
+    sitio_web_url: string;
+    maps_url: string;
+    canal: CanalProspecto;
+
+    clasificacion_web: ClasificacionWeb;
+    demanda_busqueda: DemandaBusqueda;
+    rating: number | null;
+    reviews_count: number | null;
+    cant_profesionales: number | null;
+    escaneo: EscaneoProspecto;
+    dato_usado: string;
+    nivel_dato: number | null;
+    score: number;
+
+    estado: EstadoProspecto;
+    motivo_descarte: string;
+    fecha_envio: string | null;
+    fecha_fu1: string | null;
+    fecha_fu2: string | null;
+    fecha_respuesta: string | null;
+    quien_leyo: QuienLeyo | null;
+    revision_url: string;
+    mensaje_enviado: string;
+
+    cliente_id: string | null;
+    origen: OrigenProspecto;
+    notas: string;
+}
+
+export const ESCANEO_VACIO: EscaneoProspecto = {
+    tiene_queja_cliente: false,
+    queja_textual: "",
+    fallas: [],
+    hito_reciente: "",
+    detalle_trabajo: "",
+};
+
+export const ESTADO_PROSPECTO_LABELS: Record<EstadoProspecto, string> = {
+    sin_calificar: "Sin calificar",
+    calificado: "Calificado",
+    descartado: "Descartado",
+    enviado: "Mensaje 1 enviado",
+    fu1: "Follow-up 1",
+    fu2: "Follow-up 2",
+    sin_respuesta: "Sin respuesta",
+    respondio: "Respondió",
+    revision_enviada: "Revisión enviada",
+    reunion: "Reunión agendada",
+    cliente: "Cliente",
+};
+
+export const ESTADO_PROSPECTO_COLORS: Record<EstadoProspecto, string> = {
+    sin_calificar: "bg-slate-500/20 text-slate-300 border-slate-500/30",
+    calificado: "bg-purple-500/20 text-purple-300 border-purple-500/30",
+    descartado: "bg-rose-500/20 text-rose-300 border-rose-500/30",
+    enviado: "bg-amber-500/20 text-amber-300 border-amber-500/30",
+    fu1: "bg-orange-500/20 text-orange-300 border-orange-500/30",
+    fu2: "bg-orange-500/20 text-orange-200 border-orange-500/30",
+    sin_respuesta: "bg-gray-500/20 text-gray-400 border-gray-500/30",
+    respondio: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+    revision_enviada: "bg-blue-500/20 text-blue-300 border-blue-500/30",
+    reunion: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
+    cliente: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",
+};
+
+export const CLASIFICACION_WEB_LABELS: Record<ClasificacionWeb, string> = {
+    sin_definir: "Sin definir",
+    sin_web: "Sin web",
+    solo_redes: "Instagram como web",
+    web_debil: "Web débil",
+    web_buena: "Web buena",
+};
+
+export const FALLA_LABELS: Record<FallaVerificable, string> = {
+    whatsapp_personal: "WhatsApp personal (no Business)",
+    ficha_incompleta: "Ficha de Google incompleta",
+    horarios_mal: "Horarios de Maps mal cargados",
+    bio_rota: "Link de bio de Instagram roto o inexistente",
+    no_aparece_rubro: "No aparece al buscar su rubro + ciudad",
+    web_lenta: "La web no carga bien en celular",
+    sin_responder_resenas: "No responde las reseñas",
+};
+
+export const QUIEN_LEYO_LABELS: Record<QuienLeyo, string> = {
+    dueno: "Dueño / decisor",
+    secretaria: "Secretaria / recepción",
+    no_se: "No sé",
+};
 

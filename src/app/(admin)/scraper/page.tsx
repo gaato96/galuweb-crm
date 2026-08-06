@@ -6,12 +6,12 @@ import {
     Sparkles, Check, Download, History, AlertTriangle, 
     Star, ExternalLink, UserPlus, RefreshCw, ChevronRight,
     Building2, Flame, CheckCircle2, Instagram, Facebook, Linkedin,
-    Link, Upload, X, ChevronDown, ChevronUp, Pencil, Trash2, Circle
+    Link, Upload, X, Pencil, Trash2, Circle, ClipboardList, Clock
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { ProspectoScraped, ScraperBusqueda } from "@/lib/types";
-import { scraperStore } from "@/lib/store";
+import { scraperStore, prospectosStore } from "@/lib/store";
 
 // Categorías / Rubros sugeridos para prospección en frío
 const RUBROS_SUGERIDOS = [
@@ -60,8 +60,9 @@ export default function ScraperPage() {
 
     // Filtros de UI sobre resultados
     const [searchFilter, setSearchFilter] = useState("");
-    const [tabFiltro, setTabFiltro] = useState<"todos" | "sin_web" | "con_whatsapp" | "top_rated" | "contactados" | "pendientes" | "guardados">("todos");
+    const [tabFiltro, setTabFiltro] = useState<"todos" | "prioritarios" | "sin_web" | "con_whatsapp" | "top_rated" | "contactados" | "pendientes" | "guardados">("todos");
     const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
+    const [enviandoPlanilla, setEnviandoPlanilla] = useState(false);
 
     // Edición de título de búsqueda
     const [editingSearchId, setEditingSearchId] = useState<string | null>(null);
@@ -355,29 +356,57 @@ export default function ScraperPage() {
     // Exportar lista a CSV
     const handleExportCsv = () => {
         if (prospectos.length === 0) return;
-        const headers = ["Nombre", "Rubro", "Lugar", "Telefono", "Tiene Sitio Web", "Sitio Web URL", "Rating", "Instagram", "Facebook", "Direccion"];
-        const rows = prospectos.map(p => [
-            `"${p.nombre.replace(/"/g, '""')}"`,
-            `"${p.rubro}"`,
-            `"${p.lugar}"`,
-            `"${p.telefono || ''}"`,
+        const headers = ["Prioridad", "Nombre", "Rubro", "Categoria Google", "Lugar", "Telefono", "WhatsApp", "Tiene Sitio Web", "Sitio Web URL", "Rating", "Resenas", "Sin horarios", "Instagram", "Facebook", "Direccion", "Maps"];
+        const filas = prospectos.map(p => [
+            p.score ?? "",
+            p.nombre,
+            p.rubro,
+            p.categoriaGoogle || "",
+            p.lugar,
+            p.telefono || "",
+            p.telefonoClean ? `https://wa.me/${p.telefonoClean}` : "",
             p.tieneSitioWeb ? "Si" : "No",
-            `"${p.sitioWebUrl || ''}"`,
-            p.rating || "",
-            `"${p.redesSociales.instagram || ''}"`,
-            `"${p.redesSociales.facebook || ''}"`,
-            `"${p.direccion.replace(/"/g, '""')}"`
+            p.sitioWebUrl || "",
+            p.rating ?? "",
+            p.reviewsCount ?? "",
+            p.sinHorarios ? "Si" : "No",
+            p.redesSociales.instagram || "",
+            p.redesSociales.facebook || "",
+            p.direccion,
+            p.mapsUrl || "",
         ]);
 
-        const csvContent = "data:text/csv;charset=utf-8," + [headers.join(","), ...rows.map(e => e.join(","))].join("\n");
-        const encodedUri = encodeURI(csvContent);
+        const escapar = (v: string | number) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+        const csv = [headers, ...filas].map(f => f.map(escapar).join(",")).join("\r\n");
+        // Blob en lugar de data: URI (se rompe con listas largas y con '#'),
+        // y BOM para que Excel respete los acentos.
+        const blob = new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
         const link = document.createElement("a");
-        link.setAttribute("href", encodedUri);
-        link.setAttribute("download", `prospectos_${currentSearch?.rubro || 'maps'}_${currentSearch?.lugar || 'leads'}.csv`);
-        document.body.appendChild(link);
+        link.href = url;
+        link.download = `prospectos_${currentSearch?.rubro || 'maps'}_${currentSearch?.lugar || 'leads'}.csv`;
         link.click();
-        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
         toast.success("Listado exportado a CSV exitosamente");
+    };
+
+    // Enviar toda la lista filtrada a la Planilla de Prospectos
+    const handleEnviarAPlanilla = async () => {
+        if (prospectosFiltrados.length === 0) return;
+        setEnviandoPlanilla(true);
+        try {
+            const universo = await prospectosStore.getAll();
+            const { insertados, duplicados } = await prospectosStore.importarDesdeScraper(prospectosFiltrados, universo);
+            toast.success(
+                `${insertados.length} prospectos enviados a la planilla` +
+                (duplicados > 0 ? ` · ${duplicados} ya estaban` : "")
+            );
+        } catch (error) {
+            const msg = error instanceof Error ? error.message : "Error al enviar a la planilla";
+            toast.error(msg.includes("prospectos") ? "Falta correr la migración de la tabla prospectos" : msg);
+        } finally {
+            setEnviandoPlanilla(false);
+        }
     };
 
     // Aplicar filtros a la lista actual (insensible a acentos/tildes y mayúsculas)
@@ -397,6 +426,7 @@ export default function ScraperPage() {
             if (!matchesSearch) return false;
         }
 
+        if (tabFiltro === "prioritarios") return (p.score ?? 0) >= 35;
         if (tabFiltro === "sin_web") return !p.tieneSitioWeb;
         if (tabFiltro === "con_whatsapp") return !!p.telefonoClean;
         if (tabFiltro === "top_rated") return (p.rating || 0) >= 4.5;
@@ -406,6 +436,7 @@ export default function ScraperPage() {
         return true;
     });
 
+    const totalPrioritarios = prospectos.filter(p => (p.score ?? 0) >= 35).length;
     const totalSinWeb = prospectos.filter(p => !p.tieneSitioWeb).length;
     const totalConWa = prospectos.filter(p => !!p.telefonoClean).length;
     const totalContactados = prospectos.filter(p => !!p.contactado).length;
@@ -452,6 +483,17 @@ export default function ScraperPage() {
                             >
                                 <RefreshCw className="w-3.5 h-3.5" />
                                 Limpiar Vista
+                            </button>
+                            <button
+                                onClick={handleEnviarAPlanilla}
+                                disabled={enviandoPlanilla}
+                                className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-primary/40 bg-primary/15 hover:bg-primary/25 text-primary text-sm font-bold transition-all disabled:opacity-50"
+                                title="Cargar estos negocios en la Planilla de Prospectos para calificarlos"
+                            >
+                                {enviandoPlanilla
+                                    ? <RefreshCw className="w-4 h-4 animate-spin" />
+                                    : <ClipboardList className="w-4 h-4" />}
+                                A la Planilla ({prospectosFiltrados.length})
                             </button>
                             <button
                                 onClick={handleExportCsv}
@@ -803,6 +845,18 @@ export default function ScraperPage() {
                                 Todos ({prospectos.length})
                             </button>
                             <button
+                                onClick={() => setTabFiltro("prioritarios")}
+                                className={cn(
+                                    "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1",
+                                    tabFiltro === "prioritarios"
+                                        ? "bg-primary text-primary-foreground shadow-sm"
+                                        : "text-primary hover:bg-primary/10"
+                                )}
+                                title="Los mejores candidatos según el sistema de prospección"
+                            >
+                                🎯 Prioritarios ({totalPrioritarios})
+                            </button>
+                            <button
                                 onClick={() => setTabFiltro("sin_web")}
                                 className={cn(
                                     "px-3 py-1.5 rounded-lg text-xs font-semibold transition-all whitespace-nowrap flex items-center gap-1",
@@ -932,9 +986,32 @@ export default function ScraperPage() {
                                     <div className="flex items-start justify-between gap-2">
                                         <div className="space-y-1 flex-1">
                                             <div className="flex items-center gap-1.5 flex-wrap">
+                                                {prospecto.score != null && (
+                                                    <span
+                                                        className={cn(
+                                                            "text-[10px] font-extrabold px-2 py-0.5 rounded-full border tabular-nums",
+                                                            prospecto.score >= 50
+                                                                ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/40"
+                                                                : prospecto.score >= 35
+                                                                  ? "bg-primary/20 text-primary border-primary/40"
+                                                                  : "bg-secondary text-muted-foreground border-border"
+                                                        )}
+                                                        title="Prioridad de contacto según el sistema de prospección"
+                                                    >
+                                                        {prospecto.score}
+                                                    </span>
+                                                )}
                                                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-secondary text-foreground uppercase border border-border">
-                                                    {prospecto.rubro}
+                                                    {prospecto.categoriaGoogle || prospecto.rubro}
                                                 </span>
+                                                {prospecto.sinHorarios && (
+                                                    <span
+                                                        className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 flex items-center gap-1"
+                                                        title="Ficha sin horarios cargados: es una falla verificable (dato nivel 2)"
+                                                    >
+                                                        <Clock className="w-3 h-3" /> Sin horarios
+                                                    </span>
+                                                )}
                                                 {prospecto.guardadoEnCrm && (
                                                     <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-primary/20 text-primary border border-primary/30 flex items-center gap-1">
                                                         <CheckCircle2 className="w-3 h-3" /> CRM

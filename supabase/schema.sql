@@ -156,5 +156,106 @@ ALTER TABLE tareas ADD COLUMN IF NOT EXISTS tipo_tarea TEXT DEFAULT 'puntual';
 ALTER TABLE tareas ADD COLUMN IF NOT EXISTS frecuencia_recurrente TEXT DEFAULT NULL;
 ALTER TABLE tareas ADD COLUMN IF NOT EXISTS ultima_ejecucion TIMESTAMPTZ DEFAULT NULL;
 
+-- ============================================================
+-- Puesta al día del esquema (2026-08)
+-- Todo lo de acá abajo existía en producción pero faltaba en este archivo,
+-- que por eso ya no servía para recrear la base desde cero.
+-- ============================================================
+
+-- --- Columnas que fueron apareciendo en Clientes ---
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS pdf_cotizacion_url TEXT DEFAULT '';
+ALTER TABLE clientes ADD COLUMN IF NOT EXISTS mantenimiento_mensual BOOLEAN DEFAULT false;
+
+-- --- Proyectos: fases, documentos, SaaS y branding ---
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS fases JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS documentos JSONB DEFAULT '[]'::jsonb;
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS figma_aprobado BOOLEAN DEFAULT false;
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS figma_comentarios TEXT DEFAULT '';
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS logo_url TEXT DEFAULT '';
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS saas_url TEXT DEFAULT '';
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS version TEXT DEFAULT '';
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS usuarios_activos INTEGER DEFAULT 0;
+ALTER TABLE proyectos ADD COLUMN IF NOT EXISTS membresias JSONB DEFAULT '[]'::jsonb;
+
+-- --- Tareas: módulo de marketing y contenido ---
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS idea_contenido TEXT DEFAULT '';
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS hook TEXT DEFAULT '';
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS guion TEXT DEFAULT '';
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS notas_visuales TEXT DEFAULT '';
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS plataformas TEXT[] DEFAULT '{}';
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS formato TEXT DEFAULT '';
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS workflow_stage TEXT DEFAULT NULL;
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS editado BOOLEAN DEFAULT false;
+ALTER TABLE tareas ADD COLUMN IF NOT EXISTS publicado BOOLEAN DEFAULT false;
+
+-- --- Cotizaciones: web app, secciones del PDF y archivado ---
+ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS tipo_cotizacion TEXT DEFAULT 'web';
+ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS especificaciones_webapp JSONB DEFAULT NULL;
+ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS secciones_pdf JSONB DEFAULT NULL;
+-- El estado 'archivada' se usa en la app pero faltaba en el enum.
+ALTER TYPE estado_cotizacion ADD VALUE IF NOT EXISTS 'archivada';
+
+-- --- Finanzas: cobros, recurrencia y cuotas agrupadas ---
+ALTER TABLE finanzas ADD COLUMN IF NOT EXISTS cobrado BOOLEAN DEFAULT false;
+ALTER TABLE finanzas ADD COLUMN IF NOT EXISTS fecha_cobrado DATE DEFAULT NULL;
+ALTER TABLE finanzas ADD COLUMN IF NOT EXISTS es_recurrente BOOLEAN DEFAULT false;
+ALTER TABLE finanzas ADD COLUMN IF NOT EXISTS grupo_cuota TEXT DEFAULT NULL;
+
+-- --- Tablas que faltaban por completo ---
+
+CREATE TABLE IF NOT EXISTS infraestructura (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  tipo TEXT NOT NULL DEFAULT 'hosting',        -- hosting | dominio
+  nombre TEXT NOT NULL DEFAULT '',
+  proveedor TEXT NOT NULL DEFAULT '',
+  fecha_vencimiento DATE,
+  costo NUMERIC(12,2) NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS tickets (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  cliente_id UUID NOT NULL REFERENCES clientes(id) ON DELETE CASCADE,
+  proyecto_id UUID REFERENCES proyectos(id) ON DELETE SET NULL,
+  asunto TEXT NOT NULL,
+  descripcion TEXT NOT NULL DEFAULT '',
+  estado TEXT NOT NULL DEFAULT 'abierto',      -- abierto | en_progreso | resuelto
+  prioridad prioridad NOT NULL DEFAULT 'media'
+);
+
+CREATE TABLE IF NOT EXISTS logs_proyecto (
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  proyecto_id UUID NOT NULL REFERENCES proyectos(id) ON DELETE CASCADE,
+  titulo TEXT NOT NULL,
+  descripcion TEXT NOT NULL DEFAULT '',
+  fecha DATE NOT NULL DEFAULT CURRENT_DATE
+);
+
+-- El id es TEXT a propósito: lo genera el cliente como `search-<timestamp>`.
+CREATE TABLE IF NOT EXISTS scraper_busquedas (
+  id TEXT PRIMARY KEY,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  rubro TEXT NOT NULL DEFAULT '',
+  lugar TEXT NOT NULL DEFAULT '',
+  titulo_personalizado TEXT,
+  total_resultados INTEGER NOT NULL DEFAULT 0,
+  sin_web_count INTEGER NOT NULL DEFAULT 0,
+  con_whatsapp_count INTEGER NOT NULL DEFAULT 0,
+  prospectos JSONB NOT NULL DEFAULT '[]'::jsonb
+);
+
+CREATE INDEX IF NOT EXISTS idx_infraestructura_cliente ON infraestructura(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_infraestructura_venc ON infraestructura(fecha_vencimiento);
+CREATE INDEX IF NOT EXISTS idx_tickets_cliente ON tickets(cliente_id);
+CREATE INDEX IF NOT EXISTS idx_tickets_estado ON tickets(estado);
+CREATE INDEX IF NOT EXISTS idx_logs_proyecto ON logs_proyecto(proyecto_id);
+CREATE INDEX IF NOT EXISTS idx_scraper_fecha ON scraper_busquedas(created_at DESC);
+
+-- La tabla `prospectos` está en supabase/migrations/20260806_prospectos.sql
+-- El cierre de seguridad está en supabase/migrations/20260806_seguridad_rls.sql
+
 
 
