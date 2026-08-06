@@ -265,7 +265,7 @@ export type PasoMensaje = "m1" | "m2" | "m3" | "fu1" | "fu2" | "fu3" | "ruteo";
 
 export const PASO_MENSAJE_LABELS: Record<PasoMensaje, string> = {
     m1: "Mensaje 1 — Permiso",
-    m2: "Mensaje 2 — Entrega de la revisión",
+    m2: "Mensaje 2 — Entrega del análisis",
     m3: "Mensaje 3 — Caso y oferta",
     fu1: "Follow-up 1 (3-4 días)",
     fu2: "Follow-up 2 (7-10 días)",
@@ -331,7 +331,7 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
                 ? "Te lo comento porque casi nunca es un problema de atención: es que no hay dónde ordenar las consultas y se mezclan todas en el mismo WhatsApp — y al final la que atiende queda expuesta por algo que es del sistema, no suyo."
                 : CONSECUENCIA_POR_CLASIFICACION[p.clasificacion_web];
 
-        const linea3 = `Armé una revisión de una página con lo que veo desde afuera: qué busca la gente de ${rubro} en ${ciudad}, cuántos son por mes y qué se puede ordenar sin contratar a nadie más. Es gratis y no tiene vuelta de venta. ¿Te la mando?`;
+        const linea3 = `Te armé un análisis en una página con lo que veo desde afuera: qué ve la gente que busca ${rubro} en ${ciudad}, cuántos son por mes, y qué se puede arreglar o corregir sin contratar a nadie más. Es gratis, sin compromiso. ¿Te lo mando?`;
 
         return [linea1, "", linea2, "", linea3].join("\n");
     }
@@ -545,14 +545,14 @@ export function diagnosticoEmbudo(prospectos: Prospecto[]): DiagnosticoEmbudo[] 
             activo: hayMuestra && tasaResp < 0.05,
         },
         {
-            sintoma: "Responden pero no aceptan la revisión",
+            sintoma: "Responden pero no aceptan el análisis",
             causa: "La consecuencia (línea 2) no le duele o no la entiende",
             accion: "Reescribir la línea 2 en su idioma",
             activo: respondieron.length >= 5 && revisiones.length / respondieron.length < 0.4,
         },
         {
-            sintoma: "Aceptan la revisión y después desaparecen",
-            causa: "La revisión no dice nada que no supieran",
+            sintoma: "Aceptan el análisis y después desaparecen",
+            causa: "El análisis no dice nada que no supieran",
             accion: "Que el punto 3 sea de verdad accionable y gratis",
             activo: revisiones.length >= 4 && reuniones.length / revisiones.length < 0.35,
         },

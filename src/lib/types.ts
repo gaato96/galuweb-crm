@@ -528,7 +528,7 @@ export type EstadoProspecto =
     | "fu3"               // follow-up 3 — solo VivoMenu (día 14)
     | "sin_respuesta"     // cerrado tras el último follow-up
     | "respondio"         // dijo "sí" o contestó
-    | "revision_enviada"  // §6 — se entregó la revisión de una página
+    | "revision_enviada"  // §6 — se entregó el análisis de una página
     | "reunion"           // aceptó el diagnóstico de 30 min
     | "cliente";          // convertido a cliente del CRM
 
@@ -618,7 +618,7 @@ export const ESTADO_PROSPECTO_LABELS: Record<EstadoProspecto, string> = {
     fu3: "Follow-up 3",
     sin_respuesta: "Sin respuesta",
     respondio: "Respondió",
-    revision_enviada: "Revisión enviada",
+    revision_enviada: "Análisis enviado",
     reunion: "Reunión agendada",
     cliente: "Cliente",
 };

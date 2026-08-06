@@ -1002,7 +1002,7 @@ export const prospectosStore = {
             info_investigacion: {
                 que_hace: `${p.rubro}${p.especialidad ? ` — ${p.especialidad}` : ""} en ${p.ciudad}. ${p.direccion}`,
                 puntos_debiles: debilidades.join("\n") || p.dato_usado,
-                soluciones: "Revisión de una página: búsqueda real, volumen de demanda, arreglos gratis y qué haría falta.",
+                soluciones: "Análisis en una página: búsqueda real, volumen de demanda, arreglos gratis y qué haría falta.",
                 enlace: p.sitio_web_url || p.instagram_url || p.maps_url || "",
                 contexto: `Nivel del dato: ${p.nivel_dato ?? "s/d"} · Score ${p.score} · Dato usado: ${p.dato_usado}`,
             },

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import {
     X, Save, Trash2, Building2, Radar, MessageSquare, CalendarClock,
-    Copy, Check, ExternalLink, AlertTriangle, Sparkles, UserPlus, Loader2, Instagram, Phone
+    Copy, Check, ExternalLink, AlertTriangle, Sparkles, UserPlus, Loader2, Instagram, Phone, MapPin
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -220,6 +220,30 @@ export default function ProspectoModal({
                                 {CLASIFICACION_WEB_LABELS[draft.clasificacion_web]}
                             </span>
                         </div>
+                        {(draft.maps_url || draft.instagram_url) && (
+                            <div className="flex items-center gap-2 mt-2">
+                                {draft.maps_url && (
+                                    <a
+                                        href={conProtocolo(draft.maps_url)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-secondary/60 border border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+                                    >
+                                        <MapPin className="w-3.5 h-3.5" /> Maps
+                                    </a>
+                                )}
+                                {draft.instagram_url && (
+                                    <a
+                                        href={conProtocolo(draft.instagram_url)}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-secondary/60 border border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+                                    >
+                                        <Instagram className="w-3.5 h-3.5" /> Instagram
+                                    </a>
+                                )}
+                            </div>
+                        )}
                     </div>
                     <button onClick={onCerrar} className="p-2 rounded-lg hover:bg-secondary text-muted-foreground hover:text-foreground shrink-0">
                         <X className="w-5 h-5" />
@@ -645,7 +669,7 @@ export default function ProspectoModal({
                             </div>
 
                             <Campo
-                                label={esVivoMenu ? "Link del menú armado" : "URL de la revisión"}
+                                label={esVivoMenu ? "Link del menú armado" : "Link del análisis"}
                                 hint={esVivoMenu ? "El demo/menú que se manda en el primer contacto y se personaliza en 'interés tibio'" : "galuweb.com/revision/[negocio] — noindex, sin gate"}
                             >
                                 <div className="flex gap-2">
@@ -718,6 +742,8 @@ export default function ProspectoModal({
 
 const inputCls =
     "w-full px-3 py-2 bg-background border border-input rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground/40";
+
+const conProtocolo = (url: string) => (url.startsWith("http") ? url : `https://${url}`);
 
 function Campo({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
     return (
