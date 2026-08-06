@@ -126,7 +126,14 @@ separados por una línea en blanco (son burbujas distintas de WhatsApp), manten�
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                     contents: [{ parts: [{ text: prompt }] }],
-                    generationConfig: { temperature: 0.8, maxOutputTokens: 500 },
+                    generationConfig: {
+                        temperature: 0.8,
+                        maxOutputTokens: 800,
+                        // Sin esto, el modelo gasta el presupuesto de tokens "pensando" antes de
+                        // escribir y la respuesta llega cortada — no hace falta razonamiento extra
+                        // para reescribir un mensaje corto sobre una estructura ya dada.
+                        thinkingConfig: { thinkingBudget: 0 },
+                    },
                 }),
                 signal: AbortSignal.timeout(20000),
             }
@@ -144,6 +151,13 @@ separados por una línea en blanco (son burbujas distintas de WhatsApp), manten�
             .map((p: { text: string }) => p.text)
             .join("\n")
             .trim();
+
+        // Si se cortó por límite de tokens y no alcanza a ser un mensaje real, mejor la plantilla
+        // que un mensaje roto a mitad de frase.
+        const cortado = data.candidates?.[0]?.finishReason === "MAX_TOKENS";
+        if (cortado && texto.split(/\s+/).length < 15) {
+            return NextResponse.json({ mensaje: borrador, fuente: "plantilla" });
+        }
 
         return NextResponse.json({ mensaje: texto || borrador, fuente: texto ? "ia" : "plantilla" });
     } catch (error) {
