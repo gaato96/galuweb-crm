@@ -59,7 +59,9 @@ export type PatronDolor =
     | "no_vuelve"            // recompra que nadie gestiona
     | "a_medio_terminar"     // plata a medio cobrar
     | "tiempo_del_dueno"     // el dueño haciendo de secretaria
-    | "capacidad";           // agenda que se llena mal
+    | "capacidad"            // agenda que se llena mal
+    | "margen_regalado"      // la venta se hace, pero una parte se la lleva un tercero
+    | "operar_a_ciegas";     // no hay dónde ver qué se vende, qué falta, qué precio rige
 
 export const PATRON_LABELS: Record<PatronDolor, string> = {
     consulta_perdida: "La consulta que se pierde",
@@ -68,13 +70,16 @@ export const PATRON_LABELS: Record<PatronDolor, string> = {
     a_medio_terminar: "Lo empezado y no terminado",
     tiempo_del_dueno: "El dueño haciendo de secretaria",
     capacidad: "La agenda que se llena mal",
+    margen_regalado: "El margen que se lleva otro",
+    operar_a_ciegas: "Operar sin ver lo que pasa adentro",
 };
 
 /** Rubros con catálogo propio. "generico" es el fallback para los que todavía no trabajamos. */
-export type RubroProspeccion = "odontologia" | "generico";
+export type RubroProspeccion = "odontologia" | "gastronomia" | "generico";
 
 export const RUBRO_LABELS: Record<RubroProspeccion, string> = {
     odontologia: "Odontología y salud",
+    gastronomia: "Gastronomía",
     generico: "Genérico",
 };
 
@@ -84,10 +89,25 @@ const CLAVES_RUBRO: Record<Exclude<RubroProspeccion, "generico">, string[]> = {
         "periodon", "odontopediatr", "consultorio", "clinica medica", "clínica médica",
         "medic", "kinesi", "pediatr", "dermatolog", "oftalmolog", "nutricion",
     ],
+    gastronomia: [
+        "gastronom", "restaurant", "resto", "bar", "cerveceria", "cervecería", "pub",
+        "cafeteria", "cafetería", "cafe", "café", "pizzer", "pizza", "hamburgues", "burger",
+        "sushi", "parrilla", "rotiser", "empanada", "sandwich", "sanguche", "heladeria",
+        "heladería", "pasteleria", "pastelería", "panaderia", "panadería", "comida",
+        "delivery", "food", "wok", "milanesa", "pollo", "taco", "arepa", "pastas",
+    ],
 };
 
-/** De qué rubro es un prospecto, mirando rubro + especialidad + categoría de Google. */
-export function detectarRubro(p: Pick<Prospecto, "rubro" | "especialidad">): RubroProspeccion {
+/**
+ * De qué rubro es un prospecto.
+ * El sistema manda por encima del texto: todo lo que se carga en VivoMenu es
+ * gastronomía por definición, aunque el rubro venga escrito raro desde el scraper.
+ */
+export function detectarRubro(
+    p: Pick<Prospecto, "rubro" | "especialidad"> & { sistema?: Prospecto["sistema"] }
+): RubroProspeccion {
+    if (p.sistema === "vivomenu") return "gastronomia";
+
     const texto = normalizar(`${p.rubro || ""} ${p.especialidad || ""}`);
     if (!texto.trim()) return "generico";
 
@@ -126,16 +146,137 @@ export interface SenialNivel2 {
      * en una búsqueda y publicar sin devolución duelen igual, pero por motivos distintos.
      */
     lecturaPropia?: (p: Prospecto) => string;
+    /**
+     * La misma señal como frase suelta, en minúscula, para meterla en el medio de otra
+     * oración. La usa VivoMenu en el chequeo de 3 puntos y en el primer contacto.
+     */
+    hallazgo?: string;
 }
 
 const SENIALES: SenialNivel2[] = [
-    // ── Señales de dolor operativo ─────────────────────────────
+    // ══ GASTRONOMÍA (VivoMenu) ═════════════════════════════════
+    // Lo que se vende acá no es una web: es la carta propia, el pedido que llega
+    // armado, la cocina y el stock en un solo lado. Los dolores son otros.
+    {
+        id: "en_apps_delivery",
+        label: "Están en PedidosYa o Rappi",
+        donde: "Buscá el nombre en PedidosYa. También mirá si el link de la bio va a una app de delivery.",
+        patron: "margen_regalado",
+        rubros: ["gastronomia"],
+        peso: 100,
+        linea1: (p) => `Vi que ${p.negocio} está en PedidosYa.`,
+        hallazgo: "están tomando pedidos por PedidosYa",
+    },
+    {
+        id: "carta_sin_precios",
+        label: 'La carta publicada no tiene precios, o dice "consultar"',
+        donde:
+            "Instagram, ficha de Maps y link de la bio. Muchos los sacaron porque cambiaban todas las semanas y no daban abasto.",
+        patron: "operar_a_ciegas",
+        rubros: ["gastronomia"],
+        peso: 95,
+        linea1: (p) => `Estuve mirando la carta de ${p.negocio} y vi que no tiene los precios.`,
+        hallazgo: "la carta que está publicada no tiene los precios",
+        lecturaPropia: () =>
+            "sacar los precios es lo que termina haciendo todo el mundo cuando cambian cada dos semanas, y se entiende. El costo es que el que estaba por pedir ahora tiene que preguntar, y una parte de esos no pregunta: pide en otro lado donde ya vio el número.",
+    },
+    {
+        id: "comentarios_carta_sin_responder",
+        label: "Preguntan por la carta, precios o delivery y quedó sin responder",
+        donde: "Comentarios de las últimas publicaciones. Anotá de cuándo son.",
+        patron: "consulta_perdida",
+        rubros: ["gastronomia"],
+        peso: 92,
+        linea1: (p) =>
+            `Estuve mirando el Instagram de ${p.negocio} y vi comentarios preguntando por la carta que quedaron sin responder.`,
+        hallazgo: "hay comentarios preguntando por la carta que quedaron sin responder",
+    },
+    {
+        id: "carta_desactualizada",
+        label: "El último posteo con la carta tiene varios meses",
+        donde: "Buscá el posteo de la carta y mirá la fecha. Con cómo se movieron los precios, tres meses ya es mucho.",
+        patron: "operar_a_ciegas",
+        rubros: ["gastronomia"],
+        peso: 90,
+        linea1: (p) => `Vi que la carta que tiene publicada ${p.negocio} es de hace varios meses.`,
+        hallazgo: "la carta que está publicada es de hace varios meses",
+    },
+    {
+        id: "resenas_pedido_errado",
+        label: "Reseñas que mencionan pedido equivocado, incompleto o demorado",
+        donde: "Google, reseñas de menor puntaje. Si hay una cita textual, cargala arriba como nivel 1.",
+        patron: "operar_a_ciegas",
+        rubros: ["gastronomia"],
+        peso: 88,
+        linea1: (p) =>
+            `Estuve leyendo las reseñas de ${p.negocio} y vi que hay gente que menciona pedidos que llegaron mal o incompletos.`,
+        hallazgo: "en las reseñas hay gente que menciona pedidos que llegaron mal o incompletos",
+        lecturaPropia: () =>
+            "casi nunca es que en la cocina trabajen mal. Es que el pedido se toma a mano, se pasa a mano, y en el medio se pierde un agregado o una aclaración. El plato se rehace, la comida ya se pagó, y encima queda escrito en Google para el que viene atrás.",
+    },
+    {
+        id: "carta_como_imagen",
+        label: "La carta es una foto o un PDF que hay que agrandar para leer",
+        donde: "Abrila desde el celular como si fueras un cliente. ¿Se lee sin hacer zoom?",
+        patron: "consulta_perdida",
+        rubros: ["gastronomia"],
+        peso: 85,
+        linea1: (p) => `Abrí la carta de ${p.negocio} desde el celular y vi que hay que agrandarla para poder leerla.`,
+        hallazgo: "la carta es una imagen que hay que agrandar para leer desde el celular",
+    },
+    {
+        id: "precio_por_privado",
+        label: 'Contestan los precios por privado, de a uno',
+        donde: 'Comentarios: buscá respuestas tipo "te paso por privado" o "te escribo al DM".',
+        patron: "tiempo_del_dueno",
+        rubros: ["gastronomia"],
+        peso: 80,
+        linea1: (p) =>
+            `Vi que en ${p.negocio} los precios se pasan por privado, y esa misma pregunta se repite bastante.`,
+        hallazgo: "los precios se pasan por privado, de a uno",
+    },
+    {
+        id: "pedidos_solo_whatsapp",
+        label: "El único modo de pedir es escribir y esperar que contesten",
+        donde: "Bio, ficha de Maps y web: ¿hay algún lado donde el cliente arme el pedido solo?",
+        patron: "tiempo_del_dueno",
+        rubros: ["gastronomia"],
+        peso: 78,
+        linea1: (p) =>
+            `Busqué cómo hacer un pedido en ${p.negocio} y vi que la única forma es escribir y esperar respuesta.`,
+        hallazgo: "para pedir hay que escribir y esperar, no hay ningún lado donde el cliente arme el pedido solo",
+    },
+    {
+        id: "no_aparece_comida",
+        label: "No aparecen buscando el tipo de comida + la zona",
+        donde: 'Buscá "[tipo de comida] en [ciudad]" o "delivery de [comida]" en incógnito.',
+        patron: "demanda_que_no_llega",
+        rubros: ["gastronomia"],
+        peso: 72,
+        linea1: (p) =>
+            `Estuve buscando "${p.especialidad || p.rubro} en ${p.ciudad}" y vi que no aparecen, sí buscando el nombre.`,
+        hallazgo: "buscando el tipo de comida en la zona no aparecen, solo buscando el nombre exacto",
+    },
+    {
+        id: "posteos_sin_stock",
+        label: 'Postean "hoy no hay" o "se nos terminó"',
+        donde: "Historias y publicaciones. Es el faltante contado por el propio local.",
+        patron: "operar_a_ciegas",
+        rubros: ["gastronomia"],
+        peso: 68,
+        linea1: (p) => `Vi posteos de ${p.negocio} avisando que se habían quedado sin algunos productos.`,
+        hallazgo: "vi posteos avisando que se habían quedado sin algunos productos",
+        lecturaPropia: () =>
+            "quedarse sin algo un viernes a la noche es la venta que más duele, porque el cliente ya estaba decidido. Y suele pasar por lo mismo: la compra se hace a ojo, sin un lugar donde ver qué salió más la semana pasada.",
+    },
+
+    // ── Señales de dolor operativo (servicios) ─────────────────
     {
         id: "comentarios_sin_responder",
         label: "Comentarios pidiendo turno o precio que quedaron sin responder",
         donde: "Instagram → últimas 5 publicaciones → comentarios. Anotá hace cuánto.",
         patron: "consulta_perdida",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 100,
         linea1: (p) =>
             `Estuve mirando el Instagram de ${p.negocio} y vi que hay comentarios pidiendo turno que quedaron sin responder.`,
@@ -145,7 +286,7 @@ const SENIALES: SenialNivel2[] = [
         label: 'Publicaron "quedan turnos para hoy / esta semana"',
         donde: "Instagram → publicaciones e historias destacadas de las últimas 2 semanas.",
         patron: "capacidad",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 90,
         linea1: (p) =>
             `Vi la publicación de ${p.negocio} avisando que quedaban turnos disponibles.`,
@@ -155,7 +296,7 @@ const SENIALES: SenialNivel2[] = [
         label: 'Publicaron pidiendo "avisá si no podés venir"',
         donde: "Instagram → publicaciones e historias. Es el dueño publicando su propio dolor.",
         patron: "capacidad",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 95,
         linea1: (p) =>
             `Vi el posteo de ${p.negocio} pidiendo que avisen cuando no pueden venir.`,
@@ -165,7 +306,7 @@ const SENIALES: SenialNivel2[] = [
         label: "Publican casos o resultados con buena repercusión, y no hay dónde reservar",
         donde: "Compará los likes/comentarios de un posteo de caso contra la bio: ¿hay algún link?",
         patron: "consulta_perdida",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 80,
         linea1: (p) =>
             `Estuve viendo los casos que publica ${p.negocio} y la repercusión que tienen en los comentarios.`,
@@ -176,7 +317,7 @@ const SENIALES: SenialNivel2[] = [
         donde:
             "Instagram → últimas 9 publicaciones. Mirá comentarios y me gusta contra la cantidad de seguidores. Cero comentarios sostenido es la señal.",
         patron: "demanda_que_no_llega",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 82,
         linea1: (p) =>
             `Estuve viendo el Instagram de ${p.negocio}. Publican seguido, pero los posteos quedan en pocos me gusta y casi sin comentarios.`,
@@ -188,7 +329,7 @@ const SENIALES: SenialNivel2[] = [
         label: "El sitio web que figura en Google es el Instagram",
         donde: "Ficha de Maps → campo Sitio web. Si apunta a Instagram o Facebook, marcala.",
         patron: "demanda_que_no_llega",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 78,
         linea1: (p) =>
             `Entré a ${p.negocio} desde Google y vi que el link de la web lleva al Instagram.`,
@@ -200,7 +341,7 @@ const SENIALES: SenialNivel2[] = [
         label: "La pregunta del precio se repite en los comentarios",
         donde: "Instagram → comentarios de las últimas publicaciones. Contá cuántas veces aparece.",
         patron: "tiempo_del_dueno",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 70,
         linea1: (p) =>
             `Estuve mirando el Instagram de ${p.negocio} y vi que la pregunta del precio se repite bastante en los comentarios.`,
@@ -210,7 +351,7 @@ const SENIALES: SenialNivel2[] = [
         label: "No hay forma de sacar turno que no sea escribir y esperar",
         donde: "Bio de Instagram, ficha de Maps y web: ¿hay algún link que reserve solo?",
         patron: "tiempo_del_dueno",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 60,
         linea1: (p) =>
             `Busqué cómo sacar un turno en ${p.negocio} y no encontré otra forma que escribir y esperar respuesta.`,
@@ -232,7 +373,7 @@ const SENIALES: SenialNivel2[] = [
         label: "Reseñas sin responder",
         donde: "Ficha de Google → reseñas ordenadas por menor puntaje.",
         patron: "consulta_perdida",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 50,
         linea1: (p) => `Estuve viendo las reseñas de ${p.negocio} y vi que quedaron sin responder.`,
     },
@@ -241,7 +382,7 @@ const SENIALES: SenialNivel2[] = [
         label: "WhatsApp personal (no Business)",
         donde: "Abrí el chat: ¿tiene horarios, catálogo, respuestas rápidas?",
         patron: "tiempo_del_dueno",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 45,
         linea1: (p) =>
             `Vi que el WhatsApp de ${p.negocio} figura como número personal, sin horarios ni respuestas cargadas.`,
@@ -251,7 +392,7 @@ const SENIALES: SenialNivel2[] = [
         label: "Horarios de Maps mal cargados",
         donde: "Ficha de Google vs. lo que digan en Instagram.",
         patron: "consulta_perdida",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 40,
         linea1: (p) =>
             `Busqué ${p.negocio} en Google y los horarios que figuran no coinciden con los que publican.`,
@@ -261,7 +402,7 @@ const SENIALES: SenialNivel2[] = [
         label: "Ficha de Google incompleta",
         donde: "Ficha de Google: servicios, horarios, fotos.",
         patron: "consulta_perdida",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 35,
         linea1: (p) =>
             `Busqué ${p.negocio} en Google y la ficha está sin servicios ni horarios cargados.`,
@@ -271,7 +412,7 @@ const SENIALES: SenialNivel2[] = [
         label: "Link de la bio de Instagram roto o inexistente",
         donde: "Tocá el link de la bio.",
         patron: "consulta_perdida",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 30,
         linea1: (p) => `Quise entrar por el link de la bio de ${p.negocio} y no lleva a ningún lado.`,
     },
@@ -281,7 +422,7 @@ const SENIALES: SenialNivel2[] = [
         donde:
             'Buscá "[especialidad] en [ciudad]" en incógnito. Antes fijate que la demanda de búsqueda no esté en "baja": si nadie busca ese servicio, esta señal no aplica.',
         patron: "demanda_que_no_llega",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 88,
         linea1: (p) =>
             `Estuve buscando "${p.especialidad || p.rubro} en ${p.ciudad}" y vi que no aparecen en la primera pantalla — sí aparecen buscando el nombre.`,
@@ -291,7 +432,7 @@ const SENIALES: SenialNivel2[] = [
         label: "La web no carga bien en celular",
         donde: "Abrila con datos móviles, no con wifi.",
         patron: "consulta_perdida",
-        rubros: "todos",
+        rubros: ["odontologia", "generico"],
         peso: 20,
         linea1: (p) => `Entré a la web de ${p.negocio} desde el celular y tarda bastante en abrir.`,
     },
@@ -344,6 +485,10 @@ type Lectura = (p: Prospecto) => string;
 
 const LECTURA: Record<RubroProspeccion, Record<PatronDolor, Lectura>> = {
     odontologia: {
+        margen_regalado: () =>
+            "la obra social se queda con una parte y encima la paga tarde, así que el paciente particular es el que sostiene el mes. Y ese es justo el que se decide mirando desde afuera antes de escribir.",
+        operar_a_ciegas: () =>
+            "no hay un lugar donde ver quién quedó a mitad de tratamiento, quién tenía que volver y quién no volvió nunca. Sin eso, todo depende de que alguien se acuerde.",
         consulta_perdida: () =>
             "en la mayoría de los consultorios eso no es desatención: es que las consultas entran mezcladas con todo lo demás y no hay dónde verlas juntas. El que pregunta un domingo con dolor le escribe a tres, y termina yendo al que le contesta primero.",
         demanda_que_no_llega: (p) =>
@@ -357,7 +502,29 @@ const LECTURA: Record<RubroProspeccion, Record<PatronDolor, Lectura>> = {
         a_medio_terminar: () =>
             "un tratamiento que queda por la mitad ya te costó el diagnóstico y a veces el laboratorio. Esa plata está puesta y no se termina de cobrar, y suele no notarse porque no hay ningún lado donde ver quién quedó a mitad de camino.",
     },
+    gastronomia: {
+        margen_regalado: () =>
+            "de cada pedido que entra por ahí se va una parte antes de que la veas. Cuánto exactamente lo sabés vos mejor que yo, cada acuerdo es distinto. Lo que pasa siempre es lo otro: el cliente queda del lado de la app. No tenés su teléfono, no le podés avisar cuando sacás algo nuevo, y el día que te bajes de ahí ese cliente nunca fue tuyo.",
+        operar_a_ciegas: () =>
+            "con cómo se movieron los costos, una carta de hace unos meses ya no tiene los precios que cobrás hoy. Y ahí pasa una de dos: o el cliente llega con un número en la cabeza que no es, o alguien tiene que rehacerla entera cada vez que cambia algo.",
+        consulta_perdida: () =>
+            "el que pregunta por la carta tiene hambre en ese momento, no dentro de tres horas. Si no le contestás ahí, pide en otro lado. Y no es que le gustó más el otro: fue el que le contestó primero.",
+        tiempo_del_dueno: () =>
+            "esa consulta la termina contestando alguien que en ese momento está tomando pedidos o atendiendo mesas. Y la hora en que más consultas entran es justo la hora en que menos tiempo hay para contestarlas.",
+        capacidad: () =>
+            "un viernes a la noche se juega en dos horas. Un pedido que tarda en tomarse no se atrasa: se pierde, porque el que tiene hambre no espera.",
+        demanda_que_no_llega: () =>
+            "el que ya los conoce los busca por el nombre y los encuentra igual. El que tiene hambre y todavía no los conoce busca la comida, no el local, y pide entre los que le aparecen.",
+        no_vuelve: () =>
+            "el que pidió una vez y le gustó es el más barato de traer de vuelta. Pero si ese pedido entró por la app o por un chat que quedó enterrado entre otros cincuenta, no hay a quién avisarle cuando sacás algo nuevo.",
+        a_medio_terminar: () =>
+            "el que empezó a armar el pedido y no lo mandó ya estaba decidido a comprar. Se cayó en el último paso, y sin nada que lo registre no hay forma ni de saber cuántos fueron.",
+    },
     generico: {
+        margen_regalado: () =>
+            "esa venta la hiciste vos, pero una parte se la lleva otro antes de que llegue. Y con ella se va también el cliente: queda del lado del que te la trajo, no del tuyo.",
+        operar_a_ciegas: () =>
+            "no hay dónde ver de un vistazo qué se vendió, qué falta y qué precio rige hoy, así que las decisiones se toman de memoria y a ojo.",
         consulta_perdida: () =>
             "esa consulta ya la habías ganado: la persona te buscó y te escribió. Lo que se pierde ahí no es visibilidad, es alguien que ya te había elegido y no recibió respuesta a tiempo.",
         demanda_que_no_llega: (p) =>
@@ -379,6 +546,27 @@ export function lecturaDelDolor(rubro: RubroProspeccion, patron: PatronDolor, p:
 
 /** §7.2 — el regalo del follow-up: algo que puede hacer esa tarde, sin vos. */
 const REGALO: Partial<Record<FallaVerificable, string>> = {
+    // ── Gastronomía ──
+    en_apps_delivery:
+        "en la bio, poner primero tu WhatsApp y después el link de la app. El que ya te conoce y entra a tu perfil no tiene por qué pedirte por un lugar que te cobra comisión.",
+    carta_sin_precios:
+        "publicar la carta con precios en una historia destacada, aunque sea con los diez productos que más salen. El que ve el número decide; el que no lo ve, pregunta o se va.",
+    carta_desactualizada:
+        "actualizar el posteo de la carta con los precios de hoy y fijarlo arriba de todo. Es media hora y te saca la mitad de las preguntas por privado.",
+    comentarios_carta_sin_responder:
+        "contestar los comentarios que quedaron colgados, aunque sea con una línea. El que preguntó capaz ya comió en otro lado, pero el que lo lee hoy ve si contestás o no.",
+    resenas_pedido_errado:
+        "responder las reseñas peores con una línea cada una. Una queja contestada hace mucho menos daño que una queja sola, y no te cuesta nada.",
+    precio_por_privado:
+        "cargar las respuestas rápidas de WhatsApp Business con los 5 productos que más te preguntan y sus precios. Es gratis y te saca la mitad del ida y vuelta.",
+    pedidos_solo_whatsapp:
+        'poner en la bio un link de WhatsApp con el mensaje ya escrito ("Hola, quiero hacer un pedido"). Se arma en dos minutos y te ordena cómo entran.',
+    carta_como_imagen:
+        "subir la carta partida en varias fotos por categoría en vez de una sola imagen chiquita. Se lee sin agrandar y es lo mismo de trabajo.",
+    posteos_sin_stock:
+        "anotar una semana qué se te terminó y qué día. Con eso solo ya vas a ver el patrón de lo que hay que comprar más.",
+
+    // ── Servicios ──
     comentarios_sin_responder:
         "contestar los comentarios que quedaron colgados, aunque sea con una línea. El que preguntó hace dos semanas capaz todavía no resolvió, y el que lo lee hoy ve si contestás o no.",
     no_aparece_rubro:

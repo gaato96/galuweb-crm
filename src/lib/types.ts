@@ -549,6 +549,17 @@ export type FallaVerificable =
     // Demanda que nunca llega: existe en el mercado y termina eligiendo a otro.
     | "contenido_sin_devolucion"
     | "web_es_instagram"
+    // Gastronomía (VivoMenu): la carta, el pedido, la comisión y el stock.
+    | "en_apps_delivery"
+    | "carta_sin_precios"
+    | "carta_desactualizada"
+    | "carta_como_imagen"
+    | "comentarios_carta_sin_responder"
+    | "resenas_pedido_errado"
+    | "precio_por_privado"
+    | "pedidos_solo_whatsapp"
+    | "no_aparece_comida"
+    | "posteos_sin_stock"
     // Higiene / encontrabilidad: sirven de apoyo, no de titular.
     | "whatsapp_personal"
     | "ficha_incompleta"
@@ -672,6 +683,16 @@ export const FALLA_LABELS: Record<FallaVerificable, string> = {
     varios_prof_un_canal: "Varios profesionales, un solo canal",
     contenido_sin_devolucion: "Publican y los posteos quedan sin comentarios",
     web_es_instagram: "El sitio web en Google es el Instagram",
+    en_apps_delivery: "Están en PedidosYa o Rappi",
+    carta_sin_precios: "La carta publicada no tiene precios",
+    carta_desactualizada: "La carta publicada tiene varios meses",
+    carta_como_imagen: "La carta es una foto que hay que agrandar",
+    comentarios_carta_sin_responder: "Preguntan por la carta y no les responden",
+    resenas_pedido_errado: "Reseñas de pedidos mal o incompletos",
+    precio_por_privado: "Pasan los precios por privado, de a uno",
+    pedidos_solo_whatsapp: "Solo se puede pedir escribiendo y esperando",
+    no_aparece_comida: "No aparecen buscando la comida + la zona",
+    posteos_sin_stock: 'Postean "hoy no hay" o "se terminó"',
     whatsapp_personal: "WhatsApp personal (no Business)",
     ficha_incompleta: "Ficha de Google incompleta",
     horarios_mal: "Horarios de Maps mal cargados",

@@ -546,9 +546,12 @@ export default function ProspectoModal({
                                     </div>
 
                                     <p className="text-[11px] text-muted-foreground">
-                                        Marcá solo lo que <strong>viste</strong>. El dolor de fondo (turnos que no se presentan,
-                                        tratamientos a medio hacer) no se afirma nunca: entra como lectura del rubro en la línea 2,
-                                        armada a partir de la señal que va de titular.
+                                        Marcá solo lo que <strong>viste</strong>. El dolor de fondo{" "}
+                                        {rubroProsp === "gastronomia"
+                                            ? "(cuánto se lleva la comisión, la plata que se pierde en pedidos mal tomados)"
+                                            : "(turnos que no se presentan, tratamientos a medio hacer)"}{" "}
+                                        no se afirma nunca: entra como lectura del rubro en la línea 2, armada a partir de
+                                        la señal que va de titular.
                                     </p>
                                 </div>
 

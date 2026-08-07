@@ -15,6 +15,7 @@
 
 import type { Prospecto, FallaVerificable } from "./types";
 import { normalizarEscaneo, diasDesde } from "./prospeccion";
+import { SENIALES_POR_ID, senialPrincipal } from "./dolores-rubro";
 
 /** Un solo lugar para cambiar quién firma los mensajes. */
 export const VIVOMENU_REMITENTE = "Gastón";
@@ -50,26 +51,29 @@ function minuscula(txt: string): string {
     return t.charAt(0).toLowerCase() + t.slice(1);
 }
 
-/** §5 Peldaño 1 — la señal que abre el mensaje, en minúscula para insertarla en la frase. */
+/**
+ * §5 Peldaño 1 — la señal que abre el mensaje, en minúscula para insertarla en la frase.
+ * Prioriza lo que se cargó a mano, después la señal más fuerte del escaneo de gastronomía.
+ */
 function senialParaMensaje(p: Prospecto): string {
     if (p.dato_usado.trim()) return minuscula(p.dato_usado);
     const escaneo = normalizarEscaneo(p.escaneo);
     if (escaneo.queja_textual.trim()) return minuscula(escaneo.queja_textual);
+
+    const senial = senialPrincipal(escaneo.fallas);
+    if (senial?.hallazgo) return senial.hallazgo;
+
     return `varias cosas de ${p.negocio || "tu local"} en Google`;
 }
 
-/** §3.3 traducido a frases: mismas fallas de prospeccion.ts, fraseadas para pedidos por WhatsApp. */
-// Parcial a propósito: las señales de agenda/turnos del catálogo de servicios
-// (comentarios sin responder, "quedan turnos", etc.) no aplican a gastronomía.
-const FALLA_A_HALLAZGO_VIVOMENU: Partial<Record<FallaVerificable, string>> = {
-    whatsapp_personal: "el WhatsApp es un número personal, sin catálogo ni respuestas rápidas — cada pedido hay que escribirlo de cero",
-    ficha_incompleta: "la ficha de Google no tiene el menú ni los horarios cargados",
-    horarios_mal: "los horarios de Google no coinciden con los reales, así que a veces escriben y no hay nadie",
-    bio_rota: "el link de la bio de Instagram no lleva a ningún lado",
-    no_aparece_rubro: "no aparece al buscar el rubro + la zona, solo buscando el nombre exacto",
-    web_lenta: "el link que tienen para pedir tarda o no carga bien desde el celular",
-    sin_responder_resenas: "hay reseñas sin responder, algunas mencionando demoras",
-};
+/** Los hallazgos salen del catálogo de gastronomía (dolores-rubro.ts), ordenados por peso. */
+function hallazgosDelEscaneo(fallas: FallaVerificable[]): string[] {
+    return fallas
+        .map((f) => SENIALES_POR_ID[f])
+        .filter((s) => !!s?.hallazgo)
+        .sort((a, b) => b.peso - a.peso)
+        .map((s) => s.hallazgo as string);
+}
 
 /** §3.4 + §5 rama dueño — clasifica un canal existente para saber cuál mensaje de ruteo mandar. */
 export function tieneWhatsappBusiness(p: Prospecto): boolean {
@@ -93,7 +97,7 @@ export function generarMensajeVivoMenu(paso: PasoMensajeVivoMenu, p: Prospecto):
             "",
             `Este es uno real, tocalo como si fueras un cliente: ${demoUrl}`,
             "",
-            "¿Este WhatsApp lo lleva el dueño, o se lo puedo pasar por acá?",
+            "Este WhatsApp lo lleva el dueño, o se lo puedo pasar por acá?",
         ].join("\n");
     }
 
@@ -106,16 +110,13 @@ export function generarMensajeVivoMenu(paso: PasoMensajeVivoMenu, p: Prospecto):
     }
 
     if (paso === "rama_dueno") {
-        return "Bien. Contame una cosa, para no hacerte perder tiempo: un viernes a la noche, ¿los pedidos te entran más por acá o por PedidosYa?";
+        return "Bien. Contame una cosa, para no hacerte perder tiempo: un viernes a la noche, los pedidos te entran más por acá o por PedidosYa?";
     }
 
     if (paso === "fu1") {
         // §6 — el "chequeo de 3 puntos". Necesita hallazgos reales del escaneo:
         // si no hay suficientes, se avisa en vez de inventar observaciones falsas.
-        const hallazgos = escaneo.fallas
-            .map((f) => FALLA_A_HALLAZGO_VIVOMENU[f])
-            .filter((h): h is string => !!h)
-            .slice(0, 3);
+        const hallazgos = hallazgosDelEscaneo(escaneo.fallas).slice(0, 3);
         if (escaneo.queja_textual.trim() && hallazgos.length < 3) {
             hallazgos.unshift(`en las reseñas alguien menciona: "${escaneo.queja_textual.trim()}"`);
         }
@@ -151,9 +152,9 @@ export function generarMensajeVivoMenu(paso: PasoMensajeVivoMenu, p: Prospecto):
     // compromiso_visita
     const { texto1, texto2 } = proximosDiasEnvio();
     return [
-        "¿Te parece si paso y te lo dejo funcionando de verdad, con toda la carta y las fotos? Son 40 minutos y lo usás un fin de semana. Si no te sirvió, lo sacamos.",
+        "Te parece si paso y te lo dejo funcionando de verdad, con toda la carta y las fotos? Son 40 minutos y lo usás un fin de semana. Si no te sirvió, lo sacamos.",
         "",
-        `¿Te va ${texto1} a las 16, o ${texto2} a esa hora?`,
+        `Te va ${texto1} a las 16, o ${texto2} a esa hora?`,
     ].join("\n");
 }
 
