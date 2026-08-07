@@ -24,6 +24,29 @@ const normalizar = (str: string): string =>
     (str || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
 /**
+ * Variante estable por prospecto: el mismo negocio devuelve siempre la misma,
+ * pero dos prospectos seguidos no arrancan con la misma frase. Mandando diez
+ * mensajes por d\u00eda, que todos empiecen igual es lo que los delata como plantilla.
+ */
+function varianteDe(semilla: string, cantidad: number): number {
+    let h = 0;
+    for (let i = 0; i < semilla.length; i++) h = (h * 31 + semilla.charCodeAt(i)) | 0;
+    return Math.abs(h) % cantidad;
+}
+
+// Sin signo de apertura a prop\u00f3sito: nadie escribe "\u00bf" desde el celular.
+const SALUDOS = ["Hola! Como estas?", "Hola, que tal?", "Buenas! Como andan?"];
+const CONECTORES = ["Te lo comento porque", "Te lo digo porque", "Lo menciono porque"];
+
+export function saludoDe(p: Prospecto): string {
+    return SALUDOS[varianteDe(p.negocio || p.id || "", SALUDOS.length)];
+}
+
+export function conectorDe(p: Prospecto): string {
+    return CONECTORES[varianteDe((p.negocio || p.id || "") + "c", CONECTORES.length)];
+}
+
+/**
  * Los seis dolores que se repiten en todos los rubros, con distinta ropa.
  *
  * Ojo con la diferencia entre los dos primeros, porque define mensajes distintos:
@@ -115,7 +138,7 @@ const SENIALES: SenialNivel2[] = [
         rubros: "todos",
         peso: 100,
         linea1: (p) =>
-            `Hola! Estuve mirando el Instagram de ${p.negocio} y vi que hay comentarios pidiendo turno que quedaron sin responder.`,
+            `Estuve mirando el Instagram de ${p.negocio} y vi que hay comentarios pidiendo turno que quedaron sin responder.`,
     },
     {
         id: "turnos_disponibles_posteo",
@@ -125,7 +148,7 @@ const SENIALES: SenialNivel2[] = [
         rubros: "todos",
         peso: 90,
         linea1: (p) =>
-            `Hola! Vi la publicación de ${p.negocio} avisando que quedaban turnos disponibles.`,
+            `Vi la publicación de ${p.negocio} avisando que quedaban turnos disponibles.`,
     },
     {
         id: "aviso_ausentismo",
@@ -135,7 +158,7 @@ const SENIALES: SenialNivel2[] = [
         rubros: "todos",
         peso: 95,
         linea1: (p) =>
-            `Hola! Vi el posteo de ${p.negocio} pidiendo que avisen cuando no pueden venir.`,
+            `Vi el posteo de ${p.negocio} pidiendo que avisen cuando no pueden venir.`,
     },
     {
         id: "demanda_sin_camino",
@@ -145,7 +168,7 @@ const SENIALES: SenialNivel2[] = [
         rubros: "todos",
         peso: 80,
         linea1: (p) =>
-            `Hola! Estuve viendo los casos que publica ${p.negocio} y la repercusión que tienen en los comentarios.`,
+            `Estuve viendo los casos que publica ${p.negocio} y la repercusión que tienen en los comentarios.`,
     },
     {
         id: "contenido_sin_devolucion",
@@ -156,9 +179,9 @@ const SENIALES: SenialNivel2[] = [
         rubros: "todos",
         peso: 82,
         linea1: (p) =>
-            `Hola! Estuve viendo el Instagram de ${p.negocio}. Publican seguido, pero los posteos quedan en pocos me gusta y casi sin comentarios.`,
+            `Estuve viendo el Instagram de ${p.negocio}. Publican seguido, pero los posteos quedan en pocos me gusta y casi sin comentarios.`,
         lecturaPropia: () =>
-            "Te lo comento porque el trabajo de producir eso ya lo están haciendo. El tema es que Instagram lo muestra casi solo a los que ya los siguen — para el que todavía no los conoce, ese contenido no existe. Es esfuerzo puesto que no está trayendo gente nueva.",
+            "el trabajo de producir eso ya lo están haciendo. El tema es que Instagram lo muestra casi solo a los que ya los siguen. Para el que todavía no los conoce, ese contenido no existe. Es esfuerzo puesto que no está trayendo gente nueva.",
     },
     {
         id: "web_es_instagram",
@@ -168,9 +191,9 @@ const SENIALES: SenialNivel2[] = [
         rubros: "todos",
         peso: 78,
         linea1: (p) =>
-            `Hola! Entré a ${p.negocio} desde Google y el link de la web lleva al Instagram.`,
+            `Entré a ${p.negocio} desde Google y vi que el link de la web lleva al Instagram.`,
         lecturaPropia: () =>
-            "Te lo comento porque el que llega desde Google y toca ahí va buscando algo concreto: qué hacen, cuánto sale, cómo sacar turno. Y cae en un perfil donde eso hay que ir a buscarlo scrolleando. La mayoría no lo hace — vuelve atrás y abre el siguiente de la lista.",
+            "el que llega desde Google y toca ahí va buscando algo concreto: qué hacen, cuánto sale, cómo sacar turno. Y cae en un perfil donde eso hay que ir a buscarlo scrolleando. La mayoría no lo hace: vuelve atrás y abre el siguiente de la lista.",
     },
     {
         id: "precio_en_comentarios",
@@ -180,7 +203,7 @@ const SENIALES: SenialNivel2[] = [
         rubros: "todos",
         peso: 70,
         linea1: (p) =>
-            `Hola! Estuve mirando el Instagram de ${p.negocio} y vi que la pregunta del precio se repite bastante en los comentarios.`,
+            `Estuve mirando el Instagram de ${p.negocio} y vi que la pregunta del precio se repite bastante en los comentarios.`,
     },
     {
         id: "sin_reserva_online",
@@ -190,7 +213,7 @@ const SENIALES: SenialNivel2[] = [
         rubros: "todos",
         peso: 60,
         linea1: (p) =>
-            `Hola! Busqué cómo sacar un turno en ${p.negocio} y no encontré otra forma que escribir y esperar respuesta.`,
+            `Busqué cómo sacar un turno en ${p.negocio} y no encontré otra forma que escribir y esperar respuesta.`,
     },
     {
         id: "varios_prof_un_canal",
@@ -200,7 +223,7 @@ const SENIALES: SenialNivel2[] = [
         rubros: ["odontologia"],
         peso: 65,
         linea1: (p) =>
-            `Hola! Vi que en ${p.negocio} atienden varios profesionales y que todo entra por el mismo teléfono.`,
+            `Vi que en ${p.negocio} atienden varios profesionales y que todo entra por el mismo teléfono.`,
     },
 
     // ── Higiene / encontrabilidad (apoyo, no titular) ──────────
@@ -211,7 +234,7 @@ const SENIALES: SenialNivel2[] = [
         patron: "consulta_perdida",
         rubros: "todos",
         peso: 50,
-        linea1: (p) => `Hola! Estuve viendo las reseñas de ${p.negocio} y vi que quedaron sin responder.`,
+        linea1: (p) => `Estuve viendo las reseñas de ${p.negocio} y vi que quedaron sin responder.`,
     },
     {
         id: "whatsapp_personal",
@@ -221,7 +244,7 @@ const SENIALES: SenialNivel2[] = [
         rubros: "todos",
         peso: 45,
         linea1: (p) =>
-            `Hola! Vi que el WhatsApp de ${p.negocio} figura como número personal, sin horarios ni respuestas cargadas.`,
+            `Vi que el WhatsApp de ${p.negocio} figura como número personal, sin horarios ni respuestas cargadas.`,
     },
     {
         id: "horarios_mal",
@@ -231,7 +254,7 @@ const SENIALES: SenialNivel2[] = [
         rubros: "todos",
         peso: 40,
         linea1: (p) =>
-            `Hola! Busqué ${p.negocio} en Google y los horarios que figuran no coinciden con los que publican.`,
+            `Busqué ${p.negocio} en Google y los horarios que figuran no coinciden con los que publican.`,
     },
     {
         id: "ficha_incompleta",
@@ -241,7 +264,7 @@ const SENIALES: SenialNivel2[] = [
         rubros: "todos",
         peso: 35,
         linea1: (p) =>
-            `Hola! Busqué ${p.negocio} en Google y la ficha está sin servicios ni horarios cargados.`,
+            `Busqué ${p.negocio} en Google y la ficha está sin servicios ni horarios cargados.`,
     },
     {
         id: "bio_rota",
@@ -250,7 +273,7 @@ const SENIALES: SenialNivel2[] = [
         patron: "consulta_perdida",
         rubros: "todos",
         peso: 30,
-        linea1: (p) => `Hola! Quise entrar por el link de la bio de ${p.negocio} y no lleva a ningún lado.`,
+        linea1: (p) => `Quise entrar por el link de la bio de ${p.negocio} y no lleva a ningún lado.`,
     },
     {
         id: "no_aparece_rubro",
@@ -261,7 +284,7 @@ const SENIALES: SenialNivel2[] = [
         rubros: "todos",
         peso: 88,
         linea1: (p) =>
-            `Hola! Busqué "${p.especialidad || p.rubro} en ${p.ciudad}" y no aparecen en la primera pantalla — sí aparecen buscando el nombre.`,
+            `Estuve buscando "${p.especialidad || p.rubro} en ${p.ciudad}" y vi que no aparecen en la primera pantalla — sí aparecen buscando el nombre.`,
     },
     {
         id: "web_lenta",
@@ -270,7 +293,7 @@ const SENIALES: SenialNivel2[] = [
         patron: "consulta_perdida",
         rubros: "todos",
         peso: 20,
-        linea1: (p) => `Hola! Entré a la web de ${p.negocio} desde el celular y tarda bastante en abrir.`,
+        linea1: (p) => `Entré a la web de ${p.negocio} desde el celular y tarda bastante en abrir.`,
     },
 ];
 
@@ -322,31 +345,31 @@ type Lectura = (p: Prospecto) => string;
 const LECTURA: Record<RubroProspeccion, Record<PatronDolor, Lectura>> = {
     odontologia: {
         consulta_perdida: () =>
-            "Te lo comento porque en la mayoría de los consultorios eso no es desatención: es que las consultas entran mezcladas con todo lo demás y no hay dónde verlas juntas. El que pregunta un domingo con dolor le escribe a tres, y termina yendo al que le contesta primero.",
+            "en la mayoría de los consultorios eso no es desatención: es que las consultas entran mezcladas con todo lo demás y no hay dónde verlas juntas. El que pregunta un domingo con dolor le escribe a tres, y termina yendo al que le contesta primero.",
         demanda_que_no_llega: (p) =>
-            `Te lo comento porque el que ya los conoce los busca por el nombre y los encuentra igual. El tema es el que todavía no los conoce: ese busca la especialidad, elige entre los que ve en la primera pantalla, y nunca llega a compararlos.${reputacionDesaprovechada(p)}`,
+            `el que ya los conoce los busca por el nombre y los encuentra igual. El tema es el que todavía no los conoce: ese busca la especialidad, elige entre los que ve en la primera pantalla, y nunca llega a compararlos.${reputacionDesaprovechada(p)}`,
         capacidad: () =>
-            "Te lo comento porque una hora de sillón que queda vacía no se recupera: el alquiler y la asistente se pagan igual. Y casi nunca es falta de pacientes — es que el hueco aparece tarde y no hay a quién avisarle a tiempo.",
+            "una hora de sillón que queda vacía no se recupera: el alquiler y la asistente se pagan igual. Y casi nunca es falta de pacientes — es que el hueco aparece tarde y no hay a quién avisarle a tiempo.",
         tiempo_del_dueno: () =>
-            "Te lo comento porque esa pregunta la termina contestando alguien que debería estar atendiendo, y se repite todo el día. Además el precio suelto por chat, sin nada alrededor que lo explique, los manda derecho a comparar con el más barato.",
+            "esa pregunta la termina contestando alguien que debería estar atendiendo, y se repite todo el día. Además el precio suelto por chat, sin nada alrededor que lo explique, los manda derecho a comparar con el más barato.",
         no_vuelve: () =>
-            "Te lo comento porque el paciente de control es el más barato que vas a conseguir: ya confía y ya vino una vez. Pero si nadie le avisa a los seis meses, no vuelve — y no es que se fue enojado, simplemente se olvidó.",
+            "el paciente de control es el más barato que vas a conseguir: ya confía y ya vino una vez. Pero si nadie le avisa a los seis meses, no vuelve — y no es que se fue enojado, simplemente se olvidó.",
         a_medio_terminar: () =>
-            "Te lo comento porque un tratamiento que queda por la mitad ya te costó el diagnóstico y a veces el laboratorio. Esa plata está puesta y no se termina de cobrar, y suele no notarse porque no hay ningún lado donde ver quién quedó a mitad de camino.",
+            "un tratamiento que queda por la mitad ya te costó el diagnóstico y a veces el laboratorio. Esa plata está puesta y no se termina de cobrar, y suele no notarse porque no hay ningún lado donde ver quién quedó a mitad de camino.",
     },
     generico: {
         consulta_perdida: () =>
-            "Te lo comento porque esa consulta ya la habías ganado: la persona te buscó y te escribió. Lo que se pierde ahí no es visibilidad, es alguien que ya te había elegido y no recibió respuesta a tiempo.",
+            "esa consulta ya la habías ganado: la persona te buscó y te escribió. Lo que se pierde ahí no es visibilidad, es alguien que ya te había elegido y no recibió respuesta a tiempo.",
         demanda_que_no_llega: (p) =>
-            `Te lo comento porque el que ya los conoce los encuentra igual, buscándolos por el nombre. El que todavía no los conoce busca el servicio, y elige entre los que aparecen.${reputacionDesaprovechada(p)}`,
+            `el que ya los conoce los encuentra igual, buscándolos por el nombre. El que todavía no los conoce busca el servicio, y elige entre los que aparecen.${reputacionDesaprovechada(p)}`,
         capacidad: () =>
-            "Te lo comento porque ese lugar vacío no se recupera después: los costos corren igual, y el hueco casi siempre aparece demasiado tarde como para venderlo.",
+            "ese lugar vacío no se recupera después: los costos corren igual, y el hueco casi siempre aparece demasiado tarde como para venderlo.",
         tiempo_del_dueno: () =>
-            "Te lo comento porque eso se lleva horas de alguien que debería estar produciendo, y son horas que no se facturan ni se pueden delegar mientras siga siendo todo a mano.",
+            "eso se lleva horas de alguien que debería estar produciendo, y son horas que no se facturan ni se pueden delegar mientras siga siendo todo a mano.",
         no_vuelve: () =>
-            "Te lo comento porque el cliente que ya te compró es el más barato de todos, y volver a traerlo depende de que alguien se acuerde de avisarle en el momento justo.",
+            "el cliente que ya te compró es el más barato de todos, y volver a traerlo depende de que alguien se acuerde de avisarle en el momento justo.",
         a_medio_terminar: () =>
-            "Te lo comento porque lo que quedó empezado ya te costó tiempo y plata. Está puesto y sin terminar de cobrar, y no se nota porque no hay dónde verlo.",
+            "lo que quedó empezado ya te costó tiempo y plata. Está puesto y sin terminar de cobrar, y no se nota porque no hay dónde verlo.",
     },
 };
 
@@ -365,13 +388,13 @@ const REGALO: Partial<Record<FallaVerificable, string>> = {
     web_es_instagram:
         "poner en la bio, arriba de todo, qué hacen y dónde están, en dos líneas. El que cae desde Google necesita confirmar eso en dos segundos, y hoy tiene que deducirlo de las fotos.",
     turnos_disponibles_posteo:
-        "cuando te queda un hueco, publicarlo con el horario exacto y no como “quedan turnos”. El que está por escribir necesita saber si le sirve ese día, y decidir le lleva un segundo.",
+        'cuando te queda un hueco, publicarlo con el horario exacto y no como "quedan turnos". El que está por escribir necesita saber si le sirve ese día, y decidir le lleva un segundo.',
     aviso_ausentismo:
         "mandar un mensaje de confirmación el día anterior, aunque sea a mano. Solo con eso el ausentismo baja bastante, y no requiere ningún sistema.",
     precio_en_comentarios:
         "cargar las respuestas rápidas de WhatsApp Business con las 5 preguntas que más se repiten. Es gratis y te saca la mitad del ida y vuelta.",
     sin_reserva_online:
-        "poner en la bio un link de WhatsApp con el mensaje ya escrito (“Hola, quiero un turno para…”). Se arma en dos minutos y te ordena cómo llegan las consultas.",
+        'poner en la bio un link de WhatsApp con el mensaje ya escrito ("Hola, quiero un turno para..."). Se arma en dos minutos y te ordena cómo llegan las consultas.',
     demanda_sin_camino:
         "poner en la bio un solo link que lleve a pedir turno. Hoy publicás casos que funcionan y la gente no tiene dónde seguir.",
     varios_prof_un_canal:

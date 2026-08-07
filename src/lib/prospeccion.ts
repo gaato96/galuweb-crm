@@ -16,7 +16,9 @@ import type {
     Sistema,
 } from "./types";
 import { ESCANEO_VACIO, FALLA_LABELS } from "./types";
-import { detectarRubro, senialPrincipal, lecturaDelDolor, regaloDeSenial } from "./dolores-rubro";
+import {
+    detectarRubro, senialPrincipal, lecturaDelDolor, regaloDeSenial, saludoDe, conectorDe,
+} from "./dolores-rubro";
 
 // ─────────────────────────────────────────────────────────────
 // §4 — La escalera del dato de personalización
@@ -304,8 +306,10 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
     const rubro = p.especialidad || p.rubro || "tu rubro";
     const ciudad = p.ciudad || "la zona";
 
+    const saludo = saludoDe(p);
+
     if (paso === "ruteo") {
-        return "Che, una cosa: ¿esto lo maneja alguien más? Si me decís con quién, le escribo directo y no te hago de intermediaria.";
+        return "Che, una cosa: esto lo maneja alguien más? Si me decís con quién le escribo directo y no te hago de intermediaria.";
     }
 
     if (paso === "m1") {
@@ -313,14 +317,14 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
         if (!nivel || nivel >= 3) {
             const observacion =
                 nivel === 3
-                    ? `Vi que ${minuscula(escaneo.hito_reciente)} — felicitaciones.`
+                    ? `Vi que ${minuscula(escaneo.hito_reciente)}, felicitaciones.`
                     : nivel === 4
                       ? `Vi ${minuscula(escaneo.detalle_trabajo)}.`
                       : `Estuve viendo ${p.negocio}.`;
             return [
-                `Hola! ${observacion}`,
+                `${saludo} ${observacion}`,
                 "",
-                "Pregunta corta: ¿tienen algo online donde alguien que los busca pueda ver los servicios y dejar sus datos, o hoy va todo por WhatsApp?",
+                "Una pregunta corta: tienen algo online donde el que los busca pueda ver los servicios y dejar sus datos, o hoy va todo por WhatsApp?",
             ].join("\n");
         }
 
@@ -330,24 +334,26 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
         const rubroProsp = detectarRubro(p);
         const senial = senialPrincipal(escaneo.fallas);
 
-        const linea1 =
+        const observacion =
             nivel === 1
-                ? `Hola! Estuve viendo las reseñas ${p.negocio ? `de ${p.negocio}` : ""} y hay gente que menciona que ${minuscula(escaneo.queja_textual)}.`.replace(
+                ? `Estuve viendo las reseñas ${p.negocio ? `de ${p.negocio}` : ""} y vi que hay gente que menciona que ${minuscula(escaneo.queja_textual)}.`.replace(
                       /\s+/g,
                       " "
                   )
                 : senial
                   ? senial.linea1(p)
-                  : `Hola! Estuve viendo ${p.negocio}.`;
+                  : `Estuve viendo ${p.negocio}.`;
 
-        const linea2 =
+        const lectura =
             nivel === 1
                 ? lecturaDelDolor(rubroProsp, "consulta_perdida", p)
                 : senial
                   ? senial.lecturaPropia?.(p) ?? lecturaDelDolor(rubroProsp, senial.patron, p)
                   : CONSECUENCIA_GENERICA[p.clasificacion_web];
 
-        const linea3 = `Te armé un análisis en una página con lo que veo desde afuera: qué ve la gente que busca ${rubro} en ${ciudad}, cuántos son por mes, y qué se puede arreglar o corregir sin contratar a nadie más. Es gratis, sin compromiso. ¿Te lo mando?`;
+        const linea1 = `${saludo} ${observacion}`;
+        const linea2 = `${conectorDe(p)} ${lectura}`;
+        const linea3 = `Te armé un análisis en una página con lo que veo desde afuera: qué ve la gente que busca ${rubro} en ${ciudad}, cuántos son por mes, y qué se puede arreglar o corregir sin contratar a nadie más. Tranqui, es gratis, sin compromiso. Te lo puedo mandar?`;
 
         return [linea1, "", linea2, "", linea3].join("\n");
     }
@@ -359,7 +365,7 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
             "",
             "Son 4 cosas concretas, la primera la podés arreglar hoy sin ayuda de nadie.",
             "",
-            "Una pregunta para entender: hoy, cuando alguien los consulta por primera vez, ¿entra por WhatsApp, por teléfono o por recomendación?",
+            "Una pregunta para entender: hoy cuando alguien los consulta por primera vez, entra por WhatsApp, por teléfono o por recomendación?",
         ].join("\n");
     }
 
@@ -367,9 +373,9 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
         return [
             "Buenísimo. Eso que me contás es igual a lo que le pasaba a [caso donde la situación coincide]: todo entraba por WhatsApp y se perdía la mitad.",
             "",
-            "Lo que hacemos es un diagnóstico de 30 minutos, sin costo — sale un documento de una página con qué conviene tocar primero y qué cuesta. Sin compromiso de nada.",
+            "Lo que hacemos es un diagnóstico de 30 minutos, sin costo. Sale un documento de una página con qué conviene tocar primero y qué cuesta. Sin compromiso de nada.",
             "",
-            "¿Te sirve esta semana o la próxima?",
+            "Te sirve esta semana o la que viene?",
         ].join("\n");
     }
 

@@ -21,16 +21,27 @@ const REGLAS_COMUNES = `1. Español rioplatense, voseo, tono de persona real esc
 2. Cero jerga: prohibido "sistema de gestión", "automatización de procesos", "presencia digital", "solución integral",
    "optimizar", "potenciar". Lo tiene que entender alguien sin nada de contexto técnico, de una sola pasada.
 3. No inventes datos que no estén en la sección de arriba. Si algo falta, omitilo en vez de rellenar con genérico.
-4. Máximo 90 palabras.`;
+4. Máximo 90 palabras.
+
+QUE NO SE NOTE ESCRITO POR IA (esto es lo que más importa: si se nota, no contestan)
+5. NO uses signos de apertura "¿" ni "¡". Nadie los escribe desde el celular. Va "Te lo puedo mandar?", no "¿Te lo mando?".
+6. Como mucho UN guion largo (—) en todo el mensaje, y solo si ya venía en el borrador. Dos o más es la marca de IA
+   más obvia que hay. Reemplazalos por punto seguido, coma o dos puntos.
+7. Nada de comillas curvas (" ") ni puntos suspensivos de un solo carácter (...). Comillas rectas y tres puntos.
+8. Nada de enumeraciones de tres cosas por costumbre ("rápido, simple y efectivo"). Si son dos, poné dos.
+9. Nada de frases que suenan a cierre publicitario, ni negaciones de contraste tipo "no es X, es Y" repetidas.
+10. Dejá las asperezas: contracciones, alguna frase larga al lado de una corta, un "che" o un "tranqui" si cae bien.
+    Un mensaje perfectamente parejo se lee escrito por máquina.
+11. Hablá en primera persona de lo que viste: "estuve buscando", "vi que", "me fijé". No enunciados impersonales.`;
 
 function reglasGalu(largo: string): string {
     return `${REGLAS_COMUNES}
-5. Versión ${largo}. Si es corta, no expliques la consecuencia: observación + una pregunta y listo.
-6. El pedido final se tiene que poder contestar con una palabra. No pidas reunión, ni el teléfono del dueño, ni el mail.
-7. Prohibido en este mensaje: casos de éxito, precios, links (salvo que el borrador ya traiga uno), emojis más allá de
+12. Versión ${largo}. Si es corta, no expliques la consecuencia: observación + una pregunta y listo.
+13. El pedido final se tiene que poder contestar con una palabra. No pidas reunión, ni el teléfono del dueño, ni el mail.
+14. Prohibido en este mensaje: casos de éxito, precios, links (salvo que el borrador ya traiga uno), emojis más allá de
    uno solo si el borrador lo tiene, y la palabra "presupuesto".
-8. Si el dato es una queja de un cliente, encuadrala como problema del sistema y no de la persona que atiende.
-9. CRÍTICO — la línea 1 dice SOLO lo que se observó desde afuera, y la línea 2 dice qué SUELE significar eso en el rubro.
+15. Si el dato es una queja de un cliente, encuadrala como problema del sistema y no de la persona que atiende.
+16. CRÍTICO — la línea 1 dice SOLO lo que se observó desde afuera, y la línea 2 dice qué SUELE significar eso en el rubro.
    Nunca afirmes como un hecho de este negocio algo que no se puede ver desde afuera (que tienen turnos que no se
    presentan, tratamientos a medio terminar, pacientes que no vuelven). Eso va siempre como lectura general del rubro
    ("en la mayoría de los consultorios...", "suele pasar que..."), jamás como acusación. Si lo afirmás, el mensaje se
@@ -40,14 +51,14 @@ function reglasGalu(largo: string): string {
 function reglasVivoMenu(paso: PasoMensajeVivoMenu): string {
     const extra =
         paso === "primer_contacto"
-            ? `6. La primera línea tiene que aclarar que NO es un pedido — el que lee está tomando pedidos por ese mismo WhatsApp
+            ? `13. La primera línea tiene que aclarar que NO es un pedido — el que lee está tomando pedidos por ese mismo WhatsApp
    y hay que sacarlo de ese modo antes de cualquier otra cosa.
-7. El link va SIN pedir permiso antes. El permiso se pide en la pregunta final, sobre algo que sí tiene costo para el que lee
+14. El link va SIN pedir permiso antes. El permiso se pide en la pregunta final, sobre algo que sí tiene costo para el que lee
    (pasar el contacto al dueño), nunca sobre mandar el link.`
-            : `6. No expliques el producto con palabras si ya se explicó en un paso anterior — mostrás, no contás de nuevo.`;
+            : `13. No expliques el producto con palabras si ya se explicó en un paso anterior — mostrás, no contás de nuevo.`;
 
     return `${REGLAS_COMUNES}
-5. Prohibido: mandar un PDF o guía, dar el precio por chat, y la frase "sistema de pedidos" (decí "el pedido te llega armado").
+12. Prohibido: mandar un PDF o guía, dar el precio por chat, y la frase "sistema de pedidos" (decí "el pedido te llega armado").
 ${extra}`;
 }
 
