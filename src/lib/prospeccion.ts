@@ -16,6 +16,7 @@ import type {
     Sistema,
 } from "./types";
 import { ESCANEO_VACIO, FALLA_LABELS } from "./types";
+import { detectarRubro, senialPrincipal, lecturaDelDolor, regaloDeSenial } from "./dolores-rubro";
 
 // ─────────────────────────────────────────────────────────────
 // §4 — La escalera del dato de personalización
@@ -273,7 +274,13 @@ export const PASO_MENSAJE_LABELS: Record<PasoMensaje, string> = {
     ruteo: "Línea de ruteo al decisor",
 };
 
-const CONSECUENCIA_POR_CLASIFICACION: Record<ClasificacionWeb, string> = {
+/**
+ * Fallback de consecuencia cuando no hay ninguna señal marcada (nivel 3, 4 o sin dato).
+ * La consecuencia real ya no sale de acá: sale del rubro y del dolor al que apunta
+ * la señal observada (ver lecturaDelDolor en dolores-rubro.ts). Que el dolor
+ * dependiera de si tenía web o no era el error de origen del planteo anterior.
+ */
+const CONSECUENCIA_GENERICA: Record<ClasificacionWeb, string> = {
     sin_web:
         "Te lo comento porque ese lugar hoy está libre: el que aparece ahí se queda con todos los que buscan. No es que tengas algo mal hecho — es que nadie lo está ocupando.",
     solo_redes:
@@ -318,18 +325,27 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
         }
 
         // Versión completa — nivel 1 o 2.
+        // L1 = lo que se vio (verificable). L2 = qué suele significar eso en el rubro
+        // (lectura, nunca afirmación sobre este negocio en particular).
+        const rubroProsp = detectarRubro(p);
+        const senial = senialPrincipal(escaneo.fallas);
+
         const linea1 =
             nivel === 1
                 ? `Hola! Estuve viendo las reseñas ${p.negocio ? `de ${p.negocio}` : ""} y hay gente que menciona que ${minuscula(escaneo.queja_textual)}.`.replace(
                       /\s+/g,
                       " "
                   )
-                : `Hola! Busqué ${p.negocio} en Google para ver los servicios y ${descripcionFalla(escaneo.fallas, p)}.`;
+                : senial
+                  ? senial.linea1(p)
+                  : `Hola! Estuve viendo ${p.negocio}.`;
 
         const linea2 =
             nivel === 1
-                ? "Te lo comento porque casi nunca es un problema de atención: es que no hay dónde ordenar las consultas y se mezclan todas en el mismo WhatsApp — y al final la que atiende queda expuesta por algo que es del sistema, no suyo."
-                : CONSECUENCIA_POR_CLASIFICACION[p.clasificacion_web];
+                ? lecturaDelDolor(rubroProsp, "consulta_perdida")
+                : senial
+                  ? lecturaDelDolor(rubroProsp, senial.patron)
+                  : CONSECUENCIA_GENERICA[p.clasificacion_web];
 
         const linea3 = `Te armé un análisis en una página con lo que veo desde afuera: qué ve la gente que busca ${rubro} en ${ciudad}, cuántos son por mes, y qué se puede arreglar o corregir sin contratar a nadie más. Es gratis, sin compromiso. ¿Te lo mando?`;
 
@@ -358,7 +374,7 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
     }
 
     if (paso === "fu1") {
-        const regalo = regaloFollowUp(escaneo.fallas, p);
+        const regalo = regaloDeSenial(escaneo.fallas, p);
         return [
             `Che, te dejo lo más importante de lo que había visto, así al menos te queda el dato: ${regalo}`,
             "",
@@ -374,43 +390,6 @@ function minuscula(txt: string): string {
     const t = (txt || "").trim();
     if (!t) return "";
     return t.charAt(0).toLowerCase() + t.slice(1);
-}
-
-function descripcionFalla(fallas: FallaVerificable[], p: Prospecto): string {
-    const f = fallas[0];
-    switch (f) {
-        case "web_lenta":
-            return "la web tarda bastante en abrir desde el celular";
-        case "ficha_incompleta":
-            return "la ficha de Google está sin horarios ni servicios cargados";
-        case "horarios_mal":
-            return "los horarios que figuran en Maps no coinciden con los reales";
-        case "bio_rota":
-            return "el link de la bio de Instagram no lleva a ningún lado";
-        case "no_aparece_rubro":
-            return `buscando "${p.especialidad || p.rubro} en ${p.ciudad}" no aparecen — sí buscando el nombre`;
-        case "whatsapp_personal":
-            return "el WhatsApp figura como personal, sin horarios ni respuestas rápidas";
-        case "sin_responder_resenas":
-            return "vi que las reseñas quedaron sin responder";
-        default:
-            return "no encontré web, solo la ficha de Maps";
-    }
-}
-
-/** §7.2 punto 3 — el regalo de reciprocidad: algo que puede hacer esa tarde sin vos. */
-function regaloFollowUp(fallas: FallaVerificable[], p: Prospecto): string {
-    if (fallas.includes("whatsapp_personal"))
-        return "pasar el WhatsApp a WhatsApp Business (es gratis) y cargar las respuestas rápidas de las 5 preguntas que más se repiten. Baja bastante el ida y vuelta.";
-    if (fallas.includes("ficha_incompleta"))
-        return `cargar los servicios en la ficha de Google. Ahí es donde se decide si aparecen cuando alguien busca "${p.especialidad || p.rubro} en ${p.ciudad}".`;
-    if (fallas.includes("horarios_mal"))
-        return "corregir los horarios de Google: hoy dice cerrado en horas en las que están abiertos, y esa gente no llama.";
-    if (fallas.includes("bio_rota"))
-        return "arreglar el link de la bio de Instagram, hoy no lleva a ningún lado.";
-    if (fallas.includes("sin_responder_resenas"))
-        return "responder las 3 reseñas peores con una línea cada una. Una queja respondida hace mucho menos daño que una queja sola, y es gratis.";
-    return `completar la ficha de Google con servicios, horarios y fotos. Es lo que define si aparecen buscando "${p.especialidad || p.rubro} en ${p.ciudad}".`;
 }
 
 // ─────────────────────────────────────────────────────────────

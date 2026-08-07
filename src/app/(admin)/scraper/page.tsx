@@ -18,7 +18,6 @@ const RUBROS_SUGERIDOS = [
     { label: "Gimnasios", query: "Gimnasios" },
     { label: "Inmobiliarias", query: "Inmobiliarias" },
     { label: "Odontólogos", query: "Dentistas" },
-    { label: "Peluquerías & Barbers", query: "Peluquerías" },
     { label: "Restaurantes & Bares", query: "Restaurantes" },
     { label: "Talleres Mecánicos", query: "Talleres mecánicos" },
     { label: "Centros de Estética", query: "Centros de estética" },

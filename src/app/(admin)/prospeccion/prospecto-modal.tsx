@@ -24,6 +24,9 @@ import {
     generarMensajeVivoMenu, PASO_VIVOMENU_LABELS, PASOS_SIN_FUENTE_TEXTUAL,
     type PasoMensajeVivoMenu,
 } from "@/lib/vivomenu-mensajes";
+import {
+    detectarRubro, senialesPara, senialPrincipal, PATRON_LABELS, RUBRO_LABELS,
+} from "@/lib/dolores-rubro";
 
 type Tab = "datos" | "escaneo" | "mensajes" | "seguimiento";
 type PasoUI = PasoMensaje | PasoMensajeVivoMenu;
@@ -72,6 +75,12 @@ export default function ProspectoModal({
     const nivel = calcularNivelDato(draft.escaneo);
     const desglose = useMemo(() => calcularScore(draft, universo), [draft, universo]);
     const alertas = useMemo(() => alertasDescarte(draft), [draft]);
+
+    // El catálogo de señales depende del rubro: el dolor lo define la economía del
+    // negocio, no si tiene web.
+    const rubroProsp = useMemo(() => detectarRubro(draft), [draft.rubro, draft.especialidad]);
+    const senialesDelRubro = useMemo(() => senialesPara(rubroProsp), [rubroProsp]);
+    const senialTitular = useMemo(() => senialPrincipal(draft.escaneo.fallas), [draft.escaneo.fallas]);
 
     /** Un solo punto de generación: despacha al motor de Galu o al de VivoMenu según el sistema. */
     const generar = (paso: PasoUI, p: Prospecto): string =>
@@ -441,19 +450,58 @@ export default function ProspectoModal({
                                 </div>
 
                                 {/* Nivel 2 */}
-                                <div className={cn("rounded-lg border p-3 space-y-2", nivel === 2 ? "border-cyan-500/40 bg-cyan-500/5" : "border-border")}>
-                                    <p className="text-xs font-bold text-foreground">N2 — Fallas verificables en 10 segundos</p>
-                                    <div className="grid sm:grid-cols-2 gap-1.5">
-                                        {(Object.keys(FALLA_LABELS) as FallaVerificable[]).map((f) => (
-                                            <Checkbox
-                                                key={f}
-                                                checked={draft.escaneo.fallas.includes(f)}
-                                                onChange={() => toggleFalla(f)}
-                                                label={FALLA_LABELS[f]}
-                                            />
-                                        ))}
+                                <div className={cn("rounded-lg border p-3 space-y-3", nivel === 2 ? "border-cyan-500/40 bg-cyan-500/5" : "border-border")}>
+                                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                                        <p className="text-xs font-bold text-foreground">N2 — Señales verificables en 10 segundos</p>
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-secondary text-muted-foreground border border-border">
+                                            {RUBRO_LABELS[rubroProsp]}
+                                        </span>
                                     </div>
-                                    <p className="text-[11px] text-muted-foreground">&quot;No tiene web&quot; acá es contexto, no dato — casi nadie tiene.</p>
+
+                                    <div className="space-y-1.5">
+                                        {senialesDelRubro.map((s) => {
+                                            const marcada = draft.escaneo.fallas.includes(s.id);
+                                            const esTitular = marcada && senialTitular?.id === s.id;
+                                            return (
+                                                <div
+                                                    key={s.id}
+                                                    className={cn(
+                                                        "rounded-lg border p-2.5 transition-colors",
+                                                        esTitular
+                                                            ? "border-cyan-500/50 bg-cyan-500/10"
+                                                            : marcada
+                                                              ? "border-border bg-secondary/40"
+                                                              : "border-transparent hover:border-border"
+                                                    )}
+                                                >
+                                                    <Checkbox
+                                                        checked={marcada}
+                                                        onChange={() => toggleFalla(s.id)}
+                                                        label={s.label}
+                                                    />
+                                                    <div className="pl-6 mt-1 space-y-1">
+                                                        <p className="text-[11px] text-muted-foreground">{s.donde}</p>
+                                                        <div className="flex items-center gap-1.5 flex-wrap">
+                                                            <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-secondary text-muted-foreground border border-border">
+                                                                {PATRON_LABELS[s.patron]}
+                                                            </span>
+                                                            {esTitular && (
+                                                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                                                                    Va de titular en el mensaje
+                                                                </span>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+
+                                    <p className="text-[11px] text-muted-foreground">
+                                        Marcá solo lo que <strong>viste</strong>. El dolor de fondo (turnos que no se presentan,
+                                        tratamientos a medio hacer) no se afirma nunca: entra como lectura del rubro en la línea 2,
+                                        armada a partir de la señal que va de titular.
+                                    </p>
                                 </div>
 
                                 {/* Niveles 3 y 4 */}
@@ -548,11 +596,21 @@ export default function ProspectoModal({
                             </div>
 
                             {!esVivoMenu && pasoMensaje === "m1" && (
-                                <p className="text-[11px] text-muted-foreground bg-secondary/40 border border-border rounded-lg p-3">
-                                    {nivel && nivel <= 2
-                                        ? "Nivel 1-2: va la versión completa (dato · consecuencia · permiso). Nunca el caso de éxito, el precio, un link ni un pedido de reunión."
-                                        : "Nivel 3-4 o sin dato: va la versión corta, sin diagnóstico de la consecuencia. Un mensaje largo apoyado en un dato flojo se lee como plantilla."}
-                                </p>
+                                <div className="text-[11px] text-muted-foreground bg-secondary/40 border border-border rounded-lg p-3 space-y-1.5">
+                                    <p>
+                                        {nivel && nivel <= 2
+                                            ? "Nivel 1-2: va la versión completa (dato · consecuencia · permiso). Nunca el caso de éxito, el precio, un link ni un pedido de reunión."
+                                            : "Nivel 3-4 o sin dato: va la versión corta, sin diagnóstico de la consecuencia. Un mensaje largo apoyado en un dato flojo se lee como plantilla."}
+                                    </p>
+                                    {nivel === 2 && senialTitular && (
+                                        <p>
+                                            Línea 1: <strong className="text-foreground">{senialTitular.label}</strong>. Línea 2:
+                                            la lectura de {RUBRO_LABELS[rubroProsp].toLowerCase()} para{" "}
+                                            <strong className="text-foreground">{PATRON_LABELS[senialTitular.patron].toLowerCase()}</strong>.
+                                            Si marcás otra señal más fuerte, cambian las dos.
+                                        </p>
+                                    )}
+                                </div>
                             )}
 
                             {esVivoMenu && pasoMensaje === "primer_contacto" && (

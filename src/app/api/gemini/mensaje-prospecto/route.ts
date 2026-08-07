@@ -7,6 +7,7 @@ import {
 import {
     generarMensajeVivoMenu, type PasoMensajeVivoMenu,
 } from "@/lib/vivomenu-mensajes";
+import { senialPrincipal, PATRON_LABELS } from "@/lib/dolores-rubro";
 
 export const maxDuration = 30;
 
@@ -28,7 +29,12 @@ function reglasGalu(largo: string): string {
 6. El pedido final se tiene que poder contestar con una palabra. No pidas reunión, ni el teléfono del dueño, ni el mail.
 7. Prohibido en este mensaje: casos de éxito, precios, links (salvo que el borrador ya traiga uno), emojis más allá de
    uno solo si el borrador lo tiene, y la palabra "presupuesto".
-8. Si el dato es una queja de un cliente, encuadrala como problema del sistema y no de la persona que atiende.`;
+8. Si el dato es una queja de un cliente, encuadrala como problema del sistema y no de la persona que atiende.
+9. CRÍTICO — la línea 1 dice SOLO lo que se observó desde afuera, y la línea 2 dice qué SUELE significar eso en el rubro.
+   Nunca afirmes como un hecho de este negocio algo que no se puede ver desde afuera (que tienen turnos que no se
+   presentan, tratamientos a medio terminar, pacientes que no vuelven). Eso va siempre como lectura general del rubro
+   ("en la mayoría de los consultorios...", "suele pasar que..."), jamás como acusación. Si lo afirmás, el mensaje se
+   vuelve mentira verificable y se cae todo.`;
 }
 
 function reglasVivoMenu(paso: PasoMensajeVivoMenu): string {
@@ -84,6 +90,7 @@ export async function POST(req: Request) {
 
         const escaneo = normalizarEscaneo(prospecto.escaneo);
         const nivel = calcularNivelDato(escaneo);
+        const senialTitular = senialPrincipal(escaneo.fallas);
 
         const contextoDatos = `--- DATOS DEL PROSPECTO ---
 Sistema: ${esVivoMenu ? "VivoMenu (menú digital para gastronomía)" : "Galu (agencia web)"}
@@ -96,6 +103,7 @@ Dato de personalización: ${prospecto.dato_usado || "—"}
 ${escaneo.tiene_queja_cliente ? `Queja textual de un cliente: "${escaneo.queja_textual}"` : ""}
 ${escaneo.fallas.length ? `Fallas verificables: ${escaneo.fallas.map((f) => FALLA_LABELS[f]).join(", ")}` : ""}
 ${escaneo.hito_reciente ? `Hito reciente: ${escaneo.hito_reciente}` : ""}
+${!esVivoMenu && senialTitular ? `Señal observada que va de titular: ${senialTitular.label} (apunta al dolor "${PATRON_LABELS[senialTitular.patron]}" — ese dolor es INFERIDO del rubro, no verificado en este negocio)` : ""}
 Canal: ${prospecto.canal === "whatsapp" ? "WhatsApp" : "Instagram DM"}${
     esVivoMenu ? `\n¿Quién contestó hasta ahora?: ${prospecto.quien_leyo === "secretaria" ? "empleado" : prospecto.quien_leyo === "dueno" ? "dueño" : "sin definir"}` : ""
 }`;

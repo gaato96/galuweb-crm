@@ -532,8 +532,21 @@ export type EstadoProspecto =
     | "reunion"           // aceptó el diagnóstico de 30 min
     | "cliente";          // convertido a cliente del CRM
 
-/** §7.3 + §4 nivel 2 — fallas verificables en 10 segundos. */
+/**
+ * §4 nivel 2 — señales verificables en 10 segundos.
+ * El catálogo con su significado (a qué dolor apunta cada una, en qué rubro sirve
+ * y cómo entra al mensaje) vive en dolores-rubro.ts.
+ */
 export type FallaVerificable =
+    // Dolor operativo: la agenda y las consultas. Son las que pegan fuerte.
+    | "comentarios_sin_responder"
+    | "turnos_disponibles_posteo"
+    | "aviso_ausentismo"
+    | "demanda_sin_camino"
+    | "precio_en_comentarios"
+    | "sin_reserva_online"
+    | "varios_prof_un_canal"
+    // Higiene / encontrabilidad: sirven de apoyo, no de titular.
     | "whatsapp_personal"
     | "ficha_incompleta"
     | "horarios_mal"
@@ -647,6 +660,13 @@ export const CLASIFICACION_WEB_LABELS: Record<ClasificacionWeb, string> = {
 };
 
 export const FALLA_LABELS: Record<FallaVerificable, string> = {
+    comentarios_sin_responder: "Comentarios pidiendo turno o precio sin responder",
+    turnos_disponibles_posteo: 'Publicaron "quedan turnos"',
+    aviso_ausentismo: 'Publicaron "avisá si no podés venir"',
+    demanda_sin_camino: "Publican casos con repercusión y no hay dónde reservar",
+    precio_en_comentarios: "La pregunta del precio se repite en comentarios",
+    sin_reserva_online: "No hay forma de sacar turno sin escribir",
+    varios_prof_un_canal: "Varios profesionales, un solo canal",
     whatsapp_personal: "WhatsApp personal (no Business)",
     ficha_incompleta: "Ficha de Google incompleta",
     horarios_mal: "Horarios de Maps mal cargados",

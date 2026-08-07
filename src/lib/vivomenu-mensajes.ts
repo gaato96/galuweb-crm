@@ -59,7 +59,9 @@ function senialParaMensaje(p: Prospecto): string {
 }
 
 /** §3.3 traducido a frases: mismas fallas de prospeccion.ts, fraseadas para pedidos por WhatsApp. */
-const FALLA_A_HALLAZGO_VIVOMENU: Record<FallaVerificable, string> = {
+// Parcial a propósito: las señales de agenda/turnos del catálogo de servicios
+// (comentarios sin responder, "quedan turnos", etc.) no aplican a gastronomía.
+const FALLA_A_HALLAZGO_VIVOMENU: Partial<Record<FallaVerificable, string>> = {
     whatsapp_personal: "el WhatsApp es un número personal, sin catálogo ni respuestas rápidas — cada pedido hay que escribirlo de cero",
     ficha_incompleta: "la ficha de Google no tiene el menú ni los horarios cargados",
     horarios_mal: "los horarios de Google no coinciden con los reales, así que a veces escriben y no hay nadie",
@@ -110,7 +112,10 @@ export function generarMensajeVivoMenu(paso: PasoMensajeVivoMenu, p: Prospecto):
     if (paso === "fu1") {
         // §6 — el "chequeo de 3 puntos". Necesita hallazgos reales del escaneo:
         // si no hay suficientes, se avisa en vez de inventar observaciones falsas.
-        const hallazgos = escaneo.fallas.map((f) => FALLA_A_HALLAZGO_VIVOMENU[f]).slice(0, 3);
+        const hallazgos = escaneo.fallas
+            .map((f) => FALLA_A_HALLAZGO_VIVOMENU[f])
+            .filter((h): h is string => !!h)
+            .slice(0, 3);
         if (escaneo.queja_textual.trim() && hallazgos.length < 3) {
             hallazgos.unshift(`en las reseñas alguien menciona: "${escaneo.queja_textual.trim()}"`);
         }
