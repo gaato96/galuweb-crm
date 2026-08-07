@@ -546,6 +546,9 @@ export type FallaVerificable =
     | "precio_en_comentarios"
     | "sin_reserva_online"
     | "varios_prof_un_canal"
+    // Demanda que nunca llega: existe en el mercado y termina eligiendo a otro.
+    | "contenido_sin_devolucion"
+    | "web_es_instagram"
     // Higiene / encontrabilidad: sirven de apoyo, no de titular.
     | "whatsapp_personal"
     | "ficha_incompleta"
@@ -667,6 +670,8 @@ export const FALLA_LABELS: Record<FallaVerificable, string> = {
     precio_en_comentarios: "La pregunta del precio se repite en comentarios",
     sin_reserva_online: "No hay forma de sacar turno sin escribir",
     varios_prof_un_canal: "Varios profesionales, un solo canal",
+    contenido_sin_devolucion: "Publican y los posteos quedan sin comentarios",
+    web_es_instagram: "El sitio web en Google es el Instagram",
     whatsapp_personal: "WhatsApp personal (no Business)",
     ficha_incompleta: "Ficha de Google incompleta",
     horarios_mal: "Horarios de Maps mal cargados",

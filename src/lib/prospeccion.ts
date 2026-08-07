@@ -342,9 +342,9 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
 
         const linea2 =
             nivel === 1
-                ? lecturaDelDolor(rubroProsp, "consulta_perdida")
+                ? lecturaDelDolor(rubroProsp, "consulta_perdida", p)
                 : senial
-                  ? lecturaDelDolor(rubroProsp, senial.patron)
+                  ? senial.lecturaPropia?.(p) ?? lecturaDelDolor(rubroProsp, senial.patron, p)
                   : CONSECUENCIA_GENERICA[p.clasificacion_web];
 
         const linea3 = `Te armé un análisis en una página con lo que veo desde afuera: qué ve la gente que busca ${rubro} en ${ciudad}, cuántos son por mes, y qué se puede arreglar o corregir sin contratar a nadie más. Es gratis, sin compromiso. ¿Te lo mando?`;

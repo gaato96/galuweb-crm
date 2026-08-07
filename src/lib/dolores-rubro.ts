@@ -23,16 +23,24 @@ import type { Prospecto, FallaVerificable } from "./types";
 const normalizar = (str: string): string =>
     (str || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 
-/** Los cinco dolores que se repiten en todos los rubros, con distinta ropa. */
+/**
+ * Los seis dolores que se repiten en todos los rubros, con distinta ropa.
+ *
+ * Ojo con la diferencia entre los dos primeros, porque define mensajes distintos:
+ *   · consulta_perdida     → te escribieron y la consulta se cayó en la respuesta.
+ *   · demanda_que_no_llega → nunca te escribieron, porque no estabas cuando buscaron.
+ */
 export type PatronDolor =
-    | "consulta_perdida"    // demanda ya ganada que se cae en la respuesta
-    | "no_vuelve"           // recompra que nadie gestiona
-    | "a_medio_terminar"    // plata a medio cobrar
-    | "tiempo_del_dueno"    // el dueño haciendo de secretaria
-    | "capacidad";          // agenda que se llena mal
+    | "consulta_perdida"     // demanda ya ganada que se cae en la respuesta
+    | "demanda_que_no_llega" // demanda que existe en el mercado y termina en otro
+    | "no_vuelve"            // recompra que nadie gestiona
+    | "a_medio_terminar"     // plata a medio cobrar
+    | "tiempo_del_dueno"     // el dueño haciendo de secretaria
+    | "capacidad";           // agenda que se llena mal
 
 export const PATRON_LABELS: Record<PatronDolor, string> = {
     consulta_perdida: "La consulta que se pierde",
+    demanda_que_no_llega: "La demanda que nunca llega",
     no_vuelve: "El que no vuelve",
     a_medio_terminar: "Lo empezado y no terminado",
     tiempo_del_dueno: "El dueño haciendo de secretaria",
@@ -89,6 +97,12 @@ export interface SenialNivel2 {
     peso: number;
     /** Cómo entra en la línea 1. Tiene que sonar a algo que viste, no a un diagnóstico. */
     linea1: (p: Prospecto) => string;
+    /**
+     * Línea 2 propia, cuando la lectura genérica del patrón no encaja.
+     * Dos señales del mismo patrón pueden necesitar explicaciones distintas: no aparecer
+     * en una búsqueda y publicar sin devolución duelen igual, pero por motivos distintos.
+     */
+    lecturaPropia?: (p: Prospecto) => string;
 }
 
 const SENIALES: SenialNivel2[] = [
@@ -132,6 +146,31 @@ const SENIALES: SenialNivel2[] = [
         peso: 80,
         linea1: (p) =>
             `Hola! Estuve viendo los casos que publica ${p.negocio} y la repercusión que tienen en los comentarios.`,
+    },
+    {
+        id: "contenido_sin_devolucion",
+        label: "Publican seguido y los posteos quedan sin comentarios y con pocos me gusta",
+        donde:
+            "Instagram → últimas 9 publicaciones. Mirá comentarios y me gusta contra la cantidad de seguidores. Cero comentarios sostenido es la señal.",
+        patron: "demanda_que_no_llega",
+        rubros: "todos",
+        peso: 82,
+        linea1: (p) =>
+            `Hola! Estuve viendo el Instagram de ${p.negocio}. Publican seguido, pero los posteos quedan en pocos me gusta y casi sin comentarios.`,
+        lecturaPropia: () =>
+            "Te lo comento porque el trabajo de producir eso ya lo están haciendo. El tema es que Instagram lo muestra casi solo a los que ya los siguen — para el que todavía no los conoce, ese contenido no existe. Es esfuerzo puesto que no está trayendo gente nueva.",
+    },
+    {
+        id: "web_es_instagram",
+        label: "El sitio web que figura en Google es el Instagram",
+        donde: "Ficha de Maps → campo Sitio web. Si apunta a Instagram o Facebook, marcala.",
+        patron: "demanda_que_no_llega",
+        rubros: "todos",
+        peso: 78,
+        linea1: (p) =>
+            `Hola! Entré a ${p.negocio} desde Google y el link de la web lleva al Instagram.`,
+        lecturaPropia: () =>
+            "Te lo comento porque el que llega desde Google y toca ahí va buscando algo concreto: qué hacen, cuánto sale, cómo sacar turno. Y cae en un perfil donde eso hay que ir a buscarlo scrolleando. La mayoría no lo hace — vuelve atrás y abre el siguiente de la lista.",
     },
     {
         id: "precio_en_comentarios",
@@ -215,13 +254,14 @@ const SENIALES: SenialNivel2[] = [
     },
     {
         id: "no_aparece_rubro",
-        label: "No aparece al buscar su rubro + ciudad",
-        donde: `Buscá "[especialidad] en [ciudad]" en incógnito.`,
-        patron: "consulta_perdida",
+        label: "No aparece al buscar la especialidad + ciudad (sí buscando el nombre)",
+        donde:
+            'Buscá "[especialidad] en [ciudad]" en incógnito. Antes fijate que la demanda de búsqueda no esté en "baja": si nadie busca ese servicio, esta señal no aplica.',
+        patron: "demanda_que_no_llega",
         rubros: "todos",
-        peso: 25,
+        peso: 88,
         linea1: (p) =>
-            `Hola! Buscando "${p.especialidad || p.rubro} en ${p.ciudad}" no aparecen — sí buscando el nombre.`,
+            `Hola! Busqué "${p.especialidad || p.rubro} en ${p.ciudad}" y no aparecen en la primera pantalla — sí aparecen buscando el nombre.`,
     },
     {
         id: "web_lenta",
@@ -260,41 +300,70 @@ export function senialPrincipal(fallas: FallaVerificable[]): SenialNivel2 | null
 // al dolor profundo (el tratamiento a medio hacer, el sillón vacío) sin inventar.
 // ─────────────────────────────────────────────────────────────
 
-const LECTURA: Record<RubroProspeccion, Record<PatronDolor, string>> = {
+/**
+ * Cuando el negocio tiene buena reputación, esa reputación ES el argumento:
+ * no le estás diciendo que es malo, le estás diciendo que lo bueno que hizo no
+ * está llegando a la gente. Sale del rating real, así que sigue siendo verificable.
+ */
+function reputacionDesaprovechada(p: Prospecto): string {
+    const cierre = " Esa reputación se la ganaron paciente por paciente y hoy no está jugando en esa decisión.";
+    if (p.rating != null && p.rating >= 4.3 && p.reviews_count != null && p.reviews_count >= 8) {
+        return ` Y no es un tema de calidad: tienen ${p.rating} con ${p.reviews_count} reseñas, mejor puntaje que varios de los que sí aparecen ahí arriba.${cierre}`;
+    }
+    if (p.rating != null && p.rating >= 4.3) {
+        return ` Y no es un tema de calidad: las reseñas que tienen son muy buenas.${cierre}`;
+    }
+    // Sin rating cargado no se afirma nada sobre su reputación.
+    return "";
+}
+
+type Lectura = (p: Prospecto) => string;
+
+const LECTURA: Record<RubroProspeccion, Record<PatronDolor, Lectura>> = {
     odontologia: {
-        consulta_perdida:
+        consulta_perdida: () =>
             "Te lo comento porque en la mayoría de los consultorios eso no es desatención: es que las consultas entran mezcladas con todo lo demás y no hay dónde verlas juntas. El que pregunta un domingo con dolor le escribe a tres, y termina yendo al que le contesta primero.",
-        capacidad:
+        demanda_que_no_llega: (p) =>
+            `Te lo comento porque el que ya los conoce los busca por el nombre y los encuentra igual. El tema es el que todavía no los conoce: ese busca la especialidad, elige entre los que ve en la primera pantalla, y nunca llega a compararlos.${reputacionDesaprovechada(p)}`,
+        capacidad: () =>
             "Te lo comento porque una hora de sillón que queda vacía no se recupera: el alquiler y la asistente se pagan igual. Y casi nunca es falta de pacientes — es que el hueco aparece tarde y no hay a quién avisarle a tiempo.",
-        tiempo_del_dueno:
+        tiempo_del_dueno: () =>
             "Te lo comento porque esa pregunta la termina contestando alguien que debería estar atendiendo, y se repite todo el día. Además el precio suelto por chat, sin nada alrededor que lo explique, los manda derecho a comparar con el más barato.",
-        no_vuelve:
+        no_vuelve: () =>
             "Te lo comento porque el paciente de control es el más barato que vas a conseguir: ya confía y ya vino una vez. Pero si nadie le avisa a los seis meses, no vuelve — y no es que se fue enojado, simplemente se olvidó.",
-        a_medio_terminar:
+        a_medio_terminar: () =>
             "Te lo comento porque un tratamiento que queda por la mitad ya te costó el diagnóstico y a veces el laboratorio. Esa plata está puesta y no se termina de cobrar, y suele no notarse porque no hay ningún lado donde ver quién quedó a mitad de camino.",
     },
     generico: {
-        consulta_perdida:
+        consulta_perdida: () =>
             "Te lo comento porque esa consulta ya la habías ganado: la persona te buscó y te escribió. Lo que se pierde ahí no es visibilidad, es alguien que ya te había elegido y no recibió respuesta a tiempo.",
-        capacidad:
+        demanda_que_no_llega: (p) =>
+            `Te lo comento porque el que ya los conoce los encuentra igual, buscándolos por el nombre. El que todavía no los conoce busca el servicio, y elige entre los que aparecen.${reputacionDesaprovechada(p)}`,
+        capacidad: () =>
             "Te lo comento porque ese lugar vacío no se recupera después: los costos corren igual, y el hueco casi siempre aparece demasiado tarde como para venderlo.",
-        tiempo_del_dueno:
+        tiempo_del_dueno: () =>
             "Te lo comento porque eso se lleva horas de alguien que debería estar produciendo, y son horas que no se facturan ni se pueden delegar mientras siga siendo todo a mano.",
-        no_vuelve:
+        no_vuelve: () =>
             "Te lo comento porque el cliente que ya te compró es el más barato de todos, y volver a traerlo depende de que alguien se acuerde de avisarle en el momento justo.",
-        a_medio_terminar:
+        a_medio_terminar: () =>
             "Te lo comento porque lo que quedó empezado ya te costó tiempo y plata. Está puesto y sin terminar de cobrar, y no se nota porque no hay dónde verlo.",
     },
 };
 
-export function lecturaDelDolor(rubro: RubroProspeccion, patron: PatronDolor): string {
-    return (LECTURA[rubro] || LECTURA.generico)[patron];
+export function lecturaDelDolor(rubro: RubroProspeccion, patron: PatronDolor, p: Prospecto): string {
+    return (LECTURA[rubro] || LECTURA.generico)[patron](p);
 }
 
 /** §7.2 — el regalo del follow-up: algo que puede hacer esa tarde, sin vos. */
 const REGALO: Partial<Record<FallaVerificable, string>> = {
     comentarios_sin_responder:
         "contestar los comentarios que quedaron colgados, aunque sea con una línea. El que preguntó hace dos semanas capaz todavía no resolvió, y el que lo lee hoy ve si contestás o no.",
+    no_aparece_rubro:
+        "en la ficha de Google, cargar los servicios uno por uno con el nombre que usa la gente (no el término técnico). Es gratis y es lo que Google mira para decidir si te muestra cuando alguien busca la especialidad.",
+    contenido_sin_devolucion:
+        "terminar los posteos con una pregunta concreta y fácil de contestar. Un comentario le dice a Instagram que el posteo interesa, y ahí empieza a mostrárselo a gente que todavía no te sigue. Es lo único gratis que mueve el alcance.",
+    web_es_instagram:
+        "poner en la bio, arriba de todo, qué hacen y dónde están, en dos líneas. El que cae desde Google necesita confirmar eso en dos segundos, y hoy tiene que deducirlo de las fotos.",
     turnos_disponibles_posteo:
         "cuando te queda un hueco, publicarlo con el horario exacto y no como “quedan turnos”. El que está por escribir necesita saber si le sirve ese día, y decidir le lleva un segundo.",
     aviso_ausentismo:
