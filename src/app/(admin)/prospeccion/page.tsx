@@ -18,7 +18,7 @@ import {
     calcularNivelDato, normalizarEscaneo, normalizar, proximaAccion, hoyISO,
     prospectoVacio, fueEnviado, respondio, tasaPorNivelDato, tasaPorRubro,
     tasaPorQuienLeyo, diagnosticoEmbudo, diasDesde, PRIORIDAD_SEGMENTO,
-    NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS,
+    NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS, motivoFueraDeCola,
     type CorteMetrica,
 } from "@/lib/prospeccion";
 import { calcularRampaVivoMenu, avisoDiaVivoMenu } from "@/lib/vivomenu-mensajes";
@@ -123,15 +123,22 @@ export default function ProspeccionPage() {
      * Orden de trabajo de §8: primero el segmento, después el score.
      * Los ya contactados y los descartados salen de la cola.
      */
-    const cola = useMemo(() => {
-        return filtrados
-            .filter((p) => p.estado === "sin_calificar" || p.estado === "calificado")
+    const { cola, fueraDeCola } = useMemo(() => {
+        const pendientes = filtrados.filter(
+            (p) => p.estado === "sin_calificar" || p.estado === "calificado"
+        );
+        // Los que no dan el volumen mínimo salen de la cola, pero se cuentan aparte:
+        // un filtro que no se ve es un filtro en el que no se puede confiar.
+        const descartables = pendientes.filter((p) => motivoFueraDeCola(p) !== null);
+        const trabajables = pendientes
+            .filter((p) => motivoFueraDeCola(p) === null)
             .sort((a, b) => {
                 const segA = PRIORIDAD_SEGMENTO[a.clasificacion_web];
                 const segB = PRIORIDAD_SEGMENTO[b.clasificacion_web];
                 if (segA !== segB) return segA - segB;
                 return b.score - a.score;
             });
+        return { cola: trabajables, fueraDeCola: descartables };
     }, [filtrados]);
 
     /** Follow-ups que tocan hoy, según la cadencia del sistema activo. */
@@ -499,7 +506,14 @@ export default function ProspeccionPage() {
 
             {!cargando && !errorCarga && (
                 <>
-                    {vista === "cola" && <VistaCola cola={cola} onAbrir={setSeleccionado} objetivoDiario={objetivoDiario} />}
+                    {vista === "cola" && (
+                        <VistaCola
+                            cola={cola}
+                            fueraDeCola={fueraDeCola}
+                            onAbrir={setSeleccionado}
+                            objetivoDiario={objetivoDiario}
+                        />
+                    )}
                     {vista === "planilla" && <VistaPlanilla prospectos={filtrados} onAbrir={setSeleccionado} onCambiarEstado={(id, estado) => guardar(id, { estado })} />}
                     {vista === "embudo" && <VistaEmbudo prospectos={filtrados} onAbrir={setSeleccionado} />}
                     {vista === "metricas" && <VistaMetricas prospectos={prospectosDelSistema} />}
@@ -535,9 +549,16 @@ export default function ProspeccionPage() {
 // ═══════════════════════════════════════════════════════════
 
 function VistaCola({
-    cola, onAbrir, objetivoDiario,
-}: { cola: Prospecto[]; onAbrir: (p: Prospecto) => void; objetivoDiario: number }) {
-    if (cola.length === 0) {
+    cola, onAbrir, objetivoDiario, fueraDeCola,
+}: {
+    cola: Prospecto[];
+    onAbrir: (p: Prospecto) => void;
+    objetivoDiario: number;
+    fueraDeCola: Prospecto[];
+}) {
+    const [verFuera, setVerFuera] = useState(false);
+
+    if (cola.length === 0 && fueraDeCola.length === 0) {
         return (
             <Vacio
                 titulo="No hay nadie en la cola"
@@ -573,6 +594,55 @@ function VistaCola({
                             {resto.length - 40} más. Calificar toda la lista antes de mandar el primer mensaje es el error
                             que te deja tres semanas haciendo research sin hablar con nadie.
                         </p>
+                    )}
+                </div>
+            )}
+
+            {fueraDeCola.length > 0 && (
+                <div className="rounded-xl border border-border bg-secondary/20 p-3.5">
+                    <button
+                        onClick={() => setVerFuera((v) => !v)}
+                        className="w-full flex items-center justify-between gap-3 text-left"
+                    >
+                        <span className="min-w-0">
+                            <span className="block text-xs font-bold text-foreground">
+                                {fueraDeCola.length} fuera de la cola por volumen bajo
+                            </span>
+                            <span className="block text-[11px] text-muted-foreground mt-0.5">
+                                Casi sin reseñas o sin canal de contacto. Siguen en la planilla, pero no gastan
+                                uno de los {objetivoDiario} mensajes del día.
+                            </span>
+                        </span>
+                        <span className="shrink-0 text-[11px] font-bold text-primary">
+                            {verFuera ? "Ocultar" : "Ver"}
+                        </span>
+                    </button>
+
+                    {verFuera && (
+                        <div className="grid gap-1.5 mt-3">
+                            {fueraDeCola.slice(0, 30).map((p) => (
+                                <button
+                                    key={p.id}
+                                    onClick={() => onAbrir(p)}
+                                    className="flex items-center justify-between gap-3 p-2.5 rounded-lg border border-border bg-card/50 hover:border-primary/40 text-left"
+                                >
+                                    <span className="min-w-0 flex-1">
+                                        <span className="block text-xs font-semibold text-foreground truncate">{p.negocio}</span>
+                                        <span className="block text-[11px] text-muted-foreground truncate">
+                                            {[p.especialidad || p.rubro, p.ciudad].filter(Boolean).join(" · ")}
+                                        </span>
+                                    </span>
+                                    <span className="shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold bg-secondary text-muted-foreground border border-border">
+                                        {motivoFueraDeCola(p)}
+                                    </span>
+                                </button>
+                            ))}
+                            {fueraDeCola.length > 30 && (
+                                <p className="text-[11px] text-muted-foreground text-center mt-1">
+                                    y {fueraDeCola.length - 30} más
+                                </p>
+                            )}
+                        </div>
                     )}
                 </div>
             )}

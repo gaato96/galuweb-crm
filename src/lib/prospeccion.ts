@@ -177,6 +177,22 @@ export function calcularScore(prospecto: Prospecto, universo: Prospecto[] = []):
     // 3. Reseñas, con peso relativo al rubro (§8)
     const peso = pesoResenaDelRubro(prospecto.rubro);
     const percentil = percentilResenasEnRubro(prospecto, universo);
+
+    // 3a. Piso absoluto. El percentil es relativo y engaña: si todos los del rubro
+    // tienen 2 reseñas, el que tiene 3 queda en percentil 75 y suma puntos igual.
+    // Pocas reseñas en un rubro donde la gente sí reseña significa poco flujo o
+    // ficha abandonada (§3.1), y eso no depende de con quién se lo compare.
+    if (peso !== "debil" && prospecto.reviews_count != null) {
+        if (prospecto.reviews_count < 5) {
+            partes.push({
+                concepto: `Solo ${prospecto.reviews_count} ${prospecto.reviews_count === 1 ? "reseña" : "reseñas"}: casi sin flujo`,
+                puntos: -30,
+            });
+        } else if (prospecto.reviews_count < 15) {
+            partes.push({ concepto: `${prospecto.reviews_count} reseñas: volumen bajo`, puntos: -10 });
+        }
+    }
+
     if (percentil != null && peso !== "debil") {
         const max = peso === "fuerte" ? 15 : 10;
         const puntos = Math.round(percentil * max);
@@ -228,6 +244,22 @@ export function calcularScore(prospecto: Prospecto, universo: Prospecto[] = []):
 export interface AlertaDescarte {
     regla: string;
     detalle: string;
+}
+
+/**
+ * §3.1 — motivo por el que un prospecto no merece un lugar en la cola del día.
+ * No lo borra ni lo descarta: sigue en la planilla por si querés revisarlo. Solo
+ * evita que ocupe uno de los diez mensajes del día, que es el recurso escaso.
+ */
+export function motivoFueraDeCola(p: Prospecto): string | null {
+    const peso = pesoResenaDelRubro(p.rubro);
+    if (peso !== "debil" && p.reviews_count != null && p.reviews_count < 5) {
+        return `${p.reviews_count} ${p.reviews_count === 1 ? "reseña" : "reseñas"}`;
+    }
+    if (!p.whatsapp_publicado && !p.instagram_url && !p.telefono.trim()) {
+        return "sin canal de contacto";
+    }
+    return null;
 }
 
 export function alertasDescarte(p: Prospecto): AlertaDescarte[] {
