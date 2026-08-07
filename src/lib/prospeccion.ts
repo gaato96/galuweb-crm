@@ -247,6 +247,29 @@ export interface AlertaDescarte {
 }
 
 /**
+ * Orden de la cola de trabajo. Cambia según el sistema porque el segmento
+ * discrimina distinto en cada uno:
+ *
+ *   · Galu (§8): el segmento separa de verdad. Hay prospectos con web buena, con
+ *     web débil y sin nada, y el argumento de venta es otro en cada caso, así que
+ *     conviene trabajar un segmento entero antes de pasar al siguiente.
+ *
+ *   · VivoMenu: casi todos los locales de comida están en "solo redes". Ordenar
+ *     por segmento primero no separa nada y tapa el score, que sí distingue.
+ *     El segmento igual pesa, porque ya suma hasta 20 puntos dentro del score.
+ */
+export function compararParaCola(sistema: Sistema) {
+    return (a: Prospecto, b: Prospecto): number => {
+        if (sistema !== "vivomenu") {
+            const segA = PRIORIDAD_SEGMENTO[a.clasificacion_web];
+            const segB = PRIORIDAD_SEGMENTO[b.clasificacion_web];
+            if (segA !== segB) return segA - segB;
+        }
+        return b.score - a.score;
+    };
+}
+
+/**
  * §3.1 — motivo por el que un prospecto no merece un lugar en la cola del día.
  * No lo borra ni lo descarta: sigue en la planilla por si querés revisarlo. Solo
  * evita que ocupe uno de los diez mensajes del día, que es el recurso escaso.

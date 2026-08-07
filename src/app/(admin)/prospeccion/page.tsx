@@ -17,8 +17,8 @@ import { prospectosStore, scraperStore, mensajeError, type ResultadoImportacion 
 import {
     calcularNivelDato, normalizarEscaneo, normalizar, proximaAccion, hoyISO,
     prospectoVacio, fueEnviado, respondio, tasaPorNivelDato, tasaPorRubro,
-    tasaPorQuienLeyo, diagnosticoEmbudo, diasDesde, PRIORIDAD_SEGMENTO,
-    NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS, motivoFueraDeCola,
+    tasaPorQuienLeyo, diagnosticoEmbudo, diasDesde,
+    NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS, motivoFueraDeCola, compararParaCola,
     type CorteMetrica,
 } from "@/lib/prospeccion";
 import { calcularRampaVivoMenu, avisoDiaVivoMenu } from "@/lib/vivomenu-mensajes";
@@ -132,14 +132,9 @@ export default function ProspeccionPage() {
         const descartables = pendientes.filter((p) => motivoFueraDeCola(p) !== null);
         const trabajables = pendientes
             .filter((p) => motivoFueraDeCola(p) === null)
-            .sort((a, b) => {
-                const segA = PRIORIDAD_SEGMENTO[a.clasificacion_web];
-                const segB = PRIORIDAD_SEGMENTO[b.clasificacion_web];
-                if (segA !== segB) return segA - segB;
-                return b.score - a.score;
-            });
+            .sort(compararParaCola(sistemaActivo));
         return { cola: trabajables, fueraDeCola: descartables };
-    }, [filtrados]);
+    }, [filtrados, sistemaActivo]);
 
     /** Follow-ups que tocan hoy, según la cadencia del sistema activo. */
     const followUpsPendientes = useMemo(
@@ -512,6 +507,7 @@ export default function ProspeccionPage() {
                             fueraDeCola={fueraDeCola}
                             onAbrir={setSeleccionado}
                             objetivoDiario={objetivoDiario}
+                            esVivoMenu={sistemaActivo === "vivomenu"}
                         />
                     )}
                     {vista === "planilla" && <VistaPlanilla prospectos={filtrados} onAbrir={setSeleccionado} onCambiarEstado={(id, estado) => guardar(id, { estado })} />}
@@ -549,12 +545,13 @@ export default function ProspeccionPage() {
 // ═══════════════════════════════════════════════════════════
 
 function VistaCola({
-    cola, onAbrir, objetivoDiario, fueraDeCola,
+    cola, onAbrir, objetivoDiario, fueraDeCola, esVivoMenu,
 }: {
     cola: Prospecto[];
     onAbrir: (p: Prospecto) => void;
     objetivoDiario: number;
     fueraDeCola: Prospecto[];
+    esVivoMenu: boolean;
 }) {
     const [verFuera, setVerFuera] = useState(false);
 
@@ -573,8 +570,13 @@ function VistaCola({
     return (
         <div className="space-y-5">
             <div>
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-3">
+                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1">
                     El bloque de hoy — los {Math.min(objetivoDiario, bloque.length)} de arriba
+                </p>
+                <p className="text-[11px] text-muted-foreground mb-3">
+                    {esVivoMenu
+                        ? "Ordenado por score. Acá casi todos están en Instagram-como-web, así que separar por segmento no distingue nada."
+                        : "Ordenado por segmento y después por score: primero Instagram-como-web, después sin web, y al final los que ya tienen una."}
                 </p>
                 <div className="grid gap-2">
                     {bloque.map((p, i) => <FilaCola key={p.id} p={p} indice={i + 1} onAbrir={onAbrir} destacado />)}
