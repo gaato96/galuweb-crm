@@ -27,6 +27,7 @@ import {
 import {
     detectarRubro, senialesPara, senialPrincipal, PATRON_LABELS, RUBRO_LABELS,
 } from "@/lib/dolores-rubro";
+import { pistaDemanda, chequeosDemanda } from "@/lib/demanda-busqueda";
 
 type Tab = "datos" | "escaneo" | "mensajes" | "seguimiento";
 type PasoUI = PasoMensaje | PasoMensajeVivoMenu;
@@ -81,6 +82,10 @@ export default function ProspectoModal({
     const rubroProsp = useMemo(() => detectarRubro(draft), [draft.rubro, draft.especialidad]);
     const senialesDelRubro = useMemo(() => senialesPara(rubroProsp), [rubroProsp]);
     const senialTitular = useMemo(() => senialPrincipal(draft.escaneo.fallas), [draft.escaneo.fallas]);
+
+    // Los tres chequeos de demanda, ya armados con el término y la provincia del prospecto.
+    const pista = useMemo(() => pistaDemanda(draft), [draft.rubro, draft.especialidad, draft.ciudad]);
+    const chequeos = useMemo(() => chequeosDemanda(draft), [draft.rubro, draft.especialidad, draft.ciudad]);
 
     /** Un solo punto de generación: despacha al motor de Galu o al de VivoMenu según el sistema. */
     const generar = (paso: PasoUI, p: Prospecto): string =>
@@ -383,7 +388,7 @@ export default function ProspectoModal({
                                         ))}
                                     </select>
                                 </Campo>
-                                <Campo label="Demanda de búsqueda" hint="Si es baja, usar ángulo de credibilidad">
+                                <Campo label="Demanda de búsqueda" hint="Si es baja, no uses la señal de no aparecer: sería falsa">
                                     <select value={draft.demanda_busqueda} onChange={(e) => set("demanda_busqueda", e.target.value as DemandaBusqueda)} className={inputCls}>
                                         <option value="sin_definir">Sin definir</option>
                                         <option value="alta">Alta — se busca en Google</option>
@@ -421,6 +426,49 @@ export default function ProspectoModal({
                                         onChange={(v) => set("es_whatsapp_business", v ? true : false)}
                                         label="Es WhatsApp Business (con horarios / catálogo)"
                                     />
+                                </div>
+                            </div>
+
+                            {/* Cómo verificar la demanda de búsqueda */}
+                            <div className="rounded-xl border border-border bg-background/40 p-4 space-y-3">
+                                <div className="flex items-start justify-between gap-3 flex-wrap">
+                                    <div className="min-w-0">
+                                        <h3 className="text-sm font-bold text-foreground">¿La gente busca este servicio?</h3>
+                                        <p className="text-[11px] text-muted-foreground mt-0.5">{pista.porque}</p>
+                                    </div>
+                                    {pista.sugerencia !== "sin_definir" && draft.demanda_busqueda !== pista.sugerencia && (
+                                        <button
+                                            type="button"
+                                            onClick={() => set("demanda_busqueda", pista.sugerencia)}
+                                            className="px-2.5 py-1 rounded-lg text-[11px] font-bold border border-primary/40 bg-primary/10 text-primary hover:bg-primary/20 whitespace-nowrap"
+                                        >
+                                            Marcar como {pista.sugerencia}
+                                        </button>
+                                    )}
+                                </div>
+
+                                {pista.consulta && (
+                                    <p className="text-[11px] text-muted-foreground">
+                                        Consulta a probar: <span className="font-mono text-foreground">&ldquo;{pista.consulta}&rdquo;</span>
+                                    </p>
+                                )}
+
+                                <div className="space-y-1.5">
+                                    {chequeos.map((c) => (
+                                        <a
+                                            key={c.id}
+                                            href={c.url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="block rounded-lg border border-border p-2.5 hover:border-primary/40 transition-colors group"
+                                        >
+                                            <span className="flex items-center gap-1.5 text-xs font-bold text-foreground group-hover:text-primary">
+                                                <ExternalLink className="w-3.5 h-3.5" />
+                                                {c.label}
+                                            </span>
+                                            <span className="block text-[11px] text-muted-foreground mt-1">{c.detalle}</span>
+                                        </a>
+                                    ))}
                                 </div>
                             </div>
 
