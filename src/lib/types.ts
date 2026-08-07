@@ -560,6 +560,11 @@ export type FallaVerificable =
     | "pedidos_solo_whatsapp"
     | "no_aparece_comida"
     | "posteos_sin_stock"
+    // Gastronomía: estas cuatro salen de escribirles como cliente, no de mirar.
+    | "demora_en_contestar"
+    | "carta_llega_como_imagen"
+    | "respuesta_automatica_sin_seguir"
+    | "pedido_muchas_idas"
     // Higiene / encontrabilidad: sirven de apoyo, no de titular.
     | "whatsapp_personal"
     | "ficha_incompleta"
@@ -693,6 +698,10 @@ export const FALLA_LABELS: Record<FallaVerificable, string> = {
     pedidos_solo_whatsapp: "Solo se puede pedir escribiendo y esperando",
     no_aparece_comida: "No aparecen buscando la comida + la zona",
     posteos_sin_stock: 'Postean "hoy no hay" o "se terminó"',
+    demora_en_contestar: "Tardaron en contestar en hora pico",
+    carta_llega_como_imagen: "Mandan la carta como foto por WhatsApp",
+    respuesta_automatica_sin_seguir: "Contesta un automático y no sigue nadie",
+    pedido_muchas_idas: "Varios mensajes para cerrar un pedido simple",
     whatsapp_personal: "WhatsApp personal (no Business)",
     ficha_incompleta: "Ficha de Google incompleta",
     horarios_mal: "Horarios de Maps mal cargados",

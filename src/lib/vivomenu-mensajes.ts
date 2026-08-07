@@ -15,7 +15,7 @@
 
 import type { Prospecto, FallaVerificable } from "./types";
 import { normalizarEscaneo, diasDesde } from "./prospeccion";
-import { SENIALES_POR_ID, senialPrincipal } from "./dolores-rubro";
+import { SENIALES_POR_ID, senialPrincipal, hizoPruebaDePedido } from "./dolores-rubro";
 
 /** Un solo lugar para cambiar quién firma los mensajes. */
 export const VIVOMENU_REMITENTE = "Gastón";
@@ -124,8 +124,14 @@ export function generarMensajeVivoMenu(paso: PasoMensajeVivoMenu, p: Prospecto):
             hallazgos.push("[completar con otro hallazgo real del escaneo — no inventar, la fuerza del mensaje es que todo sea verificable]");
         }
 
+        // "Te pedí como cliente" solo se puede decir si de verdad se hizo la prueba.
+        // Si el escaneo fue únicamente frío, la apertura cambia y no afirma nada falso.
+        const apertura = hizoPruebaDePedido(escaneo.fallas)
+            ? "Hice la prueba de pedirte como cliente, para ver dónde se traba. Tres cosas que vi:"
+            : "Estuve mirando cómo se pide desde afuera, como lo ve alguien que todavía no te conoce. Tres cosas que vi:";
+
         return [
-            "Hice la prueba de pedirte como cliente, para ver dónde se traba. Tres cosas que vi:",
+            apertura,
             "",
             ...hallazgos.slice(0, 3).map((h, i) => `${i + 1}. ${h.charAt(0).toUpperCase()}${h.slice(1)}.`),
             "",

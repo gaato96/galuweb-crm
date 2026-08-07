@@ -151,6 +151,12 @@ export interface SenialNivel2 {
      * oración. La usa VivoMenu en el chequeo de 3 puntos y en el primer contacto.
      */
     hallazgo?: string;
+    /**
+     * No se puede ver desde afuera: sale de escribirles como cliente y pedir la carta.
+     * La UI las separa para que no se marquen "de memoria", y el mensaje del día 3 solo
+     * dice "hice la prueba de pedirte" si alguna de estas está marcada de verdad.
+     */
+    requiereContacto?: boolean;
 }
 
 const SENIALES: SenialNivel2[] = [
@@ -214,10 +220,63 @@ const SENIALES: SenialNivel2[] = [
         lecturaPropia: () =>
             "casi nunca es que en la cocina trabajen mal. Es que el pedido se toma a mano, se pasa a mano, y en el medio se pierde un agregado o una aclaración. El plato se rehace, la comida ya se pagó, y encima queda escrito en Google para el que viene atrás.",
     },
+    // ── Gastronomía: solo salen de la prueba de pedido ──
+    {
+        id: "demora_en_contestar",
+        label: "Escribiste en hora pico y tardaron en contestar",
+        donde:
+            "Escribiles un viernes o sábado entre 21 y 22, que es cuando peor están. Anotá cuánto tardaron.",
+        patron: "capacidad",
+        rubros: ["gastronomia"],
+        peso: 89,
+        requiereContacto: true,
+        linea1: (p) =>
+            `Le escribí a ${p.negocio} un viernes a la noche preguntando por la carta y la respuesta tardó un rato.`,
+        hallazgo: "escribí un viernes a la noche y la respuesta tardó",
+    },
+    {
+        id: "carta_llega_como_imagen",
+        label: "Te mandaron la carta como foto por WhatsApp",
+        donde: 'Pediles la carta como un cliente cualquiera: "hola, tenés carta?". Mirá qué te llega.',
+        patron: "consulta_perdida",
+        rubros: ["gastronomia"],
+        peso: 86,
+        requiereContacto: true,
+        linea1: (p) =>
+            `Le pedí la carta a ${p.negocio} y me llegó como una foto que hay que agrandar para poder leerla.`,
+        hallazgo: "la carta llega como una foto que hay que agrandar para leer",
+        lecturaPropia: () =>
+            "una foto de la carta se ve bien en la compu del que la armó y mal en el celular del que la recibe. El que está con hambre no agranda, no busca: pregunta dos cosas y si no le contestan rápido pide en otro lado.",
+    },
+    {
+        id: "respuesta_automatica_sin_seguir",
+        label: "Contestó un mensaje automático y después no siguió nadie",
+        donde: "Después del automático, esperá. Si no aparece una persona, marcala.",
+        patron: "consulta_perdida",
+        rubros: ["gastronomia"],
+        peso: 84,
+        requiereContacto: true,
+        linea1: (p) =>
+            `Le escribí a ${p.negocio}, me contestó un mensaje automático y después quedó ahí.`,
+        hallazgo: "contesta un mensaje automático y después no sigue nadie",
+    },
+    {
+        id: "pedido_muchas_idas",
+        label: "Hicieron falta varios mensajes para cerrar un pedido simple",
+        donde: "Contá los mensajes desde que pedís hasta que queda cerrado con dirección y forma de pago.",
+        patron: "tiempo_del_dueno",
+        rubros: ["gastronomia"],
+        peso: 82,
+        requiereContacto: true,
+        linea1: (p) =>
+            `Probé hacer un pedido en ${p.negocio} y para cerrarlo hicieron falta varios mensajes de ida y vuelta.`,
+        hallazgo: "para cerrar un pedido simple hicieron falta varios mensajes de ida y vuelta",
+    },
+
     {
         id: "carta_como_imagen",
-        label: "La carta es una foto o un PDF que hay que agrandar para leer",
-        donde: "Abrila desde el celular como si fueras un cliente. ¿Se lee sin hacer zoom?",
+        label: "La carta publicada es una foto o PDF que hay que agrandar",
+        donde: "Abrí la carta que está publicada en Instagram o Maps desde el celular. ¿Se lee sin hacer zoom?",
         patron: "consulta_perdida",
         rubros: ["gastronomia"],
         peso: 85,
@@ -454,6 +513,11 @@ export function senialPrincipal(fallas: FallaVerificable[]): SenialNivel2 | null
     const candidatas = fallas.map((f) => SENIALES_POR_ID[f]).filter(Boolean);
     if (candidatas.length === 0) return null;
     return candidatas.sort((a, b) => b.peso - a.peso)[0];
+}
+
+/** ¿Se hizo la prueba de pedido? Define si el mensaje puede decir "te pedí como cliente". */
+export function hizoPruebaDePedido(fallas: FallaVerificable[]): boolean {
+    return fallas.some((f) => SENIALES_POR_ID[f]?.requiereContacto);
 }
 
 // ─────────────────────────────────────────────────────────────

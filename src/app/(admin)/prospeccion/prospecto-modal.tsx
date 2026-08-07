@@ -28,6 +28,7 @@ import {
     detectarRubro, senialesPara, senialPrincipal, PATRON_LABELS, RUBRO_LABELS,
 } from "@/lib/dolores-rubro";
 import { pistaDemanda, chequeosDemanda } from "@/lib/demanda-busqueda";
+import { atajosEscaneo } from "@/lib/escaneo-atajos";
 
 type Tab = "datos" | "escaneo" | "mensajes" | "seguimiento";
 type PasoUI = PasoMensaje | PasoMensajeVivoMenu;
@@ -81,6 +82,10 @@ export default function ProspectoModal({
     // negocio, no si tiene web.
     const rubroProsp = useMemo(() => detectarRubro(draft), [draft.rubro, draft.especialidad]);
     const senialesDelRubro = useMemo(() => senialesPara(rubroProsp), [rubroProsp]);
+    // Se separan porque unas se miran y otras hay que salir a buscarlas escribiendo.
+    const senialesFrias = useMemo(() => senialesDelRubro.filter((s) => !s.requiereContacto), [senialesDelRubro]);
+    const senialesConContacto = useMemo(() => senialesDelRubro.filter((s) => s.requiereContacto), [senialesDelRubro]);
+    const atajos = useMemo(() => atajosEscaneo(draft), [draft.negocio, draft.ciudad, draft.rubro, draft.especialidad, draft.sistema, draft.maps_url, draft.instagram_url]);
     const senialTitular = useMemo(() => senialPrincipal(draft.escaneo.fallas), [draft.escaneo.fallas]);
 
     // Los tres chequeos de demanda, ya armados con el término y la provincia del prospecto.
@@ -429,6 +434,35 @@ export default function ProspectoModal({
                                 </div>
                             </div>
 
+                            {/* Atajos: los lugares donde se mira, ya armados */}
+                            {atajos.length > 0 && (
+                                <div className="rounded-xl border border-border bg-background/40 p-4 space-y-2.5">
+                                    <div>
+                                        <h3 className="text-sm font-bold text-foreground">Dónde mirar</h3>
+                                        <p className="text-[11px] text-muted-foreground mt-0.5">
+                                            Abren en pestaña nueva con el nombre y la ciudad ya puestos.
+                                        </p>
+                                    </div>
+                                    <div className="grid sm:grid-cols-2 gap-1.5">
+                                        {atajos.map((a) => (
+                                            <a
+                                                key={a.id}
+                                                href={a.url}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="block rounded-lg border border-border p-2.5 hover:border-primary/40 transition-colors group"
+                                            >
+                                                <span className="flex items-center gap-1.5 text-xs font-bold text-foreground group-hover:text-primary">
+                                                    <ExternalLink className="w-3.5 h-3.5 shrink-0" />
+                                                    {a.label}
+                                                </span>
+                                                <span className="block text-[11px] text-muted-foreground mt-1">{a.busca}</span>
+                                            </a>
+                                        ))}
+                                    </div>
+                                </div>
+                            )}
+
                             {/* Cómo verificar la demanda de búsqueda */}
                             <div className="rounded-xl border border-border bg-background/40 p-4 space-y-3">
                                 <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -506,8 +540,13 @@ export default function ProspectoModal({
                                         </span>
                                     </div>
 
+                                    {senialesFrias.length > 0 && (
+                                        <p className="text-[10px] font-bold uppercase tracking-wide text-muted-foreground">
+                                            Sin escribirles
+                                        </p>
+                                    )}
                                     <div className="space-y-1.5">
-                                        {senialesDelRubro.map((s) => {
+                                        {senialesFrias.map((s) => {
                                             const marcada = draft.escaneo.fallas.includes(s.id);
                                             const esTitular = marcada && senialTitular?.id === s.id;
                                             return (
@@ -544,6 +583,61 @@ export default function ProspectoModal({
                                             );
                                         })}
                                     </div>
+
+                                    {senialesConContacto.length > 0 && (
+                                        <div className="pt-2 space-y-1.5">
+                                            <div className="flex items-baseline gap-2 flex-wrap">
+                                                <p className="text-[10px] font-bold uppercase tracking-wide text-amber-300">
+                                                    Solo con la prueba de pedido
+                                                </p>
+                                                <p className="text-[10px] text-muted-foreground">
+                                                    escribiles como cliente cualquiera
+                                                </p>
+                                            </div>
+                                            <p className="text-[11px] text-muted-foreground">
+                                                Mandales &ldquo;hola, tenés carta?&rdquo; desde un número que no uses para prospectar,
+                                                un viernes entre 21 y 22. En dos minutos ves cuánto tardan, cómo te mandan la carta
+                                                y cuántas idas y vueltas hace falta para cerrar un pedido. Si no hacés la prueba,
+                                                el mensaje del día 3 no dice que la hiciste.
+                                            </p>
+                                            {senialesConContacto.map((s) => {
+                                                const marcada = draft.escaneo.fallas.includes(s.id);
+                                                const esTitular = marcada && senialTitular?.id === s.id;
+                                                return (
+                                                    <div
+                                                        key={s.id}
+                                                        className={cn(
+                                                            "rounded-lg border p-2.5 transition-colors",
+                                                            esTitular
+                                                                ? "border-cyan-500/50 bg-cyan-500/10"
+                                                                : marcada
+                                                                  ? "border-border bg-secondary/40"
+                                                                  : "border-amber-500/20 hover:border-amber-500/40"
+                                                        )}
+                                                    >
+                                                        <Checkbox
+                                                            checked={marcada}
+                                                            onChange={() => toggleFalla(s.id)}
+                                                            label={s.label}
+                                                        />
+                                                        <div className="pl-6 mt-1 space-y-1">
+                                                            <p className="text-[11px] text-muted-foreground">{s.donde}</p>
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-secondary text-muted-foreground border border-border">
+                                                                    {PATRON_LABELS[s.patron]}
+                                                                </span>
+                                                                {esTitular && (
+                                                                    <span className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                                                                        Va de titular en el mensaje
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
 
                                     <p className="text-[11px] text-muted-foreground">
                                         Marcá solo lo que <strong>viste</strong>. El dolor de fondo{" "}
