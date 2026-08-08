@@ -675,7 +675,7 @@ function FilaCola({ p, indice, onAbrir, destacado }: { p: Prospecto; indice: num
                 <p className="text-sm font-bold text-foreground truncate">{p.negocio}</p>
                 <p className="text-[11px] text-muted-foreground truncate">
                     {[p.especialidad || p.rubro, p.ciudad].filter(Boolean).join(" · ")}
-                    {p.reviews_count != null && ` · ${p.reviews_count} reseñas`}
+                    {p.reviews_count != null && ` · ${Math.abs(p.reviews_count)} reseñas`}
                 </p>
             </div>
 

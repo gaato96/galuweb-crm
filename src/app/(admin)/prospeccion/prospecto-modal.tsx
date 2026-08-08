@@ -63,6 +63,9 @@ export default function ProspectoModal({
     const [draft, setDraft] = useState<Prospecto>({
         ...prospecto,
         escaneo: normalizarEscaneo(prospecto.escaneo),
+        // Autocorrige cargas viejas: una cantidad de reseñas negativa nunca fue un dato
+        // real, era un signo que se coló al pegar o al escribir. Al guardar queda arreglado.
+        reviews_count: prospecto.reviews_count == null ? null : Math.abs(prospecto.reviews_count),
     });
     const [guardando, setGuardando] = useState(false);
     const esVivoMenu = draft.sistema === "vivomenu";
@@ -356,7 +359,9 @@ export default function ProspectoModal({
                                     <input
                                         type="number" min={0}
                                         value={draft.reviews_count ?? ""}
-                                        onChange={(e) => set("reviews_count", e.target.value ? Number(e.target.value) : null)}
+                                        onChange={(e) =>
+                                            set("reviews_count", e.target.value ? Math.abs(Number(e.target.value)) : null)
+                                        }
                                         className={inputCls}
                                     />
                                 </Campo>

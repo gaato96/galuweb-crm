@@ -102,12 +102,23 @@ export function normalizar(str: string): string {
 }
 
 /**
+ * Una cantidad de rese\u00f1as negativa nunca es un dato real: es un signo que se
+ * col\u00f3 al pegar desde Sheets o al escribir a mano (el input no lo bloqueaba).
+ * Se normaliza ac\u00e1, en un solo lugar, para que todo lo que lee reviews_count
+ * (score, alertas, cola, la lectura que cita el rating) vea siempre el valor
+ * correcto, sin depender de que cada prospecto se haya vuelto a guardar.
+ */
+export function rese\u00f1asSanas(reviews: number | null): number | null {
+    return reviews == null ? null : Math.abs(reviews);
+}
+
+/**
  * §8 — "El umbral de reseñas es relativo al rubro, no absoluto."
  * Devuelve el percentil (0-1) del prospecto dentro de su propio rubro.
  * Con menos de 4 prospectos del rubro cargados no hay distribución que mirar → null.
  */
 export function percentilResenasEnRubro(prospecto: Prospecto, universo: Prospecto[]): number | null {
-    const reviews = prospecto.reviews_count;
+    const reviews = reseñasSanas(prospecto.reviews_count);
     if (reviews == null) return null;
 
     const mismoRubro = universo.filter(
@@ -115,7 +126,7 @@ export function percentilResenasEnRubro(prospecto: Prospecto, universo: Prospect
     );
     if (mismoRubro.length < 4) return null;
 
-    const menores = mismoRubro.filter((p) => (p.reviews_count ?? 0) < reviews).length;
+    const menores = mismoRubro.filter((p) => (reseñasSanas(p.reviews_count) ?? 0) < reviews).length;
     return menores / mismoRubro.length;
 }
 
@@ -182,14 +193,15 @@ export function calcularScore(prospecto: Prospecto, universo: Prospecto[] = []):
     // tienen 2 reseñas, el que tiene 3 queda en percentil 75 y suma puntos igual.
     // Pocas reseñas en un rubro donde la gente sí reseña significa poco flujo o
     // ficha abandonada (§3.1), y eso no depende de con quién se lo compare.
-    if (peso !== "debil" && prospecto.reviews_count != null) {
-        if (prospecto.reviews_count < 5) {
+    const reviews = reseñasSanas(prospecto.reviews_count);
+    if (peso !== "debil" && reviews != null) {
+        if (reviews < 5) {
             partes.push({
-                concepto: `Solo ${prospecto.reviews_count} ${prospecto.reviews_count === 1 ? "reseña" : "reseñas"}: casi sin flujo`,
+                concepto: `Solo ${reviews} ${reviews === 1 ? "reseña" : "reseñas"}: casi sin flujo`,
                 puntos: -30,
             });
-        } else if (prospecto.reviews_count < 15) {
-            partes.push({ concepto: `${prospecto.reviews_count} reseñas: volumen bajo`, puntos: -10 });
+        } else if (reviews < 15) {
+            partes.push({ concepto: `${reviews} reseñas: volumen bajo`, puntos: -10 });
         }
     }
 
@@ -276,8 +288,9 @@ export function compararParaCola(sistema: Sistema) {
  */
 export function motivoFueraDeCola(p: Prospecto): string | null {
     const peso = pesoResenaDelRubro(p.rubro);
-    if (peso !== "debil" && p.reviews_count != null && p.reviews_count < 5) {
-        return `${p.reviews_count} ${p.reviews_count === 1 ? "reseña" : "reseñas"}`;
+    const reviews = reseñasSanas(p.reviews_count);
+    if (peso !== "debil" && reviews != null && reviews < 5) {
+        return `${reviews} ${reviews === 1 ? "reseña" : "reseñas"}`;
     }
     if (!p.whatsapp_publicado && !p.instagram_url && !p.telefono.trim()) {
         return "sin canal de contacto";
@@ -288,10 +301,11 @@ export function motivoFueraDeCola(p: Prospecto): string | null {
 export function alertasDescarte(p: Prospecto): AlertaDescarte[] {
     const alertas: AlertaDescarte[] = [];
 
-    if (p.reviews_count != null && p.reviews_count < 5) {
+    const reviews = reseñasSanas(p.reviews_count);
+    if (reviews != null && reviews < 5) {
         alertas.push({
             regla: "Volumen demasiado bajo",
-            detalle: `${p.reviews_count} reseñas — casi no hay flujo, o la ficha está abandonada.`,
+            detalle: `${reviews} reseñas — casi no hay flujo, o la ficha está abandonada.`,
         });
     }
     if (p.clasificacion_web === "web_buena") {

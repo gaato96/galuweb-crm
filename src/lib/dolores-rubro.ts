@@ -535,8 +535,10 @@ export function hizoPruebaDePedido(fallas: FallaVerificable[]): boolean {
  */
 function reputacionDesaprovechada(p: Prospecto): string {
     const cierre = " Esa reputación se la ganaron paciente por paciente y hoy no está jugando en esa decisión.";
-    if (p.rating != null && p.rating >= 4.3 && p.reviews_count != null && p.reviews_count >= 8) {
-        return ` Y no es un tema de calidad: tienen ${p.rating} con ${p.reviews_count} reseñas, mejor puntaje que varios de los que sí aparecen ahí arriba.${cierre}`;
+    // Una cantidad negativa es un error de signo, nunca un dato real (ver reseñasSanas en prospeccion.ts).
+    const reviews = p.reviews_count == null ? null : Math.abs(p.reviews_count);
+    if (p.rating != null && p.rating >= 4.3 && reviews != null && reviews >= 8) {
+        return ` Y no es un tema de calidad: tienen ${p.rating} con ${reviews} reseñas, mejor puntaje que varios de los que sí aparecen ahí arriba.${cierre}`;
     }
     if (p.rating != null && p.rating >= 4.3) {
         return ` Y no es un tema de calidad: las reseñas que tienen son muy buenas.${cierre}`;

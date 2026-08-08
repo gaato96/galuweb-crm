@@ -291,7 +291,12 @@ function construirProspecto(
         clasificacion_web: clasificarWebDesdeUrl(web),
         canal: telefonoAWhatsapp(telefono) ? "whatsapp" : "instagram",
         rating: numero(valores.rating),
-        reviews_count: numero(valores.reviews_count),
+        // Math.abs: un guion suelto en el texto pegado (viñeta, separador de rango) puede
+        // colarse en el número. Una cantidad de reseñas negativa nunca es un dato real.
+        reviews_count: (() => {
+            const n = numero(valores.reviews_count);
+            return n == null ? null : Math.abs(n);
+        })(),
         notas: valores.notas || "",
         escaneo: { ...ESCANEO_VACIO },
         origen: "sheets",
