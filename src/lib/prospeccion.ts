@@ -440,9 +440,9 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
 
     if (paso === "m3") {
         return [
-            "Buenísimo. Eso que me contás es igual a lo que le pasaba a [caso donde la situación coincide]: todo entraba por WhatsApp y se perdía la mitad.",
+            "Buenísimo, gracias por contarme. Justo por eso el análisis se queda corto solo: para decirte qué conviene tocar primero necesito entender un poco más cómo laburan hoy en el día a día.",
             "",
-            "Lo que hacemos es un diagnóstico de 30 minutos, sin costo. Sale un documento de una página con qué conviene tocar primero y qué cuesta. Sin compromiso de nada.",
+            "Te propongo una llamada corta, 20-30 minutos, sin costo y sin compromiso. Repasamos el análisis juntos y salimos con qué conviene resolver primero y qué costaría.",
             "",
             "Te sirve esta semana o la que viene?",
         ].join("\n");
