@@ -325,24 +325,36 @@ function CotizacionesContent() {
     const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         if (!file) return;
-        if (file.type !== "application/pdf") { toast.error("Solo archivos PDF"); return; }
+        const esPdf = file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+        if (!esPdf) { toast.error("Solo archivos PDF"); return; }
         setUploading(true);
+        toast.loading("Subiendo PDF…", { id: "pdf-upload" });
         try {
             const url = await storageStore.uploadCotizacion(file);
             setPdfUrl(url);
-            toast.success("PDF subido correctamente");
-        } catch { toast.error("Error al subir PDF"); }
-        finally { setUploading(false); }
+            toast.success("PDF subido correctamente", { id: "pdf-upload" });
+        } catch (err) {
+            console.error("Error al subir PDF:", err);
+            toast.error((err as Error)?.message || "Error al subir PDF", { id: "pdf-upload", duration: 10000 });
+        }
+        finally {
+            setUploading(false);
+            e.target.value = ""; // permite reintentar con el mismo archivo
+        }
     };
 
     const handleSave = async () => {
         if (!clienteId) { toast.error("Selecciona un cliente"); return; }
-        if (items.length === 0 || !items[0].descripcion) { toast.error("Agrega al menos un ítem"); return; }
+        const itemsValidos = items.filter((i) => i.descripcion.trim());
+        if (itemsValidos.length === 0 && !pdfUrl) {
+            toast.error("Detallá al menos un ítem del servicio o adjuntá el PDF de la cotización");
+            return;
+        }
         try {
             await cotizacionesStore.create({
                 cliente_id: clienteId,
                 total,
-                items: items.filter((i) => i.descripcion),
+                items: itemsValidos,
                 estado: "borrador",
                 pdf_url: pdfUrl,
                 notas,
@@ -673,7 +685,7 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
 
                     {/* Items */}
                     <div className="space-y-2">
-                        <div className="grid grid-cols-[1fr_120px_40px] gap-2 text-[10px] text-muted-foreground uppercase"><span>Descripción</span><span>Precio</span><span /></div>
+                        <div className="grid grid-cols-[1fr_120px_40px] gap-2 text-[10px] text-muted-foreground uppercase"><span>Detalle del servicio</span><span>Precio</span><span /></div>
                         {items.map((item, i) => (
                             <div key={i} className="grid grid-cols-[1fr_120px_40px] gap-2">
                                 <input value={item.descripcion} onChange={(e) => updateItem(i, "descripcion", e.target.value)} className="h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" placeholder="Descripción del servicio..." />
@@ -712,14 +724,22 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
 
                     {/* PDF Upload */}
                     <div className="flex flex-col gap-3 p-3 rounded-lg border border-border bg-secondary/30">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-2"><FileText className="w-3 h-3" /> Adjuntar PDF externo (opcional)</label>
+                        <div>
+                            <label className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-2"><FileText className="w-3 h-3" /> PDF de la cotización</label>
+                            <p className="text-[11px] text-muted-foreground mt-1">Si ya armaste el PDF por fuera, subilo acá y no hace falta completar los textos del PDF.</p>
+                        </div>
                         <div className="flex items-center gap-3">
-                            <input type="file" accept=".pdf" onChange={handleFileUpload} id="pdf-upload" className="hidden" />
+                            <input type="file" accept="application/pdf,.pdf" onChange={handleFileUpload} id="pdf-upload" className="hidden" />
                             <label htmlFor="pdf-upload" className={cn("flex-1 flex items-center justify-center gap-2 h-10 rounded-lg border-2 border-dashed border-border hover:border-primary/50 cursor-pointer text-sm", uploading && "opacity-50 pointer-events-none")}>
                                 {uploading ? <span className="w-4 h-4 border-2 border-primary/30 border-t-primary rounded-full animate-spin" /> : <Upload className="w-4 h-4 text-muted-foreground" />}
-                                {pdfUrl ? "Cambiar PDF" : "Subir archivo PDF"}
+                                {uploading ? "Subiendo…" : pdfUrl ? "Cambiar PDF" : "Subir archivo PDF"}
                             </label>
-                            {pdfUrl && <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="h-10 px-3 flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium"><LinkIcon className="w-3.5 h-3.5" /> Ver PDF</a>}
+                            {pdfUrl && (
+                                <>
+                                    <a href={pdfUrl} target="_blank" rel="noopener noreferrer" className="h-10 px-3 flex items-center gap-2 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-medium"><LinkIcon className="w-3.5 h-3.5" /> Ver PDF</a>
+                                    <button onClick={() => setPdfUrl("")} className="h-10 px-2 rounded-lg hover:bg-destructive/20" title="Quitar PDF"><X className="w-4 h-4 text-destructive" /></button>
+                                </>
+                            )}
                         </div>
                     </div>
 
@@ -817,7 +837,13 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                                         </button>
                                     ))}
                                 </div>
-                                <div className="flex items-center gap-2 justify-end">
+                                <div className="flex items-center gap-2 justify-end flex-wrap">
+                                    {/* PDF adjuntado a mano */}
+                                    {q.pdf_url && (
+                                        <a href={q.pdf_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 text-xs font-semibold hover:bg-sky-500/20">
+                                            <LinkIcon className="w-3.5 h-3.5" /> Ver PDF adjunto
+                                        </a>
+                                    )}
                                     {/* PDF Download */}
                                     <PDFButton cotizacion={q} cliente={cliente} />
                                     {/* AI Prompt */}

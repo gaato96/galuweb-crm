@@ -373,58 +373,55 @@ export const ticketsStore = {
 };
 
 // --- Storage ---
+const BUCKET = "galu-assets";
+
+/** Traduce los errores crudos de Supabase Storage a algo accionable en pantalla. */
+function traducirErrorStorage(error: unknown): Error {
+    const raw = (error as { message?: string })?.message || String(error);
+    const msg = raw.toLowerCase();
+
+    if (msg.includes("bucket not found")) {
+        return new Error(`No existe el bucket "${BUCKET}" en Supabase. Creálo en Storage (público) o corré supabase/migrations/20260813_storage_galu_assets.sql.`);
+    }
+    if (msg.includes("row-level security") || msg.includes("violates") || msg.includes("unauthorized") || msg.includes("403")) {
+        return new Error(`El bucket "${BUCKET}" no permite subir archivos con la clave pública. Aplicá las políticas de storage (supabase/migrations/20260813_storage_galu_assets.sql).`);
+    }
+    if (msg.includes("payload too large") || msg.includes("exceeded the maximum allowed size") || msg.includes("413")) {
+        return new Error("El archivo supera el tamaño máximo permitido por el bucket.");
+    }
+    if (msg.includes("mime") || msg.includes("content type")) {
+        return new Error("El bucket no acepta este tipo de archivo. Permití application/pdf en la configuración del bucket.");
+    }
+    if (msg.includes("failed to fetch") || msg.includes("networkerror")) {
+        return new Error("No se pudo conectar con Supabase. Revisá NEXT_PUBLIC_SUPABASE_URL y la conexión.");
+    }
+    return new Error(raw);
+}
+
+/** Sube un archivo a `carpeta/` dentro del bucket y devuelve su URL pública. */
+async function subirArchivo(file: File, carpeta: string, prefijo = ""): Promise<string> {
+    const fileExt = (file.name.split(".").pop() || "bin").toLowerCase().replace(/[^a-z0-9]/g, "");
+    const fileName = `${prefijo}${Date.now()}_${Math.random().toString(36).slice(2)}.${fileExt}`;
+    const filePath = `${carpeta}/${fileName}`;
+
+    const { error: uploadError } = await supabase.storage
+        .from(BUCKET)
+        .upload(filePath, file, {
+            cacheControl: "3600",
+            upsert: false,
+            contentType: file.type || undefined,
+        });
+
+    if (uploadError) throw traducirErrorStorage(uploadError);
+
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(filePath);
+    return data.publicUrl;
+}
+
 export const storageStore = {
-    uploadCotizacion: async (file: File): Promise<string> => {
-        const fileExt = file.name.split(".").pop();
-        const fileName = `${Math.random().toString(36).slice(2)}.${fileExt}`;
-        const filePath = `cotizaciones/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-            .from("galu-assets")
-            .upload(filePath, file);
-
-        if (uploadError) throw uploadError;
-
-        const { data } = supabase.storage
-            .from("galu-assets")
-            .getPublicUrl(filePath);
-
-        return data.publicUrl;
-    },
-    uploadContrato: async (file: File): Promise<string> => {
-        const fileExt = file.name.split(".").pop();
-        const fileName = `${Math.random().toString(36).slice(2)}.${fileExt}`;
-        const filePath = `contratos/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-            .from("galu-assets")
-            .upload(filePath, file);
-
-        if (uploadError) throw uploadError;
-
-        const { data } = supabase.storage
-            .from("galu-assets")
-            .getPublicUrl(filePath);
-
-        return data.publicUrl;
-    },
-    uploadLogo: async (file: File): Promise<string> => {
-        const fileExt = file.name.split(".").pop();
-        const fileName = `logo_${Date.now()}_${Math.random().toString(36).slice(2)}.${fileExt}`;
-        const filePath = `logos/${fileName}`;
-
-        const { error: uploadError } = await supabase.storage
-            .from("galu-assets")
-            .upload(filePath, file);
-
-        if (uploadError) throw uploadError;
-
-        const { data } = supabase.storage
-            .from("galu-assets")
-            .getPublicUrl(filePath);
-
-        return data.publicUrl;
-    },
+    uploadCotizacion: (file: File) => subirArchivo(file, "cotizaciones", "cotizacion_"),
+    uploadContrato: (file: File) => subirArchivo(file, "contratos", "contrato_"),
+    uploadLogo: (file: File) => subirArchivo(file, "logos", "logo_"),
 };
 
 // --- Logs de Proyecto (Changelog / Seguimiento) ---

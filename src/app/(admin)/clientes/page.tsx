@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Plus, MessageCircle, ArrowRight, X, GripVertical, Search, ShieldCheck, ChevronDown, ChevronUp, Eye, Trash2, LayoutGrid, List, Filter } from "lucide-react";
+import { Plus, MessageCircle, ArrowRight, X, GripVertical, Search, ShieldCheck, ChevronDown, ChevronUp, Eye, Trash2, LayoutGrid, List, Filter, Pencil } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
 import { clientesStore, proyectosStore, tareasStore } from "@/lib/store";
 import type { Cliente, EtapaCliente, TipoProyecto } from "@/lib/types";
@@ -292,6 +292,8 @@ function ClienteDetailModal({
     const [loadingGenerarMsg, setLoadingGenerarMsg] = useState(false);
     const [loadingRegistrarDemo, setLoadingRegistrarDemo] = useState(false);
     const [servicioSeleccionado, setServicioSeleccionado] = useState("Landing Page");
+    const [editando, setEditando] = useState(false);
+    const [datos, setDatos] = useState({ nombre: "", negocio: "", email: "", tel: "", canal: "" });
 
     useEffect(() => {
         if (cliente?.info_investigacion) {
@@ -328,9 +330,41 @@ function ClienteDetailModal({
             });
         }
         setWaMsg(cliente?.msg_whatsapp || "");
+        setDatos({
+            nombre: cliente?.nombre || "",
+            negocio: cliente?.negocio || "",
+            email: cliente?.email || "",
+            tel: cliente?.tel || "",
+            canal: cliente?.canal || "",
+        });
+        setEditando(false);
     }, [cliente]);
 
     if (!open || !cliente) return null;
+
+    const guardarDatos = () => {
+        if (!datos.nombre.trim()) { toast.error("El nombre es obligatorio"); return; }
+        onUpdate(cliente.id, {
+            nombre: datos.nombre.trim(),
+            negocio: datos.negocio.trim(),
+            email: datos.email.trim(),
+            tel: datos.tel.trim(),
+            canal: datos.canal,
+        });
+        setEditando(false);
+        toast.success("Datos del cliente actualizados");
+    };
+
+    const cancelarEdicion = () => {
+        setDatos({
+            nombre: cliente.nombre || "",
+            negocio: cliente.negocio || "",
+            email: cliente.email || "",
+            tel: cliente.tel || "",
+            canal: cliente.canal || "",
+        });
+        setEditando(false);
+    };
 
     const handleInvestigarIA = async () => {
         setLoadingInvestigar(true);
@@ -551,9 +585,60 @@ function ClienteDetailModal({
                         <span className={cn("text-xs px-2.5 py-1 rounded-full border font-medium", ETAPA_COLORS[cliente.etapa])}>
                             {ETAPA_LABELS[cliente.etapa]}
                         </span>
+                        {!editando && (
+                            <button
+                                onClick={() => setEditando(true)}
+                                title="Editar datos del cliente"
+                                className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg border border-border bg-secondary text-xs font-medium text-muted-foreground hover:text-foreground hover:border-primary/30 transition-colors"
+                            >
+                                <Pencil className="w-3.5 h-3.5" /> Editar
+                            </button>
+                        )}
                         <button onClick={onClose} className="p-1 rounded-lg hover:bg-secondary"><X className="w-5 h-5 text-muted-foreground" /></button>
                     </div>
                 </div>
+
+                {/* Datos Básicos — edición */}
+                {editando && (
+                    <div className="mb-4 p-4 rounded-lg bg-secondary/50 border border-primary/30 space-y-3 animate-fade-in">
+                        <h4 className="text-xs font-bold text-primary uppercase tracking-wide">Editar datos del cliente</h4>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                            <div>
+                                <label className="text-[10px] text-muted-foreground uppercase mb-1 block">Nombre *</label>
+                                <input value={datos.nombre} onChange={(e) => setDatos({ ...datos, nombre: e.target.value })} className="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-muted-foreground uppercase mb-1 block">Negocio</label>
+                                <input value={datos.negocio} onChange={(e) => setDatos({ ...datos, negocio: e.target.value })} className="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-muted-foreground uppercase mb-1 block">Email</label>
+                                <input value={datos.email} onChange={(e) => setDatos({ ...datos, email: e.target.value })} className="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                            </div>
+                            <div>
+                                <label className="text-[10px] text-muted-foreground uppercase mb-1 block">Teléfono</label>
+                                <input value={datos.tel} onChange={(e) => setDatos({ ...datos, tel: e.target.value })} className="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                            </div>
+                            <div className="sm:col-span-2">
+                                <label className="text-[10px] text-muted-foreground uppercase mb-1 block">Canal de Contacto</label>
+                                <select value={datos.canal} onChange={(e) => setDatos({ ...datos, canal: e.target.value })} className="w-full h-9 px-3 rounded-lg bg-card border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50">
+                                    <option value="">Seleccionar...</option>
+                                    <option value="Instagram">Instagram</option>
+                                    <option value="WhatsApp">WhatsApp</option>
+                                    <option value="Google">Google</option>
+                                    <option value="LinkedIn">LinkedIn</option>
+                                    <option value="Referido">Referido</option>
+                                    <option value="Email">Email</option>
+                                    <option value="Otro">Otro</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div className="flex justify-end gap-2 pt-1">
+                            <button onClick={cancelarEdicion} className="px-3 py-1.5 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors">Cancelar</button>
+                            <button onClick={guardarDatos} className="px-4 py-1.5 rounded-lg text-xs bg-primary text-primary-foreground font-bold hover:opacity-90 transition-opacity">Guardar cambios</button>
+                        </div>
+                    </div>
+                )}
 
                 {/* Datos Básicos */}
                 <div className="grid grid-cols-4 gap-3 mb-4 p-3 rounded-lg bg-secondary/50 border border-border">
@@ -1065,8 +1150,11 @@ function ClienteDetailModal({
                                                         const url = await storageStore.uploadCotizacion(file);
                                                         onUpdate(cliente.id, { pdf_cotizacion_url: url });
                                                         toast.success("PDF actualizado", { id: toastId });
-                                                    } catch {
-                                                        toast.error("Error al subir", { id: toastId });
+                                                    } catch (err) {
+                                                        console.error("Error al subir PDF:", err);
+                                                        toast.error((err as Error)?.message || "Error al subir", { id: toastId, duration: 10000 });
+                                                    } finally {
+                                                        e.target.value = "";
                                                     }
                                                 }
                                             }}
