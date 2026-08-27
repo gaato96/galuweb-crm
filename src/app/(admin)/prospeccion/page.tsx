@@ -5,6 +5,7 @@ import {
     ClipboardList, Plus, Upload, Download, RefreshCw, Search, Target,
     Table2, Columns3, BarChart3, Loader2, ExternalLink, Instagram, Phone,
     AlertTriangle, CheckCircle2, Clock, Stethoscope, UtensilsCrossed, Globe,
+    ScanSearch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -22,6 +23,7 @@ import {
     type CorteMetrica,
 } from "@/lib/prospeccion";
 import { calcularRampaVivoMenu, avisoDiaVivoMenu } from "@/lib/vivomenu-mensajes";
+import { resumenEscaneo, type EscaneoAutomatico } from "@/lib/escaneo-auto";
 import ProspectoModal from "./prospecto-modal";
 import ImportarPanel from "./importar-panel";
 
@@ -60,6 +62,7 @@ export default function ProspeccionPage() {
     const [seleccionado, setSeleccionado] = useState<Prospecto | null>(null);
     const [mostrarImportar, setMostrarImportar] = useState(false);
     const [recalculando, setRecalculando] = useState(false);
+    const [escaneoLote, setEscaneoLote] = useState<{ hechos: number; total: number } | null>(null);
 
     // ─── Carga ───
     const cargar = useCallback(async () => {
@@ -246,6 +249,67 @@ export default function ProspeccionPage() {
         if (r.ok) toast.success(r.detalle);
         else toast.error(r.detalle, { duration: 20000 });
         console.log("[prospeccion] Diagnóstico:", r);
+    };
+
+    /**
+     * Escaneo del bloque del día. La ruta procesa de a pocos a propósito, así que
+     * acá se manda en tandas: se ve el progreso, y lo que ya se escaneó queda
+     * guardado aunque una tanda falle o se corte la conexión a la mitad.
+     *
+     * A diferencia del escaneo de a uno (que deja todo en el borrador para
+     * revisar), este SÍ guarda: el sentido es llegar a la cola con los veinte ya
+     * escaneados. Como el escaneo nunca pisa lo cargado a mano, guardar es seguro.
+     */
+    const TANDA = 5;
+    const escanearBloque = async (delBloque: Prospecto[]) => {
+        if (delBloque.length === 0) return;
+        setEscaneoLote({ hechos: 0, total: delBloque.length });
+
+        const conSenial: string[] = [];
+        let sinSenial = 0;
+        let fallidos = 0;
+
+        try {
+            for (let i = 0; i < delBloque.length; i += TANDA) {
+                const tanda = delBloque.slice(i, i + TANDA);
+                try {
+                    const res = await fetch("/api/prospeccion/escanear", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ prospectos: tanda }),
+                    });
+                    const json = await res.json();
+                    if (!res.ok) throw new Error(json.error || "Error al escanear");
+
+                    for (const r of (json.resultados || []) as EscaneoAutomatico[]) {
+                        if (r.agregadas.length === 0) { sinSenial++; continue; }
+                        try {
+                            await guardar(r.prospecto_id, { ...r.campos, escaneo: r.escaneo });
+                            conSenial.push(resumenEscaneo(r));
+                        } catch {
+                            fallidos++;
+                        }
+                    }
+                } catch (e) {
+                    fallidos += tanda.length;
+                    console.error("[escaneo lote]", e);
+                }
+                setEscaneoLote({ hechos: Math.min(i + TANDA, delBloque.length), total: delBloque.length });
+            }
+
+            if (conSenial.length > 0) {
+                toast.success(
+                    `${conSenial.length} de ${delBloque.length} con señales nuevas. Abrí cada uno para revisar antes de mandar.`,
+                    { duration: 8000 }
+                );
+                console.info("[escaneo lote]\n" + conSenial.join("\n"));
+            } else if (fallidos === 0) {
+                toast.info(`Sin señales automáticas en los ${sinSenial}. Quedan para escaneo de Instagram a mano.`);
+            }
+            if (fallidos > 0) toast.error(`${fallidos} no se pudieron escanear. Probá de nuevo con esos.`);
+        } finally {
+            setEscaneoLote(null);
+        }
     };
 
     const recalcular = async () => {
@@ -508,6 +572,8 @@ export default function ProspeccionPage() {
                             onAbrir={setSeleccionado}
                             objetivoDiario={objetivoDiario}
                             esVivoMenu={sistemaActivo === "vivomenu"}
+                            onEscanearBloque={escanearBloque}
+                            escaneoLote={escaneoLote}
                         />
                     )}
                     {vista === "planilla" && <VistaPlanilla prospectos={filtrados} onAbrir={setSeleccionado} onCambiarEstado={(id, estado) => guardar(id, { estado })} />}
@@ -545,13 +611,15 @@ export default function ProspeccionPage() {
 // ═══════════════════════════════════════════════════════════
 
 function VistaCola({
-    cola, onAbrir, objetivoDiario, fueraDeCola, esVivoMenu,
+    cola, onAbrir, objetivoDiario, fueraDeCola, esVivoMenu, onEscanearBloque, escaneoLote,
 }: {
     cola: Prospecto[];
     onAbrir: (p: Prospecto) => void;
     objetivoDiario: number;
     fueraDeCola: Prospecto[];
     esVivoMenu: boolean;
+    onEscanearBloque: (delBloque: Prospecto[]) => Promise<void>;
+    escaneoLote: { hechos: number; total: number } | null;
 }) {
     const [verFuera, setVerFuera] = useState(false);
 
@@ -570,13 +638,29 @@ function VistaCola({
     return (
         <div className="space-y-5">
             <div>
-                <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide mb-1">
-                    El bloque de hoy — los {Math.min(objetivoDiario, bloque.length)} de arriba
-                </p>
+                <div className="flex items-start justify-between gap-3 flex-wrap mb-1">
+                    <p className="text-xs font-bold text-muted-foreground uppercase tracking-wide">
+                        El bloque de hoy — los {Math.min(objetivoDiario, bloque.length)} de arriba
+                    </p>
+                    <button
+                        type="button"
+                        onClick={() => onEscanearBloque(bloque)}
+                        disabled={!!escaneoLote || bloque.length === 0}
+                        className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-primary text-primary-foreground text-[11px] font-bold hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+                    >
+                        {escaneoLote
+                            ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            : <ScanSearch className="w-3.5 h-3.5" />}
+                        {escaneoLote
+                            ? `Escaneando ${escaneoLote.hechos}/${escaneoLote.total}...`
+                            : `Escanear los ${bloque.length}`}
+                    </button>
+                </div>
                 <p className="text-[11px] text-muted-foreground mb-3">
                     {esVivoMenu
                         ? "Ordenado por score. Acá casi todos están en Instagram-como-web, así que separar por segmento no distingue nada."
                         : "Ordenado por segmento y después por score: primero Instagram-como-web, después sin web, y al final los que ya tienen una."}
+                    {" "}El escaneo trae de una la ficha de Google, las reseñas y la búsqueda por rubro; lo que encuentra queda guardado y el Instagram sigue siendo a mano.
                 </p>
                 <div className="grid gap-2">
                     {bloque.map((p, i) => <FilaCola key={p.id} p={p} indice={i + 1} onAbrir={onAbrir} destacado />)}

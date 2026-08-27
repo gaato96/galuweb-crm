@@ -39,6 +39,12 @@ const NO_SE_BUSCA = [
     "contad", "contable", "impuest", "monotributo", "liquidacion de sueldos",
     "peluquer", "barber", "manicur", "maquillaje",
     "consultor", "coach", "asesor",
+    // Las cuatro especialidades jurídicas que el doc 08 §8 pone del lado de
+    // "no se busca". Sin ellas, "abogados" matchea SE_BUSCA por "abogad" y un
+    // estudio societario queda estimado en demanda alta. Eso antes lo corregía
+    // la persona al calificar; con el escaneo automático se convierte en una
+    // señal no_aparece_rubro afirmada sobre una búsqueda que nadie hace.
+    "societario", "corporativo", "tributario", "compliance",
 ];
 
 export interface PistaDemanda {

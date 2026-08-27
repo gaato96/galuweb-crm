@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
     X, Save, Trash2, Building2, Radar, MessageSquare, CalendarClock,
-    Copy, Check, ExternalLink, AlertTriangle, Sparkles, UserPlus, Loader2, Instagram, Phone, MapPin
+    Copy, Check, ExternalLink, AlertTriangle, Sparkles, UserPlus, Loader2, Instagram, Phone, MapPin,
+    ScanSearch, CircleCheck, Hand
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -29,6 +30,7 @@ import {
 } from "@/lib/dolores-rubro";
 import { pistaDemanda, chequeosDemanda } from "@/lib/demanda-busqueda";
 import { atajosEscaneo } from "@/lib/escaneo-atajos";
+import { FUENTE_LABELS, type EscaneoAutomatico } from "@/lib/escaneo-auto";
 
 type Tab = "datos" | "escaneo" | "mensajes" | "seguimiento";
 type PasoUI = PasoMensaje | PasoMensajeVivoMenu;
@@ -73,6 +75,8 @@ export default function ProspectoModal({
     const [mensajeEditado, setMensajeEditado] = useState("");
     const [copiado, setCopiado] = useState(false);
     const [generandoIA, setGenerandoIA] = useState(false);
+    const [escaneando, setEscaneando] = useState(false);
+    const [resultadoAuto, setResultadoAuto] = useState<EscaneoAutomatico | null>(null);
 
     const set = <K extends keyof Prospecto>(campo: K, valor: Prospecto[K]) =>
         setDraft((d) => ({ ...d, [campo]: valor }));
@@ -187,6 +191,45 @@ export default function ProspectoModal({
         if (Object.keys(avance).length > 0) {
             setDraft((d) => ({ ...d, ...avance }));
             await guardar(avance);
+        }
+    };
+
+    /**
+     * Escaneo automático — trae de una lo que hoy son seis pestañas abiertas a mano:
+     * la ficha de Google con el texto de las reseñas, la búsqueda por rubro (con el
+     * control por nombre), un GET al sitio y la lectura de las reseñas.
+     *
+     * NO guarda: deja todo cargado en el borrador con su evidencia al lado, para
+     * revisar y recién ahí guardar. Lo que ya estaba cargado a mano no se pisa.
+     */
+    const escanearAuto = async () => {
+        setEscaneando(true);
+        try {
+            const res = await fetch("/api/prospeccion/escanear", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ prospectos: [draft] }),
+            });
+            const json = await res.json();
+            if (!res.ok) throw new Error(json.error || "No se pudo escanear");
+
+            const r: EscaneoAutomatico | undefined = json.resultados?.[0];
+            if (!r) throw new Error("El escaneo no devolvió nada");
+
+            setDraft((d) => ({ ...d, ...r.campos, escaneo: r.escaneo }));
+            setResultadoAuto(r);
+
+            if (r.agregadas.length > 0) {
+                toast.success(
+                    `${r.agregadas.length} ${r.agregadas.length === 1 ? "señal encontrada" : "señales encontradas"} — revisá y guardá`
+                );
+            } else {
+                toast.info("Sin señales nuevas. Queda el escaneo de Instagram a mano.");
+            }
+        } catch (e) {
+            toast.error(e instanceof Error ? e.message : "No se pudo escanear");
+        } finally {
+            setEscaneando(false);
         }
     };
 
@@ -376,6 +419,97 @@ export default function ProspectoModal({
                     {/* ══════════ ESCANEO ══════════ */}
                     {tab === "escaneo" && (
                         <div className="space-y-5">
+                            {/* Escaneo automático — lo que no necesita ojo humano */}
+                            <div className="rounded-xl border border-primary/25 bg-primary/5 p-4 space-y-3">
+                                <div className="flex items-start justify-between gap-3 flex-wrap">
+                                    <div className="min-w-0">
+                                        <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+                                            <ScanSearch className="w-4 h-4 text-primary" />
+                                            Escaneo automático
+                                        </h3>
+                                        <p className="text-[11px] text-muted-foreground mt-0.5 max-w-prose">
+                                            Mira la ficha de Google con el texto de las reseñas, busca
+                                            &ldquo;{pista.consulta || "rubro en ciudad"}&rdquo; y abre el sitio web. Deja todo
+                                            cargado acá abajo con la evidencia al lado; no guarda nada hasta que le des Guardar.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={escanearAuto}
+                                        disabled={escaneando || !draft.negocio.trim()}
+                                        className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-primary text-primary-foreground text-xs font-bold hover:opacity-90 disabled:opacity-50 whitespace-nowrap"
+                                    >
+                                        {escaneando ? <Loader2 className="w-4 h-4 animate-spin" /> : <ScanSearch className="w-4 h-4" />}
+                                        {escaneando ? "Escaneando..." : "Escanear"}
+                                    </button>
+                                </div>
+
+                                {resultadoAuto && (
+                                    <div className="space-y-2.5 pt-1">
+                                        {resultadoAuto.evidencias.length > 0 && (
+                                            <div className="space-y-1.5">
+                                                <p className="text-[11px] font-bold text-emerald-300 uppercase tracking-wide">
+                                                    Lo que encontró
+                                                </p>
+                                                {resultadoAuto.evidencias.map((ev, i) => (
+                                                    <div key={i} className="rounded-lg border border-emerald-500/25 bg-emerald-500/5 p-2.5">
+                                                        <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                                            <CircleCheck className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                                                            {FALLA_LABELS[ev.falla]}
+                                                        </p>
+                                                        <p className="text-[11px] text-muted-foreground mt-1">{ev.detalle}</p>
+                                                        <div className="flex items-center gap-2 mt-1.5">
+                                                            <span className="px-1.5 py-0.5 rounded text-[10px] font-bold bg-secondary text-muted-foreground">
+                                                                {FUENTE_LABELS[ev.fuente]}
+                                                            </span>
+                                                            {ev.url && (
+                                                                <a
+                                                                    href={ev.url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-[10px] font-bold text-primary hover:underline flex items-center gap-1"
+                                                                >
+                                                                    <ExternalLink className="w-3 h-3" />
+                                                                    Verificar
+                                                                </a>
+                                                            )}
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+
+                                        {resultadoAuto.escaneo.queja_textual && !prospecto.escaneo.queja_textual && (
+                                            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2.5">
+                                                <p className="text-[11px] font-bold text-emerald-300">
+                                                    Queja de un cliente (nivel 1) — textual de una reseña
+                                                </p>
+                                                <p className="text-xs text-foreground mt-1 italic">
+                                                    &ldquo;{resultadoAuto.escaneo.queja_textual}&rdquo;
+                                                </p>
+                                                <p className="text-[10px] text-muted-foreground mt-1">
+                                                    Verificada carácter por carácter contra el texto de la reseña. Igual leela antes de mandarla.
+                                                </p>
+                                            </div>
+                                        )}
+
+                                        {resultadoAuto.pendientes.length > 0 && (
+                                            <div className="space-y-1.5">
+                                                <p className="text-[11px] font-bold text-amber-300 uppercase tracking-wide flex items-center gap-1.5">
+                                                    <Hand className="w-3.5 h-3.5" />
+                                                    Lo que queda a mano
+                                                </p>
+                                                {resultadoAuto.pendientes.map((t, i) => (
+                                                    <p key={i} className="text-[11px] text-amber-200/70 leading-relaxed">
+                                                        · {t}
+                                                    </p>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+
                             {alertas.length > 0 && (
                                 <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-2">
                                     <p className="text-xs font-bold text-amber-300 flex items-center gap-2">
