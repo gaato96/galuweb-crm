@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import type { ProspectoScraped } from "@/lib/types";
+import { extraerPlaceId, extraerNombreDeUrl, extraerCoords } from "@/lib/places-url";
 
 const GOOGLE_API_KEY = process.env.GOOGLE_PLACES_API_KEY || "";
 const PLACES_BASE = "https://places.googleapis.com/v1";
@@ -12,52 +13,6 @@ function placesHeaders(fieldMask: string) {
         "X-Goog-Api-Key": GOOGLE_API_KEY,
         "X-Goog-FieldMask": fieldMask,
     };
-}
-
-// ─── Extraer place_id de una URL de Google Maps ──────────────────────────────
-
-function extractPlaceIdFromUrl(url: string): string | null {
-    let decoded = url;
-    try { decoded = decodeURIComponent(url); } catch { /* usar original */ }
-
-    const matchQ = decoded.match(/place_id[=:]([A-Za-z0-9_-]{10,})/);
-    if (matchQ) return matchQ[1];
-
-    const match19 = decoded.match(/!19s(ChIJ[A-Za-z0-9_-]+)/);
-    if (match19) return match19[1];
-
-    const match1 = decoded.match(/!1s(ChIJ[A-Za-z0-9_-]+)/);
-    if (match1) return match1[1];
-
-    const matchGeneric = decoded.match(/\b(ChIJ[A-Za-z0-9_-]{10,})/);
-    if (matchGeneric) return matchGeneric[1];
-
-    return null;
-}
-
-// ─── Extraer coordenadas de la URL ────────────────────────────────────────────
-
-function extractCoordsFromUrl(url: string): { lat: number; lng: number } | null {
-    const latMatch = url.match(/!3d(-?\d+\.\d+)/);
-    const lngMatch = url.match(/!4d(-?\d+\.\d+)/);
-    if (latMatch && lngMatch) {
-        return { lat: parseFloat(latMatch[1]), lng: parseFloat(lngMatch[1]) };
-    }
-    const coordMatch = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
-    if (coordMatch) {
-        return { lat: parseFloat(coordMatch[1]), lng: parseFloat(coordMatch[2]) };
-    }
-    return null;
-}
-
-// ─── Extraer nombre del negocio de la URL ────────────────────────────────────
-
-function extractBusinessNameFromUrl(url: string): string | null {
-    const match = url.match(/\/maps\/place\/([^/@?]+)/);
-    if (match) {
-        return decodeURIComponent(match[1].replace(/\+/g, " ")).trim();
-    }
-    return null;
 }
 
 // ─── Resolver URL corta ───────────────────────────────────────────────────────
@@ -189,9 +144,9 @@ export async function POST(req: Request) {
                 }
 
                 // 2. Extraer info de la URL
-                let placeId = extractPlaceIdFromUrl(resolvedUrl);
-                const coords = extractCoordsFromUrl(resolvedUrl);
-                const businessName = extractBusinessNameFromUrl(resolvedUrl);
+                let placeId = extraerPlaceId(resolvedUrl);
+                const coords = extraerCoords(resolvedUrl);
+                const businessName = extraerNombreDeUrl(resolvedUrl);
 
                 console.log(`[Import URL] placeId=${placeId} coords=${JSON.stringify(coords)} name=${businessName}`);
 
