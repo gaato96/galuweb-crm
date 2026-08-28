@@ -78,7 +78,7 @@ async function detallesDeFicha(p: Prospecto): Promise<DetallesMaps | null> {
     try {
         const res = await fetch(`${PLACES_BASE}/places/${id}?languageCode=es`, {
             headers: { "X-Goog-Api-Key": GOOGLE_API_KEY, "X-Goog-FieldMask": FIELD_MASK_DETALLE },
-            signal: AbortSignal.timeout(12000),
+            signal: AbortSignal.timeout(8000),
         });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
@@ -129,7 +129,7 @@ async function buscarPlaceId(p: Prospecto): Promise<string | null> {
                 "X-Goog-FieldMask": "places.id",
             },
             body: JSON.stringify({ textQuery: query, languageCode: "es", pageSize: 1 }),
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(6000),
         });
         if (!res.ok) return null;
         const d = await res.json();
@@ -171,7 +171,7 @@ async function buscarCSE(termino: string): Promise<ItemSerp[] | null> {
             // sitio del prospecto, lr=lang_es lo saca de los resultados y el
             // negocio "no aparece" por culpa del filtro, no de su posicionamiento.
             `&num=10&gl=ar&hl=es`;
-        const res = await fetch(url, { signal: AbortSignal.timeout(10000) });
+        const res = await fetch(url, { signal: AbortSignal.timeout(6000) });
         if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             console.warn("[escanear] CSE falló:", err?.error?.message || res.status);
@@ -192,7 +192,7 @@ async function buscarDDG(termino: string): Promise<ItemSerp[] | null> {
     try {
         const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodeURIComponent(termino)}&kl=ar-es`, {
             headers: { "User-Agent": UA },
-            signal: AbortSignal.timeout(10000),
+            signal: AbortSignal.timeout(6000),
         });
         if (!res.ok) return null;
         const html = await res.text();
@@ -273,6 +273,12 @@ async function chequearSerp(p: Prospecto): Promise<{ porRubro: ResultadoSerp | n
     // Si la demanda es baja la señal no aplica (§7.2): no se gasta la consulta.
     if (demandaEfectiva(p) === "baja") return { porRubro: null, porNombre: null };
 
+    // Sin Custom Search configurado no hay a quién preguntarle: DuckDuckGo bloquea
+    // las IPs de datacenter, que es lo que es Vercel. Intentarlo igual costaba diez
+    // segundos de espera por prospecto para terminar siempre en lo mismo. Se sale
+    // ya, y el pendiente le dice a la persona que lo mire a mano en cinco segundos.
+    if (!(CSE_ID && CSE_KEY)) return { porRubro: null, porNombre: null };
+
     const tRubro = terminoDeRubro(p);
     const tNombre = terminoDeNombre(p);
     if (!tRubro || !tNombre) return { porRubro: null, porNombre: null };
@@ -319,7 +325,7 @@ async function chequearWeb(url: string): Promise<ChequeoWeb | null> {
         const res = await fetch(final, {
             headers: { "User-Agent": UA },
             redirect: "follow",
-            signal: AbortSignal.timeout(12000),
+            signal: AbortSignal.timeout(6000),
         });
         const ms = Date.now() - t0;
         // Solo la cabecera del HTML: alcanza para el viewport y evita bajar megas.
@@ -404,7 +410,7 @@ Devolvé SOLO este JSON, sin markdown ni explicaciones:
                         thinkingConfig: { thinkingBudget: 0 },
                     },
                 }),
-                signal: AbortSignal.timeout(20000),
+                signal: AbortSignal.timeout(12000),
             }
         );
         if (!res.ok) return LECTURA_VACIA;
