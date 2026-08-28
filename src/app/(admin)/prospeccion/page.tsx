@@ -5,7 +5,7 @@ import {
     ClipboardList, Plus, Upload, Download, RefreshCw, Search, Target,
     Table2, Columns3, BarChart3, Loader2, ExternalLink, Instagram, Phone,
     AlertTriangle, CheckCircle2, Clock, Stethoscope, UtensilsCrossed, Globe,
-    ScanSearch,
+    ScanSearch, Copy, Trash2, X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -20,7 +20,7 @@ import {
     prospectoVacio, fueEnviado, respondio, tasaPorNivelDato, tasaPorRubro,
     tasaPorQuienLeyo, diagnosticoEmbudo, diasDesde,
     NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS, motivoFueraDeCola, compararParaCola,
-    type CorteMetrica,
+    detectarDuplicados, type CorteMetrica, type GrupoDuplicado,
 } from "@/lib/prospeccion";
 import { calcularRampaVivoMenu, avisoDiaVivoMenu } from "@/lib/vivomenu-mensajes";
 import { resumenEscaneo, type EscaneoAutomatico } from "@/lib/escaneo-auto";
@@ -63,6 +63,7 @@ export default function ProspeccionPage() {
     const [mostrarImportar, setMostrarImportar] = useState(false);
     const [recalculando, setRecalculando] = useState(false);
     const [escaneoLote, setEscaneoLote] = useState<{ hechos: number; total: number } | null>(null);
+    const [mostrarDuplicados, setMostrarDuplicados] = useState(false);
 
     // ─── Carga ───
     const cargar = useCallback(async () => {
@@ -325,6 +326,17 @@ export default function ProspeccionPage() {
         }
     };
 
+    const eliminarDuplicados = async (ids: string[]) => {
+        try {
+            await prospectosStore.deleteMany(ids);
+            setProspectos((prev) => prev.filter((p) => !ids.includes(p.id)));
+            toast.success(`${ids.length} ${ids.length === 1 ? "duplicado eliminado" : "duplicados eliminados"}`);
+            setMostrarDuplicados(false);
+        } catch (e) {
+            toast.error(mensajeError(e));
+        }
+    };
+
     const exportarCsv = () => {
         if (filtrados.length === 0) {
             toast.error("No hay prospectos para exportar");
@@ -389,6 +401,7 @@ export default function ProspeccionPage() {
                     <BotonHeader onClick={exportarCsv} icon={Download} label="Exportar" />
                     <BotonHeader onClick={recalcular} icon={RefreshCw} label="Recalcular" cargando={recalculando} />
                     <BotonHeader onClick={diagnosticar} icon={Stethoscope} label="Diagnóstico" />
+                    <BotonHeader onClick={() => setMostrarDuplicados(true)} icon={Copy} label="Duplicados" />
                 </div>
             </div>
 
@@ -591,6 +604,13 @@ export default function ProspeccionPage() {
                     onEliminar={() => eliminar(seleccionado.id)}
                     onConvertirCliente={() => convertirCliente(seleccionado)}
                     onCerrar={() => setSeleccionado(null)}
+                />
+            )}
+            {mostrarDuplicados && (
+                <ModalDuplicados
+                    prospectos={prospectos}
+                    onEliminar={eliminarDuplicados}
+                    onCerrar={() => setMostrarDuplicados(false)}
                 />
             )}
             {mostrarImportar && (
@@ -1103,6 +1123,93 @@ function BotonHeader({
             {cargando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Icon className="w-4 h-4" />}
             {label}
         </button>
+    );
+}
+
+function ModalDuplicados({
+    prospectos, onEliminar, onCerrar,
+}: {
+    prospectos: Prospecto[];
+    onEliminar: (ids: string[]) => Promise<void>;
+    onCerrar: () => void;
+}) {
+    const grupos = useMemo(() => detectarDuplicados(prospectos), [prospectos]);
+    const [eliminando, setEliminando] = useState(false);
+    const totalABorrar = grupos.reduce((s, g) => s + g.borrar.length, 0);
+
+    const confirmar = async () => {
+        setEliminando(true);
+        await onEliminar(grupos.flatMap((g) => g.borrar.map((p) => p.id)));
+        setEliminando(false);
+    };
+
+    return (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm p-3 sm:p-6 overflow-y-auto">
+            <div className="w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl my-4">
+                <div className="flex items-center justify-between p-5 border-b border-border">
+                    <div>
+                        <h2 className="text-lg font-extrabold text-foreground flex items-center gap-2">
+                            <Copy className="w-5 h-5 text-primary" />
+                            Duplicados por nombre
+                        </h2>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                            Mismo negocio y mismo sistema. Se conserva el que tiene más avance en el embudo —
+                            nunca se borra uno ya contactado a favor de uno en blanco.
+                        </p>
+                    </div>
+                    <button onClick={onCerrar} className="p-2 rounded-lg hover:bg-secondary text-muted-foreground">
+                        <X className="w-5 h-5" />
+                    </button>
+                </div>
+
+                <div className="max-h-[60vh] overflow-y-auto p-5 space-y-3">
+                    {grupos.length === 0 ? (
+                        <p className="text-sm text-muted-foreground text-center py-8">No encontré duplicados por nombre.</p>
+                    ) : (
+                        grupos.map((g) => (
+                            <div key={g.clave} className="rounded-xl border border-border p-3 space-y-2">
+                                <p className="text-sm font-bold text-foreground">{g.conservar.negocio}</p>
+                                <div className="flex items-center gap-2 text-xs">
+                                    <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-bold">
+                                        Conserva
+                                    </span>
+                                    <span className="text-muted-foreground">
+                                        {ESTADO_PROSPECTO_LABELS[g.conservar.estado]} · score {g.conservar.score}
+                                    </span>
+                                </div>
+                                {g.borrar.map((p) => (
+                                    <div key={p.id} className="flex items-center gap-2 text-xs pl-1">
+                                        <span className="px-2 py-0.5 rounded-full bg-rose-500/15 text-rose-300 border border-rose-500/30 font-bold">
+                                            Borra
+                                        </span>
+                                        <span className="text-muted-foreground">
+                                            {ESTADO_PROSPECTO_LABELS[p.estado]} · score {p.score} · cargado {p.created_at?.slice(0, 10)}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        ))
+                    )}
+                </div>
+
+                {grupos.length > 0 && (
+                    <div className="flex items-center justify-between gap-3 p-5 border-t border-border">
+                        <p className="text-xs text-muted-foreground">
+                            {grupos.length} {grupos.length === 1 ? "negocio duplicado" : "negocios duplicados"} — {totalABorrar}{" "}
+                            {totalABorrar === 1 ? "fila se va a borrar" : "filas se van a borrar"}
+                        </p>
+                        <button
+                            onClick={confirmar}
+                            disabled={eliminando}
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 text-white text-xs font-bold hover:bg-rose-500 disabled:opacity-50"
+                        >
+                            {eliminando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                            Eliminar {totalABorrar}
+                        </button>
+                    </div>
+                )}
+            </div>
+        </div>
     );
 }
 

@@ -728,6 +728,73 @@ export function telefonoAWhatsapp(raw: string): string {
     return "549" + d;
 }
 
+// ─────────────────────────────────────────────────────────────
+// Duplicados — mismo negocio cargado más de una vez
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Cuánto avanzó cada estado en el embudo. Se usa para decidir cuál copia
+ * conservar cuando hay duplicados: nunca se borra la que ya tiene trabajo
+ * encima a favor de una copia en blanco que se coló en una reimportación.
+ * "descartado" queda debajo de todo — si hay cualquier otra copia, gana ella.
+ */
+const RANGO_ESTADO: Record<EstadoProspecto, number> = {
+    descartado: -1,
+    sin_calificar: 0,
+    calificado: 1,
+    enviado: 2,
+    fu1: 3,
+    fu2: 4,
+    fu3: 5,
+    sin_respuesta: 5,
+    respondio: 6,
+    revision_enviada: 7,
+    reunion: 8,
+    cliente: 9,
+};
+
+export interface GrupoDuplicado {
+    clave: string;
+    conservar: Prospecto;
+    borrar: Prospecto[];
+}
+
+/**
+ * Agrupa por nombre normalizado dentro del mismo sistema (Galu y VivoMenu
+ * pueden prospectar el mismo negocio a propósito, así que eso no cuenta como
+ * duplicado — ver la migración 20260807_prospectos_sistema.sql).
+ *
+ * Dentro de cada grupo, la que se conserva es la de mayor avance en el embudo;
+ * en empate, la de mayor score; en empate final, la más reciente. El resto
+ * queda en "borrar", pero esta función no borra nada — solo decide.
+ */
+export function detectarDuplicados(prospectos: Prospecto[]): GrupoDuplicado[] {
+    const grupos = new Map<string, Prospecto[]>();
+    for (const p of prospectos) {
+        if (!p.negocio.trim()) continue;
+        // Colapsa espacios internos además de los de los bordes: es común que
+        // el pegado desde Sheets deje doble espacio entre palabras, y eso no
+        // debería alcanzar para que dos filas del mismo negocio no se agrupen.
+        const clave = `${normalizar(p.negocio).replace(/\s+/g, " ")}|${p.sistema}`;
+        const arr = grupos.get(clave);
+        if (arr) arr.push(p); else grupos.set(clave, [p]);
+    }
+
+    const resultado: GrupoDuplicado[] = [];
+    for (const [clave, items] of Array.from(grupos.entries())) {
+        if (items.length < 2) continue;
+        const ordenados = [...items].sort((a, b) => {
+            const rangoA = RANGO_ESTADO[a.estado] ?? 0;
+            const rangoB = RANGO_ESTADO[b.estado] ?? 0;
+            if (rangoA !== rangoB) return rangoB - rangoA;
+            if (a.score !== b.score) return b.score - a.score;
+            return (b.updated_at || b.created_at).localeCompare(a.updated_at || a.created_at);
+        });
+        resultado.push({ clave, conservar: ordenados[0], borrar: ordenados.slice(1) });
+    }
+    return resultado.sort((a, b) => b.borrar.length - a.borrar.length);
+}
+
 export function prospectoVacio(sistema: Sistema = "galu"): Omit<Prospecto, "id" | "created_at"> {
     return {
         sistema,

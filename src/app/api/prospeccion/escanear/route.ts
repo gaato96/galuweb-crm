@@ -212,6 +212,16 @@ async function buscarDDG(termino: string): Promise<ItemSerp[] | null> {
                 resumen: sinHtml(m[3]),
             });
         }
+
+        // DDG devuelve HTTP 200 tanto para una búsqueda real como para la página
+        // de "detectamos tráfico automatizado" que le muestra a IPs de datacenter
+        // (que es lo que es Vercel). Las dos cosas dan 0 matches acá. Sin esta
+        // distinción, "0 resultados" se leía como "confirmado: no aparece en
+        // ningún lado" y terminaba marcando no_aparece_rubro en negocios que sí
+        // aparecen — es exactamente el falso positivo que el resto del código se
+        // cuida de no cometer. Cero parseados es "no se pudo buscar", no un cero real.
+        if (items.length === 0) return null;
+
         return items;
     } catch {
         return null;
