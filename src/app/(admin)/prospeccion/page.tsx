@@ -172,14 +172,32 @@ export default function ProspeccionPage() {
     );
 
     /**
-     * La lista sobre la que se mueven las flechas del modal. Es la que la persona
-     * está mirando: si abrió desde la cola del día, recorre la cola; si abrió desde
-     * la planilla, recorre lo filtrado. Cualquier otra cosa sorprende.
+     * El recorrido de las flechas se CONGELA al abrir una ficha y no se recalcula
+     * mientras el modal está abierto.
+     *
+     * Si se derivara en vivo de la cola, registrar el envío echaría al prospecto de
+     * la lista en el mismo gesto (pasa a "enviado" y la cola solo tiene sin calificar
+     * y calificados): la ficha quedaría fuera de su propio recorrido y las flechas y
+     * el "Guardar y seguir" desaparecerían justo cuando hacen falta, que es para
+     * pasar al siguiente. Trabajar el bloque del día implica ir cambiando de estado,
+     * así que la lista tiene que sobrevivir a esos cambios.
      */
-    const listaNavegable = useMemo(
-        () => (vista === "cola" ? cola : filtrados),
-        [vista, cola, filtrados]
-    );
+    const [recorridoIds, setRecorridoIds] = useState<string[]>([]);
+
+    const abrirProspecto = useCallback((p: Prospecto, lista: Prospecto[]) => {
+        const ids = lista.map((x) => x.id);
+        // Los de "fuera de la cola" se abren desde la misma vista pero no están en
+        // la cola: sin esto quedarían fuera de su propio recorrido. Se abren solos.
+        setRecorridoIds(ids.includes(p.id) ? ids : [p.id]);
+        setSeleccionado(p);
+    }, []);
+
+    /** Los ids del recorrido resueltos contra el estado actual (y sin los borrados). */
+    const listaNavegable = useMemo(() => {
+        if (recorridoIds.length === 0) return [];
+        const porId = new Map(prospectos.map((p) => [p.id, p]));
+        return recorridoIds.map((id) => porId.get(id)).filter((p): p is Prospecto => !!p);
+    }, [recorridoIds, prospectos]);
 
     const indiceSeleccionado = useMemo(
         () => (seleccionado ? listaNavegable.findIndex((p) => p.id === seleccionado.id) : -1),
@@ -618,15 +636,15 @@ export default function ProspeccionPage() {
                         <VistaCola
                             cola={cola}
                             fueraDeCola={fueraDeCola}
-                            onAbrir={setSeleccionado}
+                            onAbrir={(p) => abrirProspecto(p, cola)}
                             objetivoDiario={objetivoDiario}
                             esVivoMenu={sistemaActivo === "vivomenu"}
                             onEscanearBloque={escanearBloque}
                             escaneoLote={escaneoLote}
                         />
                     )}
-                    {vista === "planilla" && <VistaPlanilla prospectos={filtrados} onAbrir={setSeleccionado} onCambiarEstado={(id, estado) => guardar(id, { estado })} />}
-                    {vista === "embudo" && <VistaEmbudo prospectos={filtrados} onAbrir={setSeleccionado} />}
+                    {vista === "planilla" && <VistaPlanilla prospectos={filtrados} onAbrir={(p) => abrirProspecto(p, filtrados)} onCambiarEstado={(id, estado) => guardar(id, { estado })} />}
+                    {vista === "embudo" && <VistaEmbudo prospectos={filtrados} onAbrir={(p) => abrirProspecto(p, filtrados)} />}
                     {vista === "metricas" && <VistaMetricas prospectos={prospectosDelSistema} />}
                 </>
             )}

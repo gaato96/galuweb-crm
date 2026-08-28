@@ -153,12 +153,18 @@ export default function ProspectoModal({
         setGuardando(true);
         try {
             const escaneo = normalizarEscaneo(draft.escaneo);
-            await onGuardar({
+            const completo: Prospecto = {
                 ...draft,
                 ...extra,
                 escaneo,
                 dato_usado: draft.dato_usado.trim() || sugerirDatoUsado(escaneo),
-            });
+            };
+            // Solo lo que cambió. Antes iba la fila entera (39 columnas) en cada
+            // guardado, aunque se hubiera tocado una casilla: más para serializar,
+            // más para mandar y más para escribir del otro lado. El score y el nivel
+            // los recalcula el store con el prospecto ya fusionado, así que no hace
+            // falta mandar todo para que salgan bien.
+            await onGuardar(soloCambios(prospecto, completo));
             toast.success("Prospecto guardado");
         } catch (e) {
             console.error(e);
@@ -1179,6 +1185,29 @@ export default function ProspectoModal({
             </div>
         </div>
     );
+}
+
+/**
+ * Los campos en los que `nuevo` difiere de `anterior`. Los objetos (escaneo) se
+ * comparan por contenido, no por referencia: el borrador siempre tiene una copia
+ * nueva y por identidad darían distinto aunque nadie los haya tocado.
+ *
+ * Siempre se devuelve al menos un campo — si no cambió nada, se manda el estado,
+ * porque un update vacío es un error en PostgREST y "guardar sin cambios" tiene
+ * que seguir siendo una acción válida.
+ */
+function soloCambios(anterior: Prospecto, nuevo: Prospecto): Partial<Prospecto> {
+    const cambios: Partial<Prospecto> = {};
+    for (const clave of Object.keys(nuevo) as (keyof Prospecto)[]) {
+        if (clave === "id" || clave === "created_at" || clave === "updated_at") continue;
+        const a = anterior[clave];
+        const b = nuevo[clave];
+        const iguales =
+            typeof b === "object" && b !== null ? JSON.stringify(a) === JSON.stringify(b) : a === b;
+        if (!iguales) (cambios[clave] as unknown) = b;
+    }
+    if (Object.keys(cambios).length === 0) cambios.estado = nuevo.estado;
+    return cambios;
 }
 
 // ─── Primitivas locales ───────────────────────────────────────
