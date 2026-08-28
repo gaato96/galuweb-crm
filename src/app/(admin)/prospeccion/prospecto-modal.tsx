@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
     X, Save, Trash2, Building2, Radar, MessageSquare, CalendarClock,
     Copy, Check, ExternalLink, AlertTriangle, Sparkles, UserPlus, Loader2, Instagram, Phone, MapPin,
@@ -91,6 +91,7 @@ export default function ProspectoModal({
     const [generandoIA, setGenerandoIA] = useState(false);
     const [escaneando, setEscaneando] = useState(false);
     const [resultadoAuto, setResultadoAuto] = useState<EscaneoAutomatico | null>(null);
+    const cuerpoRef = useRef<HTMLDivElement>(null);
 
     const set = <K extends keyof Prospecto>(campo: K, valor: Prospecto[K]) =>
         setDraft((d) => ({ ...d, [campo]: valor }));
@@ -123,6 +124,21 @@ export default function ProspectoModal({
         esVivoMenu ? PASO_VIVOMENU_LABELS[paso as PasoMensajeVivoMenu] : PASO_MENSAJE_LABELS[paso as PasoMensaje];
 
     /**
+     * Con el modal abierto, el fondo no scrollea.
+     *
+     * Al pasar la ficha a alto fijo quedaron dos zonas scrolleables superpuestas: la
+     * página atrás y el cuerpo del modal adelante. El autoscroll del botón del medio
+     * (y la rueda cuando el puntero cae en un borde) terminaba moviendo el fondo en
+     * vez del modal, o sea que con el modal abierto no había forma de bajar. Con el
+     * fondo bloqueado, el único lugar que puede scrollear es el que se está mirando.
+     */
+    useEffect(() => {
+        const previo = document.body.style.overflow;
+        document.body.style.overflow = "hidden";
+        return () => { document.body.style.overflow = previo; };
+    }, []);
+
+    /**
      * Al pasar a otro prospecto se recarga TODO el borrador, no solo el mensaje.
      *
      * El estado del borrador se inicializa una sola vez, al montar. Mientras el
@@ -142,6 +158,10 @@ export default function ProspectoModal({
         const inicial: PasoUI = nuevo.sistema === "vivomenu" ? "primer_contacto" : "m1";
         setPasoMensaje(inicial);
         setMensajeEditado(generar(inicial, nuevo));
+        // Foco en el cuerpo para que Re Pág / Av Pág y las flechas scrolleen la
+        // ficha sin tener que clickear primero en un campo.
+        cuerpoRef.current?.focus({ preventScroll: true });
+        cuerpoRef.current?.scrollTo({ top: 0 });
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [prospecto.id]);
 
@@ -307,10 +327,43 @@ export default function ProspectoModal({
         }
     };
 
+    /**
+     * Re Pág / Av Pág / Inicio / Fin mueven el cuerpo de la ficha, sin importar dónde
+     * esté el foco dentro del modal. Es la alternativa a la rueda: si el mouse no
+     * puede desplazar, sin esto no hay forma de llegar al final de la pestaña Escaneo.
+     * En campos de texto no se toca nada — ahí esas teclas ya significan otra cosa.
+     */
+    const desplazarConTeclado = (e: React.KeyboardEvent) => {
+        const destino = e.target as HTMLElement;
+        const tag = destino?.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+
+        const cuerpo = cuerpoRef.current;
+        if (!cuerpo) return;
+        const salto = Math.round(cuerpo.clientHeight * 0.85);
+
+        const movimientos: Record<string, number | "inicio" | "fin"> = {
+            PageDown: salto,
+            PageUp: -salto,
+            Home: "inicio",
+            End: "fin",
+        };
+        const mov = movimientos[e.key];
+        if (mov === undefined) return;
+
+        e.preventDefault();
+        if (mov === "inicio") cuerpo.scrollTo({ top: 0, behavior: "smooth" });
+        else if (mov === "fin") cuerpo.scrollTo({ top: cuerpo.scrollHeight, behavior: "smooth" });
+        else cuerpo.scrollBy({ top: mov, behavior: "smooth" });
+    };
+
     const accion = proximaAccion(draft);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-3 sm:p-6">
+        <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-3 sm:p-6"
+            onKeyDown={desplazarConTeclado}
+        >
             {/* Alto acotado y una sola zona que scrollea: la cabecera (con los links a
                 Maps e Instagram) y el pie (Guardar / Siguiente) quedan siempre a la
                 vista. Antes había que bajar hasta el fondo y volver a subir para pasar
@@ -404,7 +457,11 @@ export default function ProspectoModal({
                     ))}
                 </div>
 
-                <div className="p-5 space-y-5 flex-1 overflow-y-auto custom-scrollbar">
+                <div
+                    ref={cuerpoRef}
+                    tabIndex={-1}
+                    className="p-5 space-y-5 flex-1 overflow-y-auto custom-scrollbar focus:outline-none"
+                >
                     {/* ══════════ DATOS ══════════ */}
                     {tab === "datos" && (
                         <div className="space-y-5">
