@@ -519,7 +519,15 @@ async function escanear(p: Prospecto): Promise<EscaneoAutomatico> {
             campos.instagram_url = detalles.sitio_web_url;
         }
         if (!detalles.resenas.length) {
-            pendientes.push("La ficha no devolvió reseñas con texto: el dato de nivel 1 hay que buscarlo a mano.");
+            // Con el diagnóstico al lado se distingue "este negocio no tiene reseñas
+            // escritas" (nada que hacer) de "tiene 80 reseñas y la API no las trae"
+            // (problema nuestro, hay que arreglarlo). Sin esto son la misma frase.
+            const cuantas = detalles.reviews_count ?? 0;
+            pendientes.push(
+                cuantas > 0
+                    ? `La ficha tiene ${cuantas} reseñas pero la API no devolvió el texto de ninguna. Avisame si ves esto seguido: es un problema a arreglar, no del negocio.`
+                    : "Este negocio no tiene reseñas escritas en Google, así que no hay dato de nivel 1 que buscar."
+            );
         }
     }
 
@@ -536,10 +544,14 @@ async function escanear(p: Prospecto): Promise<EscaneoAutomatico> {
         );
     }
     if (pendSerp) {
+        // Sin buscador conectado esto no se puede resolver solo, así que en vez de
+        // pedir una variable de entorno se da el paso manual: la búsqueda ya armada,
+        // que son cinco segundos mirando si el negocio está o no.
         const sinProveedor = !(CSE_ID && CSE_KEY) && serp.porRubro === null;
+        const termino = terminoDeRubro(p);
         pendientes.push(
-            sinProveedor
-                ? `${pendSerp} Configurá GOOGLE_CSE_ID y GOOGLE_CSE_API_KEY para que esta señal se detecte sola: es la de mayor peso del catálogo.`
+            sinProveedor && termino
+                ? `Buscá "${termino}" en Google y fijate si aparece en la primera pantalla (5 segundos). Hoy no hay buscador conectado, así que esta señal no se detecta sola.`
                 : pendSerp
         );
     }
