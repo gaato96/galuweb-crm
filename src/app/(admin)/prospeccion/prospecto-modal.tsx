@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import {
     X, Save, Trash2, Building2, Radar, MessageSquare, CalendarClock,
     Copy, Check, ExternalLink, AlertTriangle, Sparkles, UserPlus, Loader2, Instagram, Phone, MapPin,
-    ScanSearch, CircleCheck, Hand
+    ScanSearch, CircleCheck, Hand, ChevronLeft, ChevronRight
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -56,10 +56,23 @@ interface Props {
     onEliminar: () => Promise<void>;
     onConvertirCliente: () => Promise<void>;
     onCerrar: () => void;
+    /**
+     * Posición en la lista que se está recorriendo, para pasar al siguiente sin cerrar.
+     * Los destinos vienen resueltos como prospectos y no como un delta: al guardar,
+     * el de al lado puede salir de la cola (cambia de estado) y los índices se corren,
+     * así que un "+1" evaluado después de guardar saltaría a otro lado.
+     */
+    navegacion?: {
+        indice: number;
+        total: number;
+        anterior: Prospecto | null;
+        siguiente: Prospecto | null;
+        onIr: (destino: Prospecto) => void;
+    };
 }
 
 export default function ProspectoModal({
-    prospecto, universo, onGuardar, onEliminar, onConvertirCliente, onCerrar,
+    prospecto, universo, onGuardar, onEliminar, onConvertirCliente, onCerrar, navegacion,
 }: Props) {
     const [tab, setTab] = useState<Tab>("datos");
     const [draft, setDraft] = useState<Prospecto>({
@@ -74,6 +87,7 @@ export default function ProspectoModal({
     const [pasoMensaje, setPasoMensaje] = useState<PasoUI>(esVivoMenu ? "primer_contacto" : "m1");
     const [mensajeEditado, setMensajeEditado] = useState("");
     const [copiado, setCopiado] = useState(false);
+    const [copiadoWa, setCopiadoWa] = useState(false);
     const [generandoIA, setGenerandoIA] = useState(false);
     const [escaneando, setEscaneando] = useState(false);
     const [resultadoAuto, setResultadoAuto] = useState<EscaneoAutomatico | null>(null);
@@ -108,11 +122,26 @@ export default function ProspectoModal({
     const labelDePaso = (paso: PasoUI): string =>
         esVivoMenu ? PASO_VIVOMENU_LABELS[paso as PasoMensajeVivoMenu] : PASO_MENSAJE_LABELS[paso as PasoMensaje];
 
-    // El mensaje se regenera al abrir un prospecto nuevo, empezando por su paso 1.
+    /**
+     * Al pasar a otro prospecto se recarga TODO el borrador, no solo el mensaje.
+     *
+     * El estado del borrador se inicializa una sola vez, al montar. Mientras el
+     * modal se abría y cerraba por cada prospecto eso alcanzaba; con las flechas
+     * de navegación el componente ya no se desmonta, así que sin esto la ficha
+     * seguiría mostrando —y guardando— los datos del prospecto anterior sobre el
+     * nuevo. El escaneo previo también se limpia: su evidencia era del otro.
+     */
     useEffect(() => {
-        const inicial: PasoUI = draft.sistema === "vivomenu" ? "primer_contacto" : "m1";
+        const nuevo: Prospecto = {
+            ...prospecto,
+            escaneo: normalizarEscaneo(prospecto.escaneo),
+            reviews_count: prospecto.reviews_count == null ? null : Math.abs(prospecto.reviews_count),
+        };
+        setDraft(nuevo);
+        setResultadoAuto(null);
+        const inicial: PasoUI = nuevo.sistema === "vivomenu" ? "primer_contacto" : "m1";
         setPasoMensaje(inicial);
-        setMensajeEditado(generar(inicial, draft));
+        setMensajeEditado(generar(inicial, nuevo));
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [prospecto.id]);
 
@@ -145,6 +174,26 @@ export default function ProspectoModal({
             ? actuales.filter((f) => f !== falla)
             : [...actuales, falla];
         set("escaneo", { ...draft.escaneo, fallas: nuevas });
+    };
+
+    /**
+     * Copia el número, no el link de wa.me.
+     *
+     * wa.me abre WhatsApp Web en una pestaña nueva, que pide confirmar, tarda en
+     * cargar y no admite dos sesiones abiertas a la vez — o sea que cada mensaje
+     * cuesta abrir, esperar, enviar y cerrar. Con el número en el portapapeles se
+     * pega en el WhatsApp que ya está abierto y listo.
+     */
+    const copiarWhatsapp = () => {
+        const wa = draft.telefono_wa || telefonoAWhatsapp(draft.telefono);
+        if (!wa) {
+            toast.error("No hay un número en formato WhatsApp para copiar");
+            return;
+        }
+        navigator.clipboard.writeText(`+${wa}`);
+        setCopiadoWa(true);
+        toast.success(`+${wa} copiado`);
+        setTimeout(() => setCopiadoWa(false), 2000);
     };
 
     const copiarMensaje = () => {
@@ -255,10 +304,14 @@ export default function ProspectoModal({
     const accion = proximaAccion(draft);
 
     return (
-        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/70 backdrop-blur-sm p-3 sm:p-6 overflow-y-auto">
-            <div className="bg-card border border-border rounded-2xl w-full max-w-4xl shadow-2xl my-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-3 sm:p-6">
+            {/* Alto acotado y una sola zona que scrollea: la cabecera (con los links a
+                Maps e Instagram) y el pie (Guardar / Siguiente) quedan siempre a la
+                vista. Antes había que bajar hasta el fondo y volver a subir para pasar
+                al que seguía, veinte veces por bloque. */}
+            <div className="bg-card border border-border rounded-2xl w-full max-w-4xl shadow-2xl max-h-[94vh] flex flex-col">
                 {/* ── Cabecera ── */}
-                <div className="flex items-start justify-between gap-4 p-5 border-b border-border">
+                <div className="flex items-start justify-between gap-4 p-5 border-b border-border shrink-0">
                     <div className="min-w-0 flex-1">
                         <input
                             value={draft.negocio}
@@ -285,8 +338,19 @@ export default function ProspectoModal({
                                 {CLASIFICACION_WEB_LABELS[draft.clasificacion_web]}
                             </span>
                         </div>
-                        {(draft.maps_url || draft.instagram_url) && (
-                            <div className="flex items-center gap-2 mt-2">
+                        {(draft.maps_url || draft.instagram_url || draft.telefono) && (
+                            <div className="flex items-center gap-2 mt-2 flex-wrap">
+                                {(draft.telefono_wa || telefonoAWhatsapp(draft.telefono)) && (
+                                    <button
+                                        type="button"
+                                        onClick={copiarWhatsapp}
+                                        title="Copia el número para pegarlo en el WhatsApp que ya tenés abierto"
+                                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 hover:bg-emerald-500/25"
+                                    >
+                                        {copiadoWa ? <Check className="w-3.5 h-3.5" /> : <Phone className="w-3.5 h-3.5" />}
+                                        {copiadoWa ? "Copiado" : `+${draft.telefono_wa || telefonoAWhatsapp(draft.telefono)}`}
+                                    </button>
+                                )}
                                 {draft.maps_url && (
                                     <a
                                         href={conProtocolo(draft.maps_url)}
@@ -316,7 +380,7 @@ export default function ProspectoModal({
                 </div>
 
                 {/* ── Tabs ── */}
-                <div className="flex gap-1 px-5 pt-3 border-b border-border overflow-x-auto">
+                <div className="flex gap-1 px-5 pt-3 border-b border-border overflow-x-auto shrink-0">
                     {TABS.map((t) => (
                         <button
                             key={t.id}
@@ -334,7 +398,7 @@ export default function ProspectoModal({
                     ))}
                 </div>
 
-                <div className="p-5 space-y-5">
+                <div className="p-5 space-y-5 flex-1 overflow-y-auto custom-scrollbar">
                     {/* ══════════ DATOS ══════════ */}
                     {tab === "datos" && (
                         <div className="space-y-5">
@@ -1050,7 +1114,7 @@ export default function ProspectoModal({
                 </div>
 
                 {/* ── Pie ── */}
-                <div className="flex items-center justify-between gap-3 p-5 border-t border-border">
+                <div className="flex items-center justify-between gap-3 p-5 border-t border-border shrink-0 flex-wrap">
                     <button
                         onClick={async () => {
                             if (!window.confirm(`¿Eliminar "${draft.negocio}" de la planilla?`)) return;
@@ -1061,18 +1125,55 @@ export default function ProspectoModal({
                         <Trash2 className="w-4 h-4" />
                         Eliminar
                     </button>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
+                        {navegacion && (
+                            <div className="flex items-center gap-1 mr-1">
+                                <button
+                                    onClick={() => navegacion.anterior && navegacion.onIr(navegacion.anterior)}
+                                    disabled={!navegacion.anterior}
+                                    title="Anterior"
+                                    className="p-2 rounded-lg border border-border text-muted-foreground hover:text-foreground disabled:opacity-30"
+                                >
+                                    <ChevronLeft className="w-4 h-4" />
+                                </button>
+                                <span className="text-[11px] font-bold text-muted-foreground tabular-nums px-1">
+                                    {navegacion.indice + 1}/{navegacion.total}
+                                </span>
+                                <button
+                                    onClick={() => navegacion.siguiente && navegacion.onIr(navegacion.siguiente)}
+                                    disabled={!navegacion.siguiente}
+                                    title="Siguiente"
+                                    className="p-2 rounded-lg border border-border text-muted-foreground hover:text-foreground disabled:opacity-30"
+                                >
+                                    <ChevronRight className="w-4 h-4" />
+                                </button>
+                            </div>
+                        )}
                         <button onClick={onCerrar} className="px-4 py-2.5 rounded-xl border border-border text-xs font-semibold text-muted-foreground hover:text-foreground">
-                            Cancelar
+                            Cerrar
                         </button>
                         <button
                             onClick={() => guardar()}
                             disabled={guardando}
-                            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold shadow-lg disabled:opacity-50"
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-primary/40 bg-primary/10 text-primary text-xs font-bold disabled:opacity-50"
                         >
                             {guardando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                             Guardar
                         </button>
+                        {navegacion?.siguiente && (
+                            <button
+                                onClick={async () => {
+                                    const destino = navegacion.siguiente;
+                                    await guardar();
+                                    if (destino) navegacion.onIr(destino);
+                                }}
+                                disabled={guardando}
+                                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold shadow-lg disabled:opacity-50"
+                            >
+                                Guardar y seguir
+                                <ChevronRight className="w-4 h-4" />
+                            </button>
+                        )}
                     </div>
                 </div>
             </div>

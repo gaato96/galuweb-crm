@@ -20,7 +20,7 @@ import {
     prospectoVacio, fueEnviado, respondio, tasaPorNivelDato, tasaPorRubro,
     tasaPorQuienLeyo, diagnosticoEmbudo, diasDesde,
     NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS, motivoFueraDeCola, compararParaCola,
-    detectarDuplicados, type CorteMetrica, type GrupoDuplicado,
+    detectarDuplicados, type CorteMetrica,
 } from "@/lib/prospeccion";
 import { calcularRampaVivoMenu, avisoDiaVivoMenu } from "@/lib/vivomenu-mensajes";
 import { resumenEscaneo, type EscaneoAutomatico } from "@/lib/escaneo-auto";
@@ -40,6 +40,27 @@ const SISTEMA_ICONS: Record<Sistema, typeof Globe> = { galu: Globe, vivomenu: Ut
 
 const COLUMNAS_EMBUDO: EstadoProspecto[] = [
     "sin_calificar", "calificado", "enviado", "fu1", "fu2", "fu3", "respondio", "revision_enviada", "reunion", "cliente",
+];
+
+/**
+ * Las once columnas no entran en una pantalla normal, y leer una fila obligaba a
+ * deslizar de costado. Se ordenan por lo que hace falta para decidir a quién
+ * escribir: el negocio, el dato y el estado siempre; el resto va apareciendo a
+ * medida que hay ancho. Ninguna se pierde — en pantalla chica están en las
+ * tarjetas, y el detalle completo está en la ficha.
+ */
+const COLUMNAS_PLANILLA: { label: string; oculta: string }[] = [
+    { label: "Envío", oculta: "hidden 2xl:table-cell" },
+    { label: "Negocio", oculta: "" },
+    { label: "Rubro", oculta: "hidden xl:table-cell" },
+    { label: "Ciudad", oculta: "hidden 2xl:table-cell" },
+    { label: "Canal", oculta: "hidden lg:table-cell" },
+    { label: "Clasif. web", oculta: "hidden xl:table-cell" },
+    { label: "Dato usado", oculta: "" },
+    { label: "Nivel", oculta: "" },
+    { label: "Leyó", oculta: "hidden 2xl:table-cell" },
+    { label: "Estado", oculta: "" },
+    { label: "Score", oculta: "" },
 ];
 
 /** Objetivo diario de Galu: 10 mensajes por bloque de trabajo (doc 08). */
@@ -148,6 +169,21 @@ export default function ProspeccionPage() {
                 .filter((x) => x.accion?.vencido)
                 .sort((a, b) => (b.accion?.dias ?? 0) - (a.accion?.dias ?? 0)),
         [prospectosDelSistema]
+    );
+
+    /**
+     * La lista sobre la que se mueven las flechas del modal. Es la que la persona
+     * está mirando: si abrió desde la cola del día, recorre la cola; si abrió desde
+     * la planilla, recorre lo filtrado. Cualquier otra cosa sorprende.
+     */
+    const listaNavegable = useMemo(
+        () => (vista === "cola" ? cola : filtrados),
+        [vista, cola, filtrados]
+    );
+
+    const indiceSeleccionado = useMemo(
+        () => (seleccionado ? listaNavegable.findIndex((p) => p.id === seleccionado.id) : -1),
+        [seleccionado, listaNavegable]
     );
 
     const enviadosHoy = prospectosDelSistema.filter((p) => p.fecha_envio === hoyISO()).length;
@@ -604,6 +640,17 @@ export default function ProspeccionPage() {
                     onEliminar={() => eliminar(seleccionado.id)}
                     onConvertirCliente={() => convertirCliente(seleccionado)}
                     onCerrar={() => setSeleccionado(null)}
+                    navegacion={
+                        indiceSeleccionado >= 0
+                            ? {
+                                  indice: indiceSeleccionado,
+                                  total: listaNavegable.length,
+                                  anterior: listaNavegable[indiceSeleccionado - 1] ?? null,
+                                  siguiente: listaNavegable[indiceSeleccionado + 1] ?? null,
+                                  onIr: (destino) => setSeleccionado(destino),
+                              }
+                            : undefined
+                    }
                 />
             )}
             {mostrarDuplicados && (
@@ -902,8 +949,10 @@ function VistaPlanilla({
             <table className="w-full text-xs">
                 <thead className="bg-secondary/50 sticky top-0">
                     <tr className="text-left">
-                        {["Envío", "Negocio", "Rubro", "Ciudad", "Canal", "Clasif. web", "Dato usado", "Nivel", "Leyó", "Estado", "Score"].map((h) => (
-                            <th key={h} className="px-3 py-2.5 font-bold text-muted-foreground whitespace-nowrap">{h}</th>
+                        {COLUMNAS_PLANILLA.map((c) => (
+                            <th key={c.label} className={cn("px-3 py-2.5 font-bold text-muted-foreground whitespace-nowrap", c.oculta)}>
+                                {c.label}
+                            </th>
                         ))}
                     </tr>
                 </thead>
@@ -912,27 +961,27 @@ function VistaPlanilla({
                         const nivel = calcularNivelDato(normalizarEscaneo(p.escaneo));
                         return (
                             <tr key={p.id} className="border-t border-border hover:bg-secondary/30 transition-colors">
-                                <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{p.fecha_envio || "—"}</td>
+                                <td className="px-3 py-2 text-muted-foreground whitespace-nowrap hidden 2xl:table-cell">{p.fecha_envio || "—"}</td>
                                 <td className="px-3 py-2">
                                     <button onClick={() => onAbrir(p)} className="font-bold text-foreground hover:text-primary text-left max-w-[220px] truncate block">
                                         {p.negocio}
                                     </button>
                                 </td>
-                                <td className="px-3 py-2 text-muted-foreground max-w-[130px] truncate">{p.especialidad || p.rubro || "—"}</td>
-                                <td className="px-3 py-2 text-muted-foreground max-w-[120px] truncate">{p.ciudad || "—"}</td>
-                                <td className="px-3 py-2">
+                                <td className="px-3 py-2 text-muted-foreground max-w-[130px] truncate hidden xl:table-cell">{p.especialidad || p.rubro || "—"}</td>
+                                <td className="px-3 py-2 text-muted-foreground max-w-[120px] truncate hidden 2xl:table-cell">{p.ciudad || "—"}</td>
+                                <td className="px-3 py-2 hidden lg:table-cell">
                                     <span className="inline-flex items-center gap-1 text-muted-foreground">
                                         {p.canal === "whatsapp" ? <Phone className="w-3 h-3" /> : <Instagram className="w-3 h-3" />}
                                     </span>
                                 </td>
-                                <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">{CLASIFICACION_WEB_LABELS[p.clasificacion_web]}</td>
+                                <td className="px-3 py-2 text-muted-foreground whitespace-nowrap hidden xl:table-cell">{CLASIFICACION_WEB_LABELS[p.clasificacion_web]}</td>
                                 <td className="px-3 py-2 text-muted-foreground max-w-[220px] truncate" title={p.dato_usado}>{p.dato_usado || "—"}</td>
                                 <td className="px-3 py-2">
                                     {nivel ? (
                                         <span className={cn("px-1.5 py-0.5 rounded text-[10px] font-bold border", NIVEL_DATO_COLORS[nivel])}>N{nivel}</span>
                                     ) : <span className="text-muted-foreground">—</span>}
                                 </td>
-                                <td className="px-3 py-2 text-muted-foreground whitespace-nowrap">
+                                <td className="px-3 py-2 text-muted-foreground whitespace-nowrap hidden 2xl:table-cell">
                                     {p.quien_leyo ? QUIEN_LEYO_LABELS[p.quien_leyo] : "—"}
                                 </td>
                                 <td className="px-3 py-2">
