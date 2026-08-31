@@ -18,6 +18,7 @@ import {
 import {
     calcularNivelDato, calcularScore, normalizarEscaneo, sugerirDatoUsado,
     generarMensaje, alertasDescarte, proximaAccion, hoyISO, telefonoAWhatsapp,
+    resumenParaAnalisis,
     NIVEL_DATO_LABELS, NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS,
     type PasoMensaje,
 } from "@/lib/prospeccion";
@@ -88,6 +89,7 @@ export default function ProspectoModal({
     const [mensajeEditado, setMensajeEditado] = useState("");
     const [copiado, setCopiado] = useState(false);
     const [copiadoWa, setCopiadoWa] = useState(false);
+    const [copiadoResumen, setCopiadoResumen] = useState(false);
     const [generandoIA, setGenerandoIA] = useState(false);
     const [escaneando, setEscaneando] = useState(false);
     const [resultadoAuto, setResultadoAuto] = useState<EscaneoAutomatico | null>(null);
@@ -229,6 +231,15 @@ export default function ProspectoModal({
         setTimeout(() => setCopiado(false), 2000);
     };
 
+    // Junta lo ya cargado (Datos + Escaneo) en el formato que se le pasa a Claude
+    // para armar el análisis — para no tener que volver a escribirlo a mano.
+    const copiarResumen = () => {
+        navigator.clipboard.writeText(resumenParaAnalisis(draft));
+        setCopiadoResumen(true);
+        toast.success("Resumen copiado — pegalo en el chat para pedir el análisis");
+        setTimeout(() => setCopiadoResumen(false), 2000);
+    };
+
     // Abre el canal y registra el envío en el mismo gesto: si no se marca, la planilla miente.
     const abrirCanalYRegistrar = async () => {
         const wa = draft.telefono_wa || telefonoAWhatsapp(draft.telefono);
@@ -260,8 +271,12 @@ export default function ProspectoModal({
                     : pasoMensaje === "fu3"
                       ? { estado: "fu3", fecha_fu3: hoyISO() }
                       : pasoMensaje === entregaOferta
-                        ? { estado: "revision_enviada" }
-                        : {};
+                        ? { estado: "revision_enviada", fecha_revision: hoyISO() }
+                        : pasoMensaje === "fu_revision1"
+                          ? { fecha_revision_fu1: hoyISO() }
+                          : pasoMensaje === "fu_revision2"
+                            ? { fecha_revision_fu2: hoyISO() }
+                            : {};
 
         if (Object.keys(avance).length > 0) {
             setDraft((d) => ({ ...d, ...avance }));
@@ -1135,6 +1150,19 @@ export default function ProspectoModal({
                                         <input type="date" value={draft.fecha_fu3 ?? ""} onChange={(e) => set("fecha_fu3", e.target.value || null)} className={inputCls} />
                                     </Campo>
                                 )}
+                                {!esVivoMenu && (
+                                    <>
+                                        <Campo label="Fecha de entrega del análisis" hint="Arranca la cadencia de follow-up post-análisis">
+                                            <input type="date" value={draft.fecha_revision ?? ""} onChange={(e) => set("fecha_revision", e.target.value || null)} className={inputCls} />
+                                        </Campo>
+                                        <Campo label="Fecha follow-up análisis 1">
+                                            <input type="date" value={draft.fecha_revision_fu1 ?? ""} onChange={(e) => set("fecha_revision_fu1", e.target.value || null)} className={inputCls} />
+                                        </Campo>
+                                        <Campo label="Fecha follow-up análisis 2">
+                                            <input type="date" value={draft.fecha_revision_fu2 ?? ""} onChange={(e) => set("fecha_revision_fu2", e.target.value || null)} className={inputCls} />
+                                        </Campo>
+                                    </>
+                                )}
                             </div>
 
                             <Campo
@@ -1178,16 +1206,26 @@ export default function ProspectoModal({
 
                 {/* ── Pie ── */}
                 <div className="flex items-center justify-between gap-3 p-5 border-t border-border shrink-0 flex-wrap">
-                    <button
-                        onClick={async () => {
-                            if (!window.confirm(`¿Eliminar "${draft.negocio}" de la planilla?`)) return;
-                            await onEliminar();
-                        }}
-                        className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-rose-400 hover:bg-rose-500/10"
-                    >
-                        <Trash2 className="w-4 h-4" />
-                        Eliminar
-                    </button>
+                    <div className="flex items-center gap-2 flex-wrap">
+                        <button
+                            onClick={async () => {
+                                if (!window.confirm(`¿Eliminar "${draft.negocio}" de la planilla?`)) return;
+                                await onEliminar();
+                            }}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-semibold text-rose-400 hover:bg-rose-500/10"
+                        >
+                            <Trash2 className="w-4 h-4" />
+                            Eliminar
+                        </button>
+                        <button
+                            onClick={copiarResumen}
+                            className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs font-bold border border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+                            title="Copia Nombre / Rubro / Especialidad / Ciudad / Instagram / Maps / Detalles, listo para pegar en el chat y pedir el análisis"
+                        >
+                            {copiadoResumen ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            {copiadoResumen ? "Copiado" : "Copiar resumen"}
+                        </button>
+                    </div>
                     <div className="flex items-center gap-2 flex-wrap">
                         {navegacion && (
                             <div className="flex items-center gap-1 mr-1">

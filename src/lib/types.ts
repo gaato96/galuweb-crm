@@ -623,6 +623,10 @@ export interface Prospecto {
     fecha_fu2: string | null;
     fecha_fu3: string | null;
     fecha_respuesta: string | null;
+    /** §6 — cuándo se entregó el análisis. Arranca la cadencia de fu_revision1/2. */
+    fecha_revision: string | null;
+    fecha_revision_fu1: string | null;
+    fecha_revision_fu2: string | null;
     quien_leyo: QuienLeyo | null;
     revision_url: string;
     mensaje_enviado: string;

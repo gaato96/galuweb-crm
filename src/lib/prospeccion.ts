@@ -333,7 +333,9 @@ export function alertasDescarte(p: Prospecto): AlertaDescarte[] {
 // §5 — La escalera de mensajes
 // ─────────────────────────────────────────────────────────────
 
-export type PasoMensaje = "m1" | "m2" | "m3" | "fu1" | "fu2" | "fu3" | "ruteo";
+export type PasoMensaje =
+    | "m1" | "m2" | "m3" | "fu1" | "fu2" | "fu3" | "ruteo"
+    | "fu_revision1" | "fu_revision2";
 
 export const PASO_MENSAJE_LABELS: Record<PasoMensaje, string> = {
     m1: "Mensaje 1 — Permiso",
@@ -343,6 +345,9 @@ export const PASO_MENSAJE_LABELS: Record<PasoMensaje, string> = {
     fu2: "Follow-up 2 (7-10 días)",
     fu3: "Follow-up 3", // Galu no llega acá (doc 08 no tiene mensaje 4); existe para que el calendario de VivoMenu comparta el mismo tipo.
     ruteo: "Línea de ruteo al decisor",
+    // Post-análisis: se manda el link ya entregado (m2/m3), no el mensaje de permiso.
+    fu_revision1: "Follow-up análisis 1 (3-4 días)",
+    fu_revision2: "Follow-up análisis 2 (7-10 días)",
 };
 
 /**
@@ -457,6 +462,25 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
         ].join("\n");
     }
 
+    // §6 — Seguimiento post-análisis. Se manda el link ya entregado, distinto del
+    // primer contacto: acá el que falta no es el permiso, es la respuesta.
+    if (paso === "fu_revision1") {
+        const link = p.revision_url || "[link de la revisión]";
+        return [
+            `Che, ¿pudiste ver el análisis que te mandé? ${link}`,
+            "",
+            "Sé que a veces queda perdido entre mensajes, por eso te aviso. Cualquier duda, la vemos. Y si te sirve, arrancamos con esos 20-30 minutos.",
+        ].join("\n");
+    }
+
+    if (paso === "fu_revision2") {
+        return [
+            "Última vuelta por acá, no quiero ser pesado.",
+            "",
+            `Si en algún momento te sirve retomarlo, quedo. Y si no es el momento, todo bien igual — éxitos con ${p.negocio || "el consultorio"}!`,
+        ].join("\n");
+    }
+
     // fu2 — el que más respuestas trae de los tres
     return "Última por acá para no ser pesado 😅 Si en algún momento sentís que estás perdiendo consultas porque no te encuentran o no llegás a contestar, escribime. Éxitos!";
 }
@@ -473,8 +497,10 @@ function minuscula(txt: string): string {
 
 export type AccionSeguimiento = { paso: PasoMensaje; vencido: boolean; dias: number } | null;
 
+// "revision_enviada" queda afuera a propósito: tiene su propia cadencia de
+// seguimiento más abajo (fu_revision1/fu_revision2), post-análisis.
 const ESTADOS_CERRADOS: EstadoProspecto[] = [
-    "respondio", "revision_enviada", "reunion", "cliente", "descartado", "sin_respuesta",
+    "respondio", "reunion", "cliente", "descartado", "sin_respuesta",
 ];
 
 /**
@@ -502,6 +528,21 @@ export function proximaAccion(p: Prospecto, hoy: Date = new Date()): AccionSegui
         const dias = diasDesde(p.fecha_fu2, hoy);
         return { paso: "fu3", vencido: dias >= cadencia.fu3, dias };
     }
+
+    // §6 — Después del análisis, la misma cadencia de dos toques (3-4 / 7-10 días),
+    // pero sobre fecha_revision en vez de fecha_envio, porque el mensaje 1 nunca fue.
+    // Solo Galu: en VivoMenu "revision_enviada" es el paso "interés tibio" y no tiene
+    // un fu_revision propio todavía, y fu_revision1/2 no existen en su tipo de paso.
+    if (p.sistema === "galu" && p.estado === "revision_enviada" && p.fecha_revision) {
+        if (!p.fecha_revision_fu1) {
+            const dias = diasDesde(p.fecha_revision, hoy);
+            return { paso: "fu_revision1", vencido: dias >= cadencia.fu1, dias };
+        }
+        if (!p.fecha_revision_fu2) {
+            const dias = diasDesde(p.fecha_revision_fu1, hoy);
+            return { paso: "fu_revision2", vencido: dias >= cadencia.fu2, dias };
+        }
+    }
     return null;
 }
 
@@ -512,6 +553,55 @@ export function diasDesde(fecha: string, hoy: Date = new Date()): number {
 
 export function hoyISO(): string {
     return new Date().toISOString().split("T")[0];
+}
+
+// ─────────────────────────────────────────────────────────────
+// §6 — Resumen para pasar el prospecto a análisis
+// ─────────────────────────────────────────────────────────────
+// Junta lo que ya está cargado en la planilla (datos + Escaneo) en el mismo
+// formato que se viene mandando a mano: Nombre / Rubro / Especialidad /
+// Ciudad / Instagram / Maps / Detalles. Lo único que no puede autocompletar
+// es la búsqueda del rubro y el Planificador de palabras clave — esos hay
+// que pegarlos aparte, así que quedan como recordatorio explícito.
+
+export function resumenParaAnalisis(p: Prospecto): string {
+    const lineas: string[] = [
+        `Nombre: ${p.negocio || "[nombre]"}`,
+        `Rubro: ${p.rubro || "[rubro]"}`,
+    ];
+    if (p.especialidad) lineas.push(`Especialidad: ${p.especialidad}`);
+    lineas.push(`Ciudad: ${p.ciudad || "[ciudad]"}`);
+    if (p.instagram_url) lineas.push(`Instagram: ${p.instagram_url}`);
+    if (p.maps_url) lineas.push(`Maps: ${p.maps_url}`);
+    if (p.sitio_web_url) lineas.push(`Sitio web: ${p.sitio_web_url}`);
+
+    // El escaneo ya usa el mismo catálogo (FALLA_LABELS) con el que se viene
+    // redactando "Detalles" a mano — por eso alcanza con mapearlo, sin reescribir nada.
+    const detalles: string[] = [];
+    if (p.escaneo.queja_textual) detalles.push(p.escaneo.queja_textual);
+    detalles.push(...p.escaneo.fallas.map((f) => FALLA_LABELS[f]));
+    if (p.escaneo.hito_reciente) detalles.push(p.escaneo.hito_reciente);
+    if (p.escaneo.detalle_trabajo) detalles.push(p.escaneo.detalle_trabajo);
+    if (p.rating != null && p.reviews_count != null) {
+        detalles.push(`${p.rating} con ${p.reviews_count} opiniones`);
+    }
+    if (p.cant_profesionales) {
+        detalles.push(`${p.cant_profesionales} profesional${p.cant_profesionales > 1 ? "es" : ""}`);
+    }
+    if (p.notas) detalles.push(p.notas);
+
+    lineas.push("");
+    lineas.push(
+        detalles.length > 0
+            ? `Detalles: ${detalles.join(" · ")}`
+            : "Detalles: [completar el Escaneo o escribir acá antes de copiar]"
+    );
+
+    lineas.push("");
+    lineas.push("Búsquedas por rubro: [pegar acá el link de share.google con la búsqueda del rubro + ciudad]");
+    lineas.push("Planificador de palabras clave: [pegar acá la captura o los datos de Keyword Planner]");
+
+    return lineas.join("\n");
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -829,6 +919,9 @@ export function prospectoVacio(sistema: Sistema = "galu"): Omit<Prospecto, "id" 
         fecha_fu2: null,
         fecha_fu3: null,
         fecha_respuesta: null,
+        fecha_revision: null,
+        fecha_revision_fu1: null,
+        fecha_revision_fu2: null,
         quien_leyo: null,
         revision_url: "",
         mensaje_enviado: "",

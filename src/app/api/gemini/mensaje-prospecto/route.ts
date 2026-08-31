@@ -11,7 +11,7 @@ import { senialPrincipal, PATRON_LABELS } from "@/lib/dolores-rubro";
 
 export const maxDuration = 30;
 
-const PASOS_GALU: PasoMensaje[] = ["m1", "m2", "m3", "fu1", "fu2", "fu3", "ruteo"];
+const PASOS_GALU: PasoMensaje[] = ["m1", "m2", "m3", "fu1", "fu2", "fu3", "ruteo", "fu_revision1", "fu_revision2"];
 const PASOS_VIVOMENU: PasoMensajeVivoMenu[] = [
     "primer_contacto", "rama_empleado", "rama_dueno", "fu1", "fu2", "fu3", "interes_tibio", "compromiso_visita",
 ];
