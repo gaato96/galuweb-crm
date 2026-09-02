@@ -20,7 +20,7 @@ import {
     prospectoVacio, fueEnviado, respondio, tasaPorNivelDato, tasaPorRubro,
     tasaPorQuienLeyo, diagnosticoEmbudo, diasDesde,
     NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS, motivoFueraDeCola, compararParaCola,
-    detectarDuplicados, reseñasSanas, type CorteMetrica,
+    detectarDuplicados, reseñasSanas, MOTIVO_SIN_ESCANEAR, type CorteMetrica,
 } from "@/lib/prospeccion";
 import { calcularRampaVivoMenu, avisoDiaVivoMenu } from "@/lib/vivomenu-mensajes";
 import { resumenEscaneo, type EscaneoAutomatico } from "@/lib/escaneo-auto";
@@ -719,6 +719,12 @@ function VistaCola({
 }) {
     const [verFuera, setVerFuera] = useState(false);
 
+    // Los tres motivos por los que un prospecto queda afuera, separados: el
+    // primero se resuelve con un click y los otros dos no.
+    const porEscanear = fueraDeCola.filter((p) => motivoFueraDeCola(p) === MOTIVO_SIN_ESCANEAR);
+    const sinCanalReal = fueraDeCola.filter((p) => motivoFueraDeCola(p) === "sin canal de contacto").length;
+    const pocasResenas = fueraDeCola.length - porEscanear.length - sinCanalReal;
+
     if (cola.length === 0 && fueraDeCola.length === 0) {
         // Una cola vacía tiene tres causas muy distintas y el mensaje genérico
         // ("importá una planilla") solo acierta en una. Decir cuál es evita salir
@@ -815,16 +821,13 @@ function VistaCola({
                                 {/* El motivo real, contado. Decir siempre "volumen bajo" mandaba a
                                     buscar el problema al lado equivocado cuando en realidad no había
                                     teléfono ni Instagram cargado. */}
-                                {(() => {
-                                    const sinCanal = fueraDeCola.filter(
-                                        (p) => motivoFueraDeCola(p) === "sin canal de contacto"
-                                    ).length;
-                                    const pocasResenas = fueraDeCola.length - sinCanal;
-                                    return [
-                                        pocasResenas > 0 ? `${pocasResenas} con menos de 5 reseñas` : "",
-                                        sinCanal > 0 ? `${sinCanal} sin teléfono ni Instagram cargado` : "",
-                                    ].filter(Boolean).join(" · ");
-                                })()}
+                                {[
+                                    porEscanear.length > 0
+                                        ? `${porEscanear.length} sin escanear (el teléfono está en Google, falta traerlo)`
+                                        : "",
+                                    sinCanalReal > 0 ? `${sinCanalReal} sin canal de contacto` : "",
+                                    pocasResenas > 0 ? `${pocasResenas} con menos de 5 reseñas` : "",
+                                ].filter(Boolean).join(" · ")}
                                 . Siguen en la planilla, pero no gastan uno de los {objetivoDiario} mensajes del día.
                             </span>
                         </span>
@@ -832,6 +835,27 @@ function VistaCola({
                             {verFuera ? "Ocultar" : "Ver"}
                         </span>
                     </button>
+
+                    {/* Los "sin escanear" no son un descarte: son una tarea de un click.
+                        El escaneo les trae el teléfono de la ficha y entran solos a la cola. */}
+                    {porEscanear.length > 0 && (
+                        <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-3 flex-wrap">
+                            <p className="text-[11px] text-muted-foreground min-w-0 flex-1">
+                                Escaneá los primeros {Math.min(porEscanear.length, 20)} y van a aparecer en la cola con
+                                su teléfono, sus reseñas reales y las señales de la ficha.
+                            </p>
+                            <button
+                                onClick={() => onEscanearBloque(porEscanear.slice(0, 20))}
+                                disabled={!!escaneoLote}
+                                className="shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/15 border border-primary/40 text-primary text-[11px] font-bold hover:bg-primary/25 disabled:opacity-50"
+                            >
+                                <ScanSearch className="w-3.5 h-3.5" />
+                                {escaneoLote
+                                    ? `Escaneando ${escaneoLote.hechos}/${escaneoLote.total}`
+                                    : `Escanear ${Math.min(porEscanear.length, 20)} sin escanear`}
+                            </button>
+                        </div>
+                    )}
 
                     {verFuera && (
                         <div className="grid gap-1.5 mt-3">

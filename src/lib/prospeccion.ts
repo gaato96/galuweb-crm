@@ -415,10 +415,23 @@ export function motivoFueraDeCola(p: Prospecto): string | null {
         return `${reviews} ${reviews === 1 ? "reseña" : "reseñas"}`;
     }
     if (!p.whatsapp_publicado && !p.instagram_url && !p.telefono.trim()) {
-        return "sin canal de contacto";
+        // Sin canal cargado hay dos situaciones muy distintas, y tratarlas igual
+        // dejaba 479 prospectos buenos enterrados abajo de todo:
+        //
+        //   · Si hay ficha de Google, el teléfono existe — nadie fue a buscarlo
+        //     todavía. El escaneo lo trae en un click. Eso no es un descarte,
+        //     es una tarea pendiente.
+        //   · Sin ficha ni nada, ahí sí no hay por dónde entrar.
+        return p.maps_url.trim() ? MOTIVO_SIN_ESCANEAR : "sin canal de contacto";
     }
     return null;
 }
+
+/**
+ * Se compara por identidad en la pantalla para separar "todavía no lo miramos"
+ * de "no se puede contactar", así que vive en una constante y no suelto.
+ */
+export const MOTIVO_SIN_ESCANEAR = "sin escanear";
 
 export function alertasDescarte(p: Prospecto): AlertaDescarte[] {
     const alertas: AlertaDescarte[] = [];

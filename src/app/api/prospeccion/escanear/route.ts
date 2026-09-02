@@ -591,7 +591,16 @@ async function escanear(p: Prospecto): Promise<EscaneoAutomatico> {
         if (detalles.telefono && !p.telefono.trim()) {
             campos.telefono = detalles.telefono;
             const wa = telefonoAWhatsapp(detalles.telefono);
-            if (wa) campos.telefono_wa = wa;
+            if (wa) {
+                campos.telefono_wa = wa;
+                // Sin esto el prospecto entraba a la cola con el teléfono cargado
+                // pero con el canal en "instagram" (como quedó al importar) y sin
+                // Instagram: al ir a mandar el mensaje abría el Maps en vez del
+                // WhatsApp. Se cambia el canal, no whatsapp_publicado — ese campo
+                // afirma que el NEGOCIO lo publicó como WhatsApp, y eso sigue sin
+                // poder verificarse desde la ficha.
+                if (!p.instagram_url.trim() && p.canal === "instagram") campos.canal = "whatsapp";
+            }
         }
         if (esUrlDeRedSocial(detalles.sitio_web_url) && !p.instagram_url.trim()) {
             campos.instagram_url = detalles.sitio_web_url;
