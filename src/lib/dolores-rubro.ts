@@ -536,7 +536,12 @@ export function hizoPruebaDePedido(fallas: FallaVerificable[]): boolean {
 function reputacionDesaprovechada(p: Prospecto): string {
     const cierre = " Esa reputación se la ganaron paciente por paciente y hoy no está jugando en esa decisión.";
     // Una cantidad negativa es un error de signo, nunca un dato real (ver reseñasSanas en prospeccion.ts).
-    const reviews = p.reviews_count == null ? null : Math.abs(p.reviews_count);
+    // Mismo criterio que reseñasSanas() de prospeccion.ts, replicado acá porque
+    // ese módulo importa de este y hacerlo al revés sería un ciclo. Un valor con
+    // decimales no es una cantidad de reseñas: es un separador de miles mal
+    // importado, y citarlo en un mensaje sería citarle un número que no es suyo.
+    const crudo = p.reviews_count;
+    const reviews = crudo == null || !Number.isInteger(Math.abs(crudo)) ? null : Math.abs(crudo);
     if (p.rating != null && p.rating >= 4.3 && reviews != null && reviews >= 8) {
         return ` Y no es un tema de calidad: tienen ${p.rating} con ${reviews} reseñas, mejor puntaje que varios de los que sí aparecen ahí arriba.${cierre}`;
     }

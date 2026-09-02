@@ -116,7 +116,25 @@ export function normalizar(str: string): string {
  * correcto, sin depender de que cada prospecto se haya vuelto a guardar.
  */
 export function rese\u00f1asSanas(reviews: number | null): number | null {
-    return reviews == null ? null : Math.abs(reviews);
+    if (reviews == null) return null;
+    const n = Math.abs(reviews);
+
+    /**
+     * Una cantidad de rese\u00f1as es SIEMPRE un entero. Un valor con decimales no
+     * es un dato: es el separador de miles que se ley\u00f3 como coma decimal al
+     * importar ("1.234 rese\u00f1as" guardado como 1,234). Antes de arreglar el
+     * importador, eso mandaba fuera de la cola a todo local con m\u00e1s de mil
+     * rese\u00f1as \u2014 los mejores prospectos, justamente \u2014 con el cartel "volumen
+     * bajo" y el n\u00famero original al lado, que se lee al rev\u00e9s de como lo
+     * estaba entendiendo el c\u00f3digo.
+     *
+     * Se devuelve null (no sabemos) en vez de intentar reconstruirlo: "1.2"
+     * pudo haber sido 1.200 o 12, y JavaScript ya perdi\u00f3 los ceros del final.
+     * Sin dato, el prospecto entra a la cola y el escaneo le trae la cantidad
+     * real desde la ficha de Google.
+     */
+    if (!Number.isInteger(n)) return null;
+    return n;
 }
 
 /**

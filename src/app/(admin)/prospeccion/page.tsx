@@ -20,7 +20,7 @@ import {
     prospectoVacio, fueEnviado, respondio, tasaPorNivelDato, tasaPorRubro,
     tasaPorQuienLeyo, diagnosticoEmbudo, diasDesde,
     NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS, motivoFueraDeCola, compararParaCola,
-    detectarDuplicados, type CorteMetrica,
+    detectarDuplicados, reseñasSanas, type CorteMetrica,
 } from "@/lib/prospeccion";
 import { calcularRampaVivoMenu, avisoDiaVivoMenu } from "@/lib/vivomenu-mensajes";
 import { resumenEscaneo, type EscaneoAutomatico } from "@/lib/escaneo-auto";
@@ -809,11 +809,23 @@ function VistaCola({
                     >
                         <span className="min-w-0">
                             <span className="block text-xs font-bold text-foreground">
-                                {fueraDeCola.length} fuera de la cola por volumen bajo
+                                {fueraDeCola.length} fuera de la cola
                             </span>
                             <span className="block text-[11px] text-muted-foreground mt-0.5">
-                                Casi sin reseñas o sin canal de contacto. Siguen en la planilla, pero no gastan
-                                uno de los {objetivoDiario} mensajes del día.
+                                {/* El motivo real, contado. Decir siempre "volumen bajo" mandaba a
+                                    buscar el problema al lado equivocado cuando en realidad no había
+                                    teléfono ni Instagram cargado. */}
+                                {(() => {
+                                    const sinCanal = fueraDeCola.filter(
+                                        (p) => motivoFueraDeCola(p) === "sin canal de contacto"
+                                    ).length;
+                                    const pocasResenas = fueraDeCola.length - sinCanal;
+                                    return [
+                                        pocasResenas > 0 ? `${pocasResenas} con menos de 5 reseñas` : "",
+                                        sinCanal > 0 ? `${sinCanal} sin teléfono ni Instagram cargado` : "",
+                                    ].filter(Boolean).join(" · ");
+                                })()}
+                                . Siguen en la planilla, pero no gastan uno de los {objetivoDiario} mensajes del día.
                             </span>
                         </span>
                         <span className="shrink-0 text-[11px] font-bold text-primary">
@@ -876,7 +888,7 @@ function FilaCola({ p, indice, onAbrir, destacado }: { p: Prospecto; indice: num
                 <p className="text-sm font-bold text-foreground truncate">{p.negocio}</p>
                 <p className="text-[11px] text-muted-foreground truncate">
                     {[p.especialidad || p.rubro, p.ciudad].filter(Boolean).join(" · ")}
-                    {p.reviews_count != null && ` · ${Math.abs(p.reviews_count)} reseñas`}
+                    {reseñasSanas(p.reviews_count) != null && ` · ${reseñasSanas(p.reviews_count)} reseñas`}
                 </p>
             </div>
 

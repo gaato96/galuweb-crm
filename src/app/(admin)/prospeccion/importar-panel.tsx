@@ -269,9 +269,28 @@ function construirProspecto(
     const telefono = valores.telefono || "";
     const web = valores.sitio_web_url || "";
     const instagram = valores.instagram_url || (web.includes("instagram.com") ? web : "");
-    const numero = (v?: string) => {
+    /** Rating: "4,5" y "4.5" son el mismo número. Acá el separador SÍ es decimal. */
+    const decimal = (v?: string) => {
         if (!v) return null;
         const n = Number(v.replace(",", ".").replace(/[^\d.-]/g, ""));
+        return Number.isFinite(n) ? n : null;
+    };
+
+    /**
+     * Cantidades: son enteros, y el punto o la coma que traen es separador de
+     * MILES, no decimal.
+     *
+     * Con el parser de decimales, "1.234 reseñas" se guardaba como 1,234 — un
+     * local con mil doscientas reseñas quedaba con "menos de 5" y lo echaba de
+     * la cola por volumen bajo, mostrando el cartel "1.234 reseñas" que se lee
+     * exactamente al revés de como lo estaba entendiendo el código. Se quitan
+     * todos los separadores y se parsea entero.
+     */
+    const entero = (v?: string) => {
+        if (!v) return null;
+        const digitos = v.replace(/[^\d]/g, "");
+        if (!digitos) return null;
+        const n = Number(digitos);
         return Number.isFinite(n) ? n : null;
     };
 
@@ -290,13 +309,8 @@ function construirProspecto(
         maps_url: valores.maps_url || "",
         clasificacion_web: clasificarWebDesdeUrl(web),
         canal: telefonoAWhatsapp(telefono) ? "whatsapp" : "instagram",
-        rating: numero(valores.rating),
-        // Math.abs: un guion suelto en el texto pegado (viñeta, separador de rango) puede
-        // colarse en el número. Una cantidad de reseñas negativa nunca es un dato real.
-        reviews_count: (() => {
-            const n = numero(valores.reviews_count);
-            return n == null ? null : Math.abs(n);
-        })(),
+        rating: decimal(valores.rating),
+        reviews_count: entero(valores.reviews_count),
         notas: valores.notas || "",
         escaneo: { ...ESCANEO_VACIO },
         origen: "sheets",

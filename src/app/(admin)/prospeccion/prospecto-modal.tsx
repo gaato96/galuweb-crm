@@ -18,7 +18,7 @@ import {
 import {
     calcularNivelDato, calcularScore, normalizarEscaneo, sugerirDatoUsado,
     generarMensaje, alertasDescarte, proximaAccion, hoyISO, telefonoAWhatsapp,
-    resumenParaAnalisis,
+    resumenParaAnalisis, reseñasSanas,
     NIVEL_DATO_LABELS, NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS,
     type PasoMensaje,
 } from "@/lib/prospeccion";
@@ -81,7 +81,7 @@ export default function ProspectoModal({
         escaneo: normalizarEscaneo(prospecto.escaneo),
         // Autocorrige cargas viejas: una cantidad de reseñas negativa nunca fue un dato
         // real, era un signo que se coló al pegar o al escribir. Al guardar queda arreglado.
-        reviews_count: prospecto.reviews_count == null ? null : Math.abs(prospecto.reviews_count),
+        reviews_count: reseñasSanas(prospecto.reviews_count),
     });
     const [guardando, setGuardando] = useState(false);
     const esVivoMenu = draft.sistema === "vivomenu";
@@ -153,7 +153,7 @@ export default function ProspectoModal({
         const nuevo: Prospecto = {
             ...prospecto,
             escaneo: normalizarEscaneo(prospecto.escaneo),
-            reviews_count: prospecto.reviews_count == null ? null : Math.abs(prospecto.reviews_count),
+            reviews_count: reseñasSanas(prospecto.reviews_count),
         };
         setDraft(nuevo);
         setResultadoAuto(null);
