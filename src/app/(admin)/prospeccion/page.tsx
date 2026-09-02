@@ -641,6 +641,12 @@ export default function ProspeccionPage() {
                             esVivoMenu={sistemaActivo === "vivomenu"}
                             onEscanearBloque={escanearBloque}
                             escaneoLote={escaneoLote}
+                            totalDelSistema={prospectosDelSistema.length}
+                            yaTrabajados={
+                                prospectosDelSistema.filter(
+                                    (p) => p.estado !== "sin_calificar" && p.estado !== "calificado"
+                                ).length
+                            }
                         />
                     )}
                     {vista === "planilla" && <VistaPlanilla prospectos={filtrados} onAbrir={(p) => abrirProspecto(p, filtrados)} onCambiarEstado={(id, estado) => guardar(id, { estado })} />}
@@ -697,6 +703,7 @@ export default function ProspeccionPage() {
 
 function VistaCola({
     cola, onAbrir, objetivoDiario, fueraDeCola, esVivoMenu, onEscanearBloque, escaneoLote,
+    totalDelSistema, yaTrabajados,
 }: {
     cola: Prospecto[];
     onAbrir: (p: Prospecto) => void;
@@ -705,10 +712,35 @@ function VistaCola({
     esVivoMenu: boolean;
     onEscanearBloque: (delBloque: Prospecto[]) => Promise<void>;
     escaneoLote: { hechos: number; total: number } | null;
+    /** Cuántos hay cargados en este sistema, más allá de si entran a la cola. */
+    totalDelSistema: number;
+    /** Los que ya salieron de la cola por estar contactados o descartados. */
+    yaTrabajados: number;
 }) {
     const [verFuera, setVerFuera] = useState(false);
 
     if (cola.length === 0 && fueraDeCola.length === 0) {
+        // Una cola vacía tiene tres causas muy distintas y el mensaje genérico
+        // ("importá una planilla") solo acierta en una. Decir cuál es evita salir
+        // a buscar el problema al lugar equivocado — que fue exactamente lo que
+        // pasó con VivoMenu: había prospectos, pero no en este sistema.
+        const sistema = esVivoMenu ? "VivoMenu" : "Galu";
+        if (totalDelSistema === 0) {
+            return (
+                <Vacio
+                    titulo={`No hay ningún prospecto cargado en ${sistema}`}
+                    detalle={`La planilla tiene prospectos, pero ninguno de ${sistema}. Al importar del Scraper o de Sheets hay que elegir el sistema arriba de todo: si quedó en el otro, los prospectos existen pero no se ven acá.`}
+                />
+            );
+        }
+        if (yaTrabajados > 0) {
+            return (
+                <Vacio
+                    titulo="La cola está al día"
+                    detalle={`Los ${yaTrabajados} prospectos de ${sistema} ya están contactados o descartados. Traé una búsqueda nueva del Scraper para seguir, o mirá los follow-ups que tocan hoy.`}
+                />
+            );
+        }
         return (
             <Vacio
                 titulo="No hay nadie en la cola"

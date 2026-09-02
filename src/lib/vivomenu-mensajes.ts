@@ -21,6 +21,16 @@ import { SENIALES_POR_ID, senialPrincipal, hizoPruebaDePedido } from "./dolores-
 export const VIVOMENU_REMITENTE = "Gastón";
 export const VIVOMENU_CIUDAD = "Tucumán";
 
+/**
+ * El menú de muestra que se manda en frío. Es el mismo para todos: sirve para
+ * que lo toquen como cliente, no para mostrarles su carta.
+ *
+ * El personalizado (§5 "interés tibio") se guarda por prospecto en revision_url
+ * y, cuando existe, reemplaza a este en todos los pasos: mostrarle su propia
+ * carta con sus precios es otra conversación que mostrarle la de un tercero.
+ */
+export const DEMO_VIVOMENU = "https://vivomenu.com.ar/m/burger-house-tuc/catalogo";
+
 export type PasoMensajeVivoMenu =
     | "primer_contacto"
     | "rama_empleado"
@@ -52,18 +62,36 @@ function minuscula(txt: string): string {
 }
 
 /**
- * §5 Peldaño 1 — la señal que abre el mensaje, en minúscula para insertarla en la frase.
- * Prioriza lo que se cargó a mano, después la señal más fuerte del escaneo de gastronomía.
+ * §5 Peldaño 1 — la observación que abre el mensaje, ya como oración completa.
+ *
+ * Devuelve la frase entera y no un fragmento para pegar después de "Vi que",
+ * porque así estaba y producía dos mensajes rotos:
+ *
+ *   · Con una queja de cliente (nivel 1, el dato más fuerte que hay) salía
+ *     "Vi que pedí dos rolls y me llegó uno solo" — la queja quedaba en primera
+ *     persona, como si el que escribe hubiera sido el que pidió. Una queja se
+ *     CITA, no se cuenta.
+ *   · Sin ningún dato salía "Vi que varias cosas de Don José en Google", que ni
+ *     siquiera es una oración.
+ *
+ * Devuelve null cuando no hay nada verificado: en ese caso el mensaje no abre
+ * con una observación en vez de abrir con una inventada.
  */
-function senialParaMensaje(p: Prospecto): string {
-    if (p.dato_usado.trim()) return minuscula(p.dato_usado);
+function observacionParaMensaje(p: Prospecto): string | null {
     const escaneo = normalizarEscaneo(p.escaneo);
-    if (escaneo.queja_textual.trim()) return minuscula(escaneo.queja_textual);
+
+    // Nivel 1 gana siempre (§4). Va antes que dato_usado porque para un nivel 1
+    // dato_usado ES la queja (lo autocompleta sugerirDatoUsado), y por ese
+    // camino volvía a colarse sin comillas y en primera persona.
+    if (escaneo.tiene_queja_cliente && escaneo.queja_textual.trim()) {
+        return `Estuve leyendo las reseñas y vi que alguien puso: "${escaneo.queja_textual.trim()}".`;
+    }
+    if (p.dato_usado.trim()) return `Vi que ${minuscula(p.dato_usado)}.`;
 
     const senial = senialPrincipal(escaneo.fallas);
-    if (senial?.hallazgo) return senial.hallazgo;
+    if (senial?.hallazgo) return `Vi que ${senial.hallazgo}.`;
 
-    return `varias cosas de ${p.negocio || "tu local"} en Google`;
+    return null;
 }
 
 /** Los hallazgos salen del catálogo de gastronomía (dolores-rubro.ts), ordenados por peso. */
@@ -87,13 +115,30 @@ export function tieneWhatsappBusiness(p: Prospecto): boolean {
  */
 export function generarMensajeVivoMenu(paso: PasoMensajeVivoMenu, p: Prospecto): string {
     const escaneo = normalizarEscaneo(p.escaneo);
-    const demoUrl = p.revision_url.trim() || "[tu link de demo VivoMenu]";
+    const demoUrl = p.revision_url.trim() || DEMO_VIVOMENU;
+    const enApps = escaneo.fallas.includes("en_apps_delivery");
 
     if (paso === "primer_contacto") {
+        // Dos ángulos, y la diferencia no es de tono: es qué problema tienen.
+        //
+        // Al que ya está en PedidosYa no hay que explicarle que el pedido online
+        // sirve — lo está usando. Lo que le duele es la comisión, así que la
+        // línea 2 va directo ahí. Al que no está en ninguna app, la comisión no
+        // le dice nada todavía; lo que le duele es el WhatsApp del viernes.
+        // Sin observación verificada el mensaje NO abre inventando una: se
+        // presenta y muestra el link. Es más corto y más honesto, y el link
+        // sigue siendo lo que hace el trabajo.
+        const observacion = observacionParaMensaje(p);
+        const presentacion = `Soy ${VIVOMENU_REMITENTE}, de acá de ${VIVOMENU_CIUDAD}.${observacion ? ` ${observacion}` : ""}`;
+        const queHace = enApps
+            ? "Hago un link propio donde el cliente ve la carta con fotos, arma el pedido solo y te entra directo a este WhatsApp. Lo mismo que hacés hoy, pero sin dejar la comisión de cada pedido."
+            : "Hago un link donde el cliente ve la carta con fotos, arma el pedido con los agregados y te llega acá ya escrito, en vez de tener que ir preguntándole de a uno.";
+        const linea2 = `${presentacion} ${queHace}`;
+
         return [
             "Hola. No es un pedido, disculpá — te escribo por otra cosa.",
             "",
-            `Soy ${VIVOMENU_REMITENTE}, de acá de ${VIVOMENU_CIUDAD}. Vi que ${senialParaMensaje(p)}. Hago un link donde el cliente ve la carta con fotos, arma el pedido con los agregados, y te llega a este mismo WhatsApp ya escrito y prolijo.`,
+            linea2,
             "",
             `Este es uno real, tocalo como si fueras un cliente: ${demoUrl}`,
             "",
@@ -110,7 +155,13 @@ export function generarMensajeVivoMenu(paso: PasoMensajeVivoMenu, p: Prospecto):
     }
 
     if (paso === "rama_dueno") {
-        return "Bien. Contame una cosa, para no hacerte perder tiempo: un viernes a la noche, los pedidos te entran más por acá o por PedidosYa?";
+        // La pregunta abre el tema de la comisión sin nombrarla, y la respuesta
+        // dice cuál de los dos productos entra después: si contesta "PedidosYa",
+        // el argumento es lo que deja ahí; si contesta "por acá", es el quilombo
+        // de tomar todo a mano y ahí entra la parte de gestión.
+        return enApps
+            ? "Bien. Contame una cosa, para no hacerte perder tiempo: de lo que vendés por PedidosYa, tenés idea de cuánto se te va en comisión por mes?"
+            : "Bien. Contame una cosa, para no hacerte perder tiempo: un viernes a la noche, los pedidos te entran más por acá o por PedidosYa?";
     }
 
     if (paso === "fu1") {
@@ -120,22 +171,34 @@ export function generarMensajeVivoMenu(paso: PasoMensajeVivoMenu, p: Prospecto):
         if (escaneo.queja_textual.trim() && hallazgos.length < 3) {
             hallazgos.unshift(`en las reseñas alguien menciona: "${escaneo.queja_textual.trim()}"`);
         }
-        while (hallazgos.length < 3) {
-            hallazgos.push("[completar con otro hallazgo real del escaneo — no inventar, la fuerza del mensaje es que todo sea verificable]");
+
+        // El mensaje se adapta a cuántos hallazgos REALES hay, en vez de pedir
+        // siempre tres y rellenar con placeholders. Con dos hallazgos buenos el
+        // mensaje funciona igual; con uno bueno y dos "[completar]" no se puede
+        // mandar, y al arrancar a prospectar ese es el caso más común.
+        if (hallazgos.length === 0) {
+            return "[Sin hallazgos cargados: este follow-up no se puede armar sin al menos uno real. Completá el Escaneo — con uno solo alcanza.]";
         }
+
+        const cuantos = hallazgos.length === 1 ? "Una cosa que vi" : hallazgos.length === 2 ? "Dos cosas que vi" : "Tres cosas que vi";
 
         // "Te pedí como cliente" solo se puede decir si de verdad se hizo la prueba.
         // Si el escaneo fue únicamente frío, la apertura cambia y no afirma nada falso.
         const apertura = hizoPruebaDePedido(escaneo.fallas)
-            ? "Hice la prueba de pedirte como cliente, para ver dónde se traba. Tres cosas que vi:"
-            : "Estuve mirando cómo se pide desde afuera, como lo ve alguien que todavía no te conoce. Tres cosas que vi:";
+            ? `Hice la prueba de pedirte como cliente, para ver dónde se traba. ${cuantos}:`
+            : `Estuve mirando cómo se pide desde afuera, como lo ve alguien que todavía no te conoce. ${cuantos}:`;
+
+        const cierre =
+            hallazgos.length === 1
+                ? "No es grave, pero es justo el momento en el que alguien que todavía no te conoce se va a otro lado."
+                : `Ninguna de las ${hallazgos.length === 2 ? "dos" : "tres"} es grave sola. Juntas son pedidos que se caen antes de empezar.`;
 
         return [
             apertura,
             "",
-            ...hallazgos.slice(0, 3).map((h, i) => `${i + 1}. ${h.charAt(0).toUpperCase()}${h.slice(1)}.`),
+            ...hallazgos.map((h, i) => `${i + 1}. ${h.charAt(0).toUpperCase()}${h.slice(1)}.`),
             "",
-            "Ninguna de las tres es grave sola. Juntas son pedidos que se caen antes de empezar.",
+            cierre,
         ].join("\n");
     }
 
@@ -155,10 +218,15 @@ export function generarMensajeVivoMenu(paso: PasoMensajeVivoMenu, p: Prospecto):
         return "Mejor que explicártelo: pasame una foto de tu carta y te armo el tuyo con 5 o 6 productos, para que lo veas con tus precios y no con los de otro. Te lo mando y lo mirás cuando puedas. Sin compromiso, si no te gusta lo bajo.";
     }
 
-    // compromiso_visita
+    // compromiso_visita — el único paso donde entra la parte de gestión.
+    // Antes no se nombra: en frío, "sistema de gestión" es una palabra que
+    // cierra la conversación. Acá ya vio su propia carta andando y la pregunta
+    // que sigue naturalmente es qué pasa con el pedido una vez que entra.
     const { texto1, texto2 } = proximosDiasEnvio();
     return [
         "Te parece si paso y te lo dejo funcionando de verdad, con toda la carta y las fotos? Son 40 minutos y lo usás un fin de semana. Si no te sirvió, lo sacamos.",
+        "",
+        "Ahí te muestro también la otra parte, que es donde se ve de verdad: los pedidos entran a una pantalla en orden, con la hora y el estado de cada uno, y queda el registro de lo que más sale y de lo que se te termina. Eso es lo que hoy vive en papelitos y en la cabeza del que atiende.",
         "",
         `Te va ${texto1} a las 16, o ${texto2} a esa hora?`,
     ].join("\n");
@@ -173,9 +241,17 @@ export function proximosDiasEnvio(hoy: Date = new Date()): { texto1: string; tex
         d.setDate(d.getDate() + delta);
         return d;
     };
-    const martes = buscar(2);
-    const jueves = buscar(4);
-    return { texto1: formateador.format(martes), texto2: formateador.format(jueves), fecha1: martes, fecha2: jueves };
+    // En orden cronológico, no siempre martes primero. Un miércoles, "el próximo
+    // martes" cae recién a los seis días y el jueves a los dos, y el mensaje
+    // terminaba ofreciendo "te va martes 8, o jueves 3?" — al revés, y se lee
+    // como que uno no miró el calendario antes de escribir.
+    const [primero, segundo] = [buscar(2), buscar(4)].sort((a, b) => a.getTime() - b.getTime());
+    return {
+        texto1: formateador.format(primero),
+        texto2: formateador.format(segundo),
+        fecha1: primero,
+        fecha2: segundo,
+    };
 }
 
 // ─────────────────────────────────────────────────────────────

@@ -130,6 +130,16 @@ export interface DetallesMaps {
     tiene_descripcion: boolean;
     cant_fotos: number;
     resenas: ResenaMaps[];
+    /**
+     * Campos de gastronomía de Places. null = Google no sabe, que NO es lo mismo
+     * que false: sin este distingo se marcaría "no hacen delivery" en locales que
+     * sí hacen y nadie cargó el dato.
+     */
+    delivery?: boolean | null;
+    takeout?: boolean | null;
+    reservable?: boolean | null;
+    /** "Hamburguesería", "Parrilla" — la categoría que Google ya le puso. */
+    tipo_principal?: string;
 }
 
 export interface ResultadoSerp {
@@ -264,6 +274,92 @@ export function senialesDeMaps(p: Prospecto, d: DetallesMaps): EvidenciaSenial[]
     }
 
     return out;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Señales de gastronomía (VivoMenu) que se ven en la vista de Google
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Las apps que cobran comisión por pedido. Si el local aparece en alguna, el
+ * argumento entero de VivoMenu cambia: no hay que explicarle que el pedido
+ * online sirve — ya lo está usando y pagando entre 20% y 30% por cada uno.
+ */
+const HOSTS_DELIVERY = [
+    "pedidosya.com", "rappi.com", "rappi.com.ar", "ubereats.com",
+    "glovoapp.com", "didi-food.com", "didifood.com",
+];
+
+export function esUrlDeDelivery(url: string): boolean {
+    const u = normalizar(url);
+    if (!u) return false;
+    return HOSTS_DELIVERY.some((h) => u.includes(h));
+}
+
+/**
+ * Señales gastronómicas que salen de la ficha + de los dominios que Google
+ * devuelve al buscar el nombre del local. Todo verificable en un vistazo.
+ *
+ * `dominiosPorNombre` es el resultado de buscar el nombre exacto: ahí es donde
+ * aparece el perfil de PedidosYa si lo tienen. Si la búsqueda no se pudo hacer
+ * se pasa null, y entonces no se afirma nada sobre delivery.
+ */
+export function senialesGastroDeMaps(
+    p: Prospecto,
+    d: DetallesMaps,
+    dominiosPorNombre: string[] | null
+): { evidencias: EvidenciaSenial[]; pendientes: string[] } {
+    const evidencias: EvidenciaSenial[] = [];
+    const pendientes: string[] = [];
+
+    const sitio = (d.sitio_web_url || p.sitio_web_url || "").trim();
+    const enAppPorSitio = esUrlDeDelivery(sitio);
+    const appsEnBusqueda = (dominiosPorNombre || []).filter((h) => esUrlDeDelivery(h));
+    const enApp = enAppPorSitio || appsEnBusqueda.length > 0;
+
+    if (enApp) {
+        const donde = enAppPorSitio
+            ? `el sitio de la ficha apunta a ${sitio}`
+            : `buscando el nombre aparece en ${appsEnBusqueda.join(", ")}`;
+        evidencias.push({
+            falla: "en_apps_delivery",
+            fuente: enAppPorSitio ? "maps" : "serp",
+            detalle: `Toma pedidos por app de delivery: ${donde}`,
+            url: enAppPorSitio ? sitio : `https://www.google.com/search?q=${encodeURIComponent(terminoDeNombre(p))}`,
+        });
+    }
+
+    // "La única forma de pedir es escribir y esperar" (peso 78). Solo se afirma
+    // con las tres condiciones juntas, porque es una frase que el dueño puede
+    // desmentir en dos segundos si tiene un link de pedidos en algún lado:
+    //   1. Vende para llevar o a domicilio — o sea que el pedido existe.
+    //   2. No hay web propia donde armarlo (o la web es el Instagram).
+    //   3. No está en ninguna app de delivery.
+    const vendeParaLlevar = d.delivery === true || d.takeout === true;
+    const sinWebPropia = !sitio || esUrlDeRedSocial(sitio);
+    if (vendeParaLlevar && sinWebPropia && !enApp && dominiosPorNombre !== null) {
+        evidencias.push({
+            falla: "pedidos_solo_whatsapp",
+            fuente: "maps",
+            detalle: `La ficha dice que hacen ${d.delivery === true ? "delivery" : "para llevar"}, pero no hay web propia ni app: el pedido solo puede entrar escribiendo.`,
+            url: d.maps_url || p.maps_url,
+        });
+    } else if (vendeParaLlevar && sinWebPropia && dominiosPorNombre === null) {
+        pendientes.push(
+            "Hacen delivery o para llevar y no tienen web propia, pero no se pudo confirmar si están en PedidosYa. Miralo antes de mandar: cambia el ángulo del mensaje por completo."
+        );
+    }
+
+    // Sin horarios en gastronomía pesa distinto que en un consultorio: el que
+    // busca a las 23 quiere saber si todavía está abierto, y si no lo dice, pasa
+    // al siguiente. Ya se marca ficha_incompleta arriba; acá solo se avisa.
+    if (!d.tiene_horarios) {
+        pendientes.push(
+            "La ficha no tiene horarios: en gastronomía es de las cosas que más pedido pierden de noche. Sirve como arreglo gratis en el follow-up."
+        );
+    }
+
+    return { evidencias, pendientes };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -447,9 +543,17 @@ export function fusionarEscaneo(
  * y no hay API que lo cubra.
  */
 export function pendientesManuales(p: Prospecto): string[] {
+    const esGastro = detectarRubro(p) === "gastronomia";
     const out = [
-        "Instagram: último posteo, comentarios sin responder y preguntas de precio. Es lo único que no se puede automatizar, y es donde están las señales más fuertes.",
+        esGastro
+            ? "Instagram: abrí la carta desde el celular (¿se lee sin agrandar?, ¿tiene precios?), mirá si hay comentarios preguntando precio sin responder y cuándo fue el último posteo. Son las señales más fuertes del catálogo y ninguna se automatiza."
+            : "Instagram: último posteo, comentarios sin responder y preguntas de precio. Es lo único que no se puede automatizar, y es donde están las señales más fuertes.",
     ];
+    if (esGastro) {
+        out.push(
+            "La prueba de pedido (escribirles como cliente un viernes a la noche) es la que da el dato más fuerte de todos, y hay que hacerla a mano. Marca demora_en_contestar, carta_llega_como_imagen y pedido_muchas_idas."
+        );
+    }
     if (!p.instagram_url.trim()) {
         out.push("No hay URL de Instagram cargada: buscala una vez y queda guardada para el follow-up.");
     }

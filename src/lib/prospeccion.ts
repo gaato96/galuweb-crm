@@ -77,7 +77,14 @@ export function sugerirDatoUsado(escaneo: EscaneoProspecto): string {
 
 const RUBROS_RESENA_FUERTE = [
     "odontolog", "dentista", "consultorio", "medic", "clinic", "pediatr", "kinesi",
-    "gastronom", "restaurant", "bar", "cafeter", "pizzer", "rotiser", "comida",
+    // Gastronomía. La lista larga es a propósito: Google Maps devuelve la categoría
+    // ya especializada ("Hamburguesería", "Parrilla", "Sushi"), no "restaurante".
+    // Con la lista corta esos caían en "neutro" y el peso de las reseñas se
+    // calculaba mal justo en el rubro donde más se reseña.
+    "gastronom", "restaurant", "resto", "bar", "pub", "cerveceri", "cafeter", "cafe",
+    "pizzer", "rotiser", "comida", "hamburgues", "parrilla", "sushi", "heladeri",
+    "panaderi", "confiteri", "sandwich", "empanada", "pasta", "milanesa", "grill",
+    "cocina", "delivery", "food",
     "comercio", "indumentaria", "calzado", "optic", "estetic", "peluquer", "barber",
     "gimnasio", "hotel", "veterinar",
 ];
@@ -162,13 +169,17 @@ export interface DesgloseScore {
 /**
  * Score 0-100 de prioridad de contacto. Ordena la cola de trabajo del día.
  * El universo se usa para el percentil de reseñas relativo al rubro (§8).
+ *
+ * Cada sistema puntúa distinto porque el producto es otro y lo que predice una
+ * respuesta también: ver calcularScoreVivoMenu para el detalle del contraste.
  */
 export function calcularScore(prospecto: Prospecto, universo: Prospecto[] = []): DesgloseScore {
-    const partes: { concepto: string; puntos: number }[] = [];
-
     if (prospecto.estado === "descartado") {
         return { total: 0, partes: [{ concepto: "Descartado", puntos: 0 }] };
     }
+    if (prospecto.sistema === "vivomenu") return calcularScoreVivoMenu(prospecto);
+
+    const partes: { concepto: string; puntos: number }[] = [];
 
     // 1. Nivel del dato — "el campo que decide si el mensaje funciona" (§3.2 punto 7)
     const escaneo = normalizarEscaneo(prospecto.escaneo);
@@ -246,6 +257,99 @@ export function calcularScore(prospecto: Prospecto, universo: Prospecto[] = []):
     }
 
     const total = Math.max(0, Math.min(100, partes.reduce((s, p) => s + p.puntos, 0)));
+    return { total, partes };
+}
+
+/**
+ * Score de VivoMenu — menú digital + gestión gastronómica.
+ *
+ * El de Galu no sirve acá y por eso la cola salía plana: mide cosas que en
+ * gastronomía no separan a nadie.
+ *
+ *   · "Cantidad de profesionales" y "demanda de búsqueda de la especialidad"
+ *     son de un consultorio. Un bar no tiene profesionales y la comida la
+ *     busca todo el mundo: los dos campos vienen vacíos y suman cero siempre.
+ *   · El segmento pesa 20 puntos y casi todos los locales caen en "solo redes",
+ *     así que el mismo puntaje se lo lleva todo el mundo. Peor: un local con
+ *     web linda bajaba a 2 puntos, cuando para VivoMenu tener web no cambia
+ *     nada — el pedido igual entra por WhatsApp.
+ *   · Pocas reseñas restaba hasta 30 puntos. En un consultorio eso es ficha
+ *     abandonada; en gastronomía, un local de barrio con 12 reseñas puede
+ *     estar vendiendo 200 pedidos por finde.
+ *
+ * Lo que sí predice acá es otra cosa: que ya vendan online pagando comisión,
+ * que tengan flujo real, y que todo el pedido dependa de alguien contestando.
+ */
+export function calcularScoreVivoMenu(p: Prospecto): DesgloseScore {
+    const partes: { concepto: string; puntos: number }[] = [];
+    const escaneo = normalizarEscaneo(p.escaneo);
+    const fallas = new Set(escaneo.fallas);
+
+    // 1. Nivel del dato — sigue siendo lo que decide si el mensaje funciona.
+    const nivel = calcularNivelDato(escaneo);
+    if (nivel) {
+        partes.push({ concepto: NIVEL_DATO_LABELS[nivel], puntos: PUNTOS_NIVEL[nivel] });
+    } else {
+        partes.push({ concepto: "Sin dato de personalización", puntos: 0 });
+    }
+
+    // 2. Ya venden online y pagan por hacerlo. Es la señal más fuerte del
+    //    catálogo (peso 100): no hay que convencerlos de que el pedido online
+    //    sirve, ya lo saben — se les muestra lo que les cuesta la comisión.
+    if (fallas.has("en_apps_delivery")) {
+        partes.push({ concepto: "En PedidosYa / Rappi: paga comisión por cada pedido", puntos: 25 });
+    }
+
+    // 3. Todo el pedido pasa por una persona contestando. Es el dolor que el
+    //    producto resuelve de frente, y el que hace que el demo se entienda solo.
+    if (fallas.has("pedidos_solo_whatsapp")) {
+        partes.push({ concepto: "Para pedir hay que escribir y esperar", puntos: 12 });
+    }
+    if (fallas.has("carta_sin_precios") || fallas.has("carta_como_imagen") || fallas.has("precio_por_privado")) {
+        partes.push({ concepto: "La carta publicada no deja decidir sola", puntos: 10 });
+    }
+
+    // 4. Reseñas como medida de FLUJO, no de reputación. Acá el volumen dice
+    //    cuántos pedidos por semana hay atrás, que es lo que define si el
+    //    sistema le cambia el día o no.
+    const reviews = reseñasSanas(p.reviews_count);
+    if (reviews != null) {
+        if (reviews >= 100) partes.push({ concepto: `${reviews} reseñas: mucho movimiento`, puntos: 15 });
+        else if (reviews >= 30) partes.push({ concepto: `${reviews} reseñas: flujo sostenido`, puntos: 12 });
+        else if (reviews >= 15) partes.push({ concepto: `${reviews} reseñas: flujo razonable`, puntos: 8 });
+        else if (reviews >= 5) partes.push({ concepto: `${reviews} reseñas: flujo bajo`, puntos: 0 });
+        else partes.push({ concepto: `Solo ${reviews}: casi sin movimiento`, puntos: -25 });
+    }
+
+    // 5. Instagram vivo. En gastronomía es donde se publica la carta y por
+    //    donde entran los pedidos: si está muerto, el local también suele estarlo.
+    if (p.dias_ultimo_post != null) {
+        if (p.dias_ultimo_post <= 30) {
+            partes.push({ concepto: "Instagram activo (último mes)", puntos: 12 });
+        } else if (p.dias_ultimo_post <= 60) {
+            partes.push({ concepto: "Instagram con actividad (60 días)", puntos: 6 });
+        } else {
+            partes.push({ concepto: "Instagram sin posts en 60+ días", puntos: -10 });
+        }
+    }
+
+    // 6. Canal. Pesa más que en Galu porque el WhatsApp del local no es solo la
+    //    forma de contactarlo: es el lugar donde ocurre el problema que se le va
+    //    a mostrar, y el mismo lugar donde entra el demo.
+    if (p.whatsapp_publicado) {
+        partes.push({ concepto: "WhatsApp publicado: se escribe directo", puntos: 12 });
+    } else if (p.instagram_url) {
+        partes.push({ concepto: "Solo Instagram: va por DM", puntos: 5 });
+    }
+
+    // 7. Reputación castigada por la operación, no por la cocina. Un local con
+    //    buena comida y rating mediocre suele tener el problema del pedido mal
+    //    tomado — que es justo lo que el producto arregla.
+    if (p.rating != null && reviews != null && reviews >= 15 && p.rating < 4.2) {
+        partes.push({ concepto: `Rating ${p.rating} con volumen: algo se cae en la operación`, puntos: 8 });
+    }
+
+    const total = Math.max(0, Math.min(100, partes.reduce((s, x) => s + x.puntos, 0)));
     return { total, partes };
 }
 

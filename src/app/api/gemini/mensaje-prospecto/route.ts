@@ -48,18 +48,46 @@ function reglasGalu(largo: string): string {
    vuelve mentira verificable y se cae todo.`;
 }
 
-function reglasVivoMenu(paso: PasoMensajeVivoMenu): string {
+function reglasVivoMenu(paso: PasoMensajeVivoMenu, nivel: number | null): string {
     const extra =
         paso === "primer_contacto"
             ? `13. La primera línea tiene que aclarar que NO es un pedido — el que lee está tomando pedidos por ese mismo WhatsApp
    y hay que sacarlo de ese modo antes de cualquier otra cosa.
 14. El link va SIN pedir permiso antes. El permiso se pide en la pregunta final, sobre algo que sí tiene costo para el que lee
-   (pasar el contacto al dueño), nunca sobre mandar el link.`
-            : `13. No expliques el producto con palabras si ya se explicó en un paso anterior — mostrás, no contás de nuevo.`;
+   (pasar el contacto al dueño), nunca sobre mandar el link.
+15. NO toques el link: va tal cual viene en el borrador, completo y sin acortar. Un link mal copiado mata el mensaje entero.`
+            : `13. No expliques el producto con palabras si ya se explicó en un paso anterior — mostrás, no contás de nuevo.
+15. Si el borrador trae un link, va tal cual, completo y sin acortar.`;
+
+    // Qué tan lejos puede ir la línea 1 depende de con qué dato se cuenta. Sin
+    // esto, el modelo escribe la misma frase confiada con un dato de nivel 4
+    // (un detalle de su carta) que con una queja textual de un cliente, y en el
+    // primer caso queda afirmando cosas que el dueño sabe que no vio.
+    const porNivel =
+        nivel === 1
+            ? `16. Tenés una queja textual de un cliente. Citala con comillas, tal cual, sin corregirle nada, y encuadrala como
+   problema de cómo entra el pedido — NUNCA como que en la cocina trabajan mal ni como que quien atiende es lento.
+   El dueño quiere a su gente: si lee un reproche a su equipo, no contesta más.`
+            : nivel === 2
+              ? `16. Tenés una señal que se ve desde afuera. La línea 1 dice SOLO eso, tal como se ve (qué se buscó, qué se vio).
+   Lo que eso suele significar va en la línea 2 y en general — "suele pasar que...", "lo que veo seguido es..." —
+   nunca afirmado de ESTE local. No sabés cuántos pedidos pierden, ni cuánto tardan: no lo digas como si lo supieras.`
+              : nivel === 3 || nivel === 4
+                ? `16. El dato que tenés es flojo (algo que publicaron, un detalle de cómo trabajan). Con eso NO alcanza para
+   diagnosticar nada: usalo solo como prueba de que miraste el local de verdad, en media línea, y pasá rápido
+   al link. Nada de "vi que tenés X, seguro estás perdiendo pedidos" — eso es una suposición disfrazada de dato.`
+                : `16. NO tenés ningún dato verificado de este local. Entonces no afirmes NADA sobre cómo trabajan: ni que pierden
+   pedidos, ni que tardan, ni que la carta está desactualizada. Presentate, decí en una línea qué hace el link,
+   y mandalo. Un mensaje corto y honesto convierte mejor que uno largo apoyado en una observación inventada.`;
 
     return `${REGLAS_COMUNES}
-12. Prohibido: mandar un PDF o guía, dar el precio por chat, y la frase "sistema de pedidos" (decí "el pedido te llega armado").
-${extra}`;
+12. VOCABULARIO. Prohibido: "sistema de gestión", "plataforma", "digitalizar", "solución", "sistema de pedidos", mandar un PDF
+   o guía, y dar el precio por chat. Se dice en criollo: "el pedido te llega armado", "el cliente arma el pedido solo",
+   "te entra acá ya escrito". El que lee está laburando, no leyendo un folleto.
+${extra}
+${porNivel}
+17. El que atiende ese WhatsApp puede ser el dueño o un empleado en plena hora pico. Escribí para que lo entienda cualquiera
+   de los dos en cinco segundos, y que ninguno de los dos se sienta acusado de nada.`;
 }
 
 interface Body {
@@ -114,13 +142,23 @@ Dato de personalización: ${prospecto.dato_usado || "—"}
 ${escaneo.tiene_queja_cliente ? `Queja textual de un cliente: "${escaneo.queja_textual}"` : ""}
 ${escaneo.fallas.length ? `Fallas verificables: ${escaneo.fallas.map((f) => FALLA_LABELS[f]).join(", ")}` : ""}
 ${escaneo.hito_reciente ? `Hito reciente: ${escaneo.hito_reciente}` : ""}
-${!esVivoMenu && senialTitular ? `Señal observada que va de titular: ${senialTitular.label} (apunta al dolor "${PATRON_LABELS[senialTitular.patron]}" — ese dolor es INFERIDO del rubro, no verificado en este negocio)` : ""}
+${senialTitular ? `Señal observada que va de titular: ${senialTitular.label} (apunta al dolor "${PATRON_LABELS[senialTitular.patron]}" — ese dolor es INFERIDO del rubro, no verificado en este negocio)` : ""}
+${
+    esVivoMenu
+        ? `¿Está en apps de delivery?: ${
+              escaneo.fallas.includes("en_apps_delivery")
+                  ? "SÍ — ya vende online y paga comisión por pedido. Ese es el ángulo, no hay que explicarle que el pedido online sirve."
+                  : "No se detectó. NO menciones PedidosYa como si supieras que están: el ángulo es el WhatsApp, no la comisión."
+          }
+Movimiento del local: ${prospecto.reviews_count ?? "s/d"} reseñas${prospecto.rating != null ? `, ${prospecto.rating}★` : ""}`
+        : ""
+}
 Canal: ${prospecto.canal === "whatsapp" ? "WhatsApp" : "Instagram DM"}${
     esVivoMenu ? `\n¿Quién contestó hasta ahora?: ${prospecto.quien_leyo === "secretaria" ? "empleado" : prospecto.quien_leyo === "dueno" ? "dueño" : "sin definir"}` : ""
 }`;
 
         const reglas = esVivoMenu
-            ? reglasVivoMenu(paso as PasoMensajeVivoMenu)
+            ? reglasVivoMenu(paso as PasoMensajeVivoMenu, nivel)
             : reglasGalu(nivel && nivel <= 2 ? "completa (3 líneas)" : "corta (observación + pregunta, sin diagnóstico)");
 
         const prompt = `Sos quien escribe los mensajes en frío de ${esVivoMenu ? "VivoMenu, un menú digital para gastronomía" : "Galu, una agencia web"} de San Miguel de Tucumán.

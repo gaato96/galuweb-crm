@@ -1166,8 +1166,8 @@ export default function ProspectoModal({
                             </div>
 
                             <Campo
-                                label={esVivoMenu ? "Link del menú armado" : "Link del análisis"}
-                                hint={esVivoMenu ? "El demo/menú que se manda en el primer contacto y se personaliza en 'interés tibio'" : "galuweb.com/revision/[negocio] — noindex, sin gate"}
+                                label={esVivoMenu ? "Link del menú personalizado" : "Link del análisis"}
+                                hint={esVivoMenu ? "Solo cuando le armes el suyo con su carta (paso 'interés tibio'). Vacío está bien: el primer contacto usa el demo de muestra solo." : "galuweb.com/revision/[negocio] — noindex, sin gate"}
                             >
                                 <div className="flex gap-2">
                                     <input

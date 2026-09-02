@@ -22,11 +22,12 @@
 import { NextResponse } from "next/server";
 import type { Prospecto, FallaVerificable } from "@/lib/types";
 import { telefonoAWhatsapp, normalizar } from "@/lib/prospeccion";
+import { detectarRubro } from "@/lib/dolores-rubro";
 import { extraerPlaceId } from "@/lib/places-url";
 import {
     senialesDeMaps, senialDeSerp, senialesDeWeb, clasificarConChequeo,
     fusionarEscaneo, pendientesManuales, terminoDeRubro, terminoDeNombre,
-    apareceEnResultados, demandaEfectiva, esUrlDeRedSocial,
+    apareceEnResultados, demandaEfectiva, esUrlDeRedSocial, senialesGastroDeMaps,
     LECTURA_VACIA,
     type EscaneoAutomatico, type EvidenciaSenial, type DetallesMaps,
     type ResultadoSerp, type ChequeoWeb, type LecturaResenas, type ResenaMaps,
@@ -57,6 +58,11 @@ const FIELD_MASK_DETALLE = [
     "id", "displayName", "formattedAddress", "nationalPhoneNumber",
     "websiteUri", "googleMapsUri", "rating", "userRatingCount",
     "regularOpeningHours", "editorialSummary", "photos", "reviews",
+    // Gastronomía (VivoMenu): delivery/takeout dicen que el pedido para llevar
+    // existe, que es la condición para poder afirmar que hoy solo entra por
+    // WhatsApp. primaryTypeDisplayName trae la categoría ya especializada
+    // ("Hamburguesería"), mejor que el rubro genérico con el que se importó.
+    "delivery", "takeout", "reservable", "primaryTypeDisplayName",
 ].join(",");
 
 interface PlaceReview {
@@ -109,6 +115,12 @@ async function detallesDeFicha(p: Prospecto): Promise<DetallesMaps | null> {
             tiene_descripcion: !!d.editorialSummary?.text,
             cant_fotos: Array.isArray(d.photos) ? d.photos.length : 0,
             resenas,
+            // undefined (Google no tiene el dato) se normaliza a null: "no sé" y
+            // "no hacen delivery" no pueden ser lo mismo, o se afirma de más.
+            delivery: typeof d.delivery === "boolean" ? d.delivery : null,
+            takeout: typeof d.takeout === "boolean" ? d.takeout : null,
+            reservable: typeof d.reservable === "boolean" ? d.reservable : null,
+            tipo_principal: d.primaryTypeDisplayName?.text || "",
         };
     } catch (e) {
         console.warn("[escanear] Places Details error:", e instanceof Error ? e.message : e);
@@ -296,7 +308,15 @@ async function chequearSerp(p: Prospecto): Promise<{ porRubro: ResultadoSerp | n
     // El control por nombre solo hace falta si NO apareció por rubro: es la
     // consulta que distingue "no te encuentran por lo que hacés" de "no estás
     // en el índice". Si apareció, nos la ahorramos (y ahorramos cuota de CSE).
-    if (!porRubro || porRubro.aparece !== false) return { porRubro, porNombre: null };
+    //
+    // En gastronomía se hace siempre: es la única forma de ver si el local está
+    // en PedidosYa o Rappi (aparece como dominio en esa búsqueda), que es la
+    // señal de mayor peso del catálogo de VivoMenu y la que define todo el
+    // ángulo del mensaje. Vale una consulta extra por prospecto.
+    const esGastro = detectarRubro(p) === "gastronomia";
+    if (!esGastro && (!porRubro || porRubro.aparece !== false)) {
+        return { porRubro, porNombre: null };
+    }
 
     const nombre = await buscar(tNombre);
     const porNombre: ResultadoSerp | null = nombre
@@ -357,14 +377,47 @@ const FALLAS_DE_RESENAS: FallaVerificable[] = [
     "sin_reserva_online",
 ];
 
+/** En gastronomía la queja usable es otra: la del pedido, no la del turno. */
+const FALLAS_DE_RESENAS_GASTRO: FallaVerificable[] = [
+    "resenas_pedido_errado",
+    "demora_en_contestar",
+    "pedidos_solo_whatsapp",
+    "carta_desactualizada",
+];
+
+function queBuscarEnResenas(esGastro: boolean): string {
+    if (esGastro) {
+        return `Buscás una queja de un cliente sobre un problema que se resuelve con un menú digital donde el cliente
+arma el pedido solo, o con un sistema que ordena cómo entra ese pedido a la cocina:
+el pedido llegó mal, incompleto o cambiado; faltaba algo; les dieron otra cosa; tardaron muchísimo en contestar
+el WhatsApp; no contestaron nunca; no se sabía el precio; la carta que vieron no era la de verdad;
+tuvieron que preguntar todo de a uno; pidieron algo que no había.
+
+NO sirve, y no lo devuelvas: quejas sobre el sabor, la sazón, la temperatura de la comida, la limpieza,
+el trato de un mozo, la música, el estacionamiento, ni que esté caro. Nada de eso lo arregla un sistema
+de pedidos, y usarlo como línea 1 hace que el mensaje se lea como un insulto a la cocina.`;
+    }
+    return `Buscás una queja de un cliente sobre un problema que se resuelve con una web o un sistema de turnos:
+no contestan los mensajes, no se puede sacar turno, hay que llamar muchas veces, tardan días en responder,
+no hay forma de reservar, no se sabe el precio, no encontraban información.
+
+NO sirve, y no lo devuelvas: quejas sobre la calidad del servicio, sobre el trato de una persona,
+sobre el resultado de un tratamiento, sobre precios caros, ni nada que una web no arregle.`;
+}
+
 async function leerResenas(p: Prospecto, resenas: ResenaMaps[]): Promise<LecturaResenas> {
     if (!GEMINI_API_KEY || resenas.length === 0) return LECTURA_VACIA;
+
+    const esGastro = detectarRubro(p) === "gastronomia";
+    const fallasPermitidas = esGastro ? FALLAS_DE_RESENAS_GASTRO : FALLAS_DE_RESENAS;
 
     const listado = resenas
         .map((r, i) => `[${i + 1}] ${r.autor} · ${r.rating ?? "?"}★ · ${r.fecha}\n${r.texto}`)
         .join("\n\n");
 
-    const prompt = `Sos quien prepara los datos para escribir un mensaje en frío de una agencia web de Tucumán.
+    const prompt = `Sos quien prepara los datos para escribir un mensaje en frío${
+        esGastro ? " de VivoMenu, un menú digital y sistema de pedidos para locales de comida de Tucumán" : " de una agencia web de Tucumán"
+    }.
 Te paso las reseñas de Google de un negocio. Tu único trabajo es EXTRAER, no redactar.
 
 --- NEGOCIO ---
@@ -374,22 +427,21 @@ ${p.negocio} — ${p.especialidad || p.rubro} en ${p.ciudad}
 ${listado}
 
 --- QUÉ BUSCAR ---
-Buscás una queja de un cliente sobre un problema que se resuelve con una web o un sistema de turnos:
-no contestan los mensajes, no se puede sacar turno, hay que llamar muchas veces, tardan días en responder,
-no hay forma de reservar, no se sabe el precio, no encontraban información.
-
-NO sirve, y no lo devuelvas: quejas sobre la calidad del servicio, sobre el trato de una persona,
-sobre el resultado de un tratamiento, sobre precios caros, ni nada que una web no arregle.
+${queBuscarEnResenas(esGastro)}
 
 --- REGLAS ---
 1. queja_textual va TEXTUAL, copiada carácter por carácter de una reseña. No la resumas, no la corrijas,
    no le arregles la ortografía, no la traduzcas. Si no podés copiarla exacta, devolvé "".
 2. Si ninguna reseña tiene una queja del tipo que se busca, devolvé tiene_queja_cliente: false y queja_textual: "".
    Es un resultado perfectamente válido y es mejor que forzar una.
-3. hito_reciente solo si alguna reseña menciona algo nuevo y datable (mudanza, sucursal, servicio nuevo).
-4. detalle_trabajo solo si hay algo concreto y específico de cómo trabajan. Si no, "".
+3. hito_reciente solo si alguna reseña menciona algo nuevo y datable (mudanza, sucursal, ${
+        esGastro ? "carta nueva, plato nuevo" : "servicio nuevo"
+    }).
+4. detalle_trabajo solo si hay algo concreto y específico de cómo trabajan${
+        esGastro ? " (un plato que nombran mucho, la masa, el ahumado, algo que se repite y los distingue)" : ""
+    }. Si no, "".
 5. fallas: elegí solo de esta lista, y solo si alguna reseña lo dice explícitamente:
-${FALLAS_DE_RESENAS.map((f) => `   - ${f}`).join("\n")}
+${fallasPermitidas.map((f) => `   - ${f}`).join("\n")}
 6. No inventes nada. Un campo vacío no es un error.
 
 Devolvé SOLO este JSON, sin markdown ni explicaciones:
@@ -424,7 +476,7 @@ Devolvé SOLO este JSON, sin markdown ni explicaciones:
 
         const crudo = parsearJSON(texto);
         if (!crudo) return LECTURA_VACIA;
-        return validarLectura(crudo, resenas);
+        return validarLectura(crudo, resenas, fallasPermitidas);
     } catch (e) {
         console.warn("[escanear] Gemini reseñas:", e instanceof Error ? e.message : e);
         return LECTURA_VACIA;
@@ -449,7 +501,11 @@ function parsearJSON(raw: string): Record<string, unknown> | null {
  * Esto no es paranoia: la línea 1 del mensaje cita esa frase, y una cita que el
  * prospecto no encuentra en sus propias reseñas quema el contacto para siempre.
  */
-function validarLectura(crudo: Record<string, unknown>, resenas: ResenaMaps[]): LecturaResenas {
+function validarLectura(
+    crudo: Record<string, unknown>,
+    resenas: ResenaMaps[],
+    permitidas: FallaVerificable[] = FALLAS_DE_RESENAS
+): LecturaResenas {
     const texto = (v: unknown): string => (typeof v === "string" ? v.trim() : "");
     const queja = texto(crudo.queja_textual);
 
@@ -462,7 +518,7 @@ function validarLectura(crudo: Record<string, unknown>, resenas: ResenaMaps[]): 
     const fallas = Array.isArray(crudo.fallas)
         ? (crudo.fallas as unknown[])
               .filter((f): f is FallaVerificable =>
-                  typeof f === "string" && (FALLAS_DE_RESENAS as string[]).includes(f))
+                  typeof f === "string" && (permitidas as string[]).includes(f))
         : [];
 
     return {
@@ -510,6 +566,22 @@ async function escanear(p: Prospecto): Promise<EscaneoAutomatico> {
 
     if (detalles) {
         evidencias.push(...senialesDeMaps(p, detalles));
+
+        // Gastronomía: delivery, apps de comisión y el camino del pedido. Es lo
+        // que define el ángulo entero del mensaje de VivoMenu, y hasta acá el
+        // escaneo automático no miraba nada de eso.
+        if (detectarRubro(p) === "gastronomia") {
+            const gastro = senialesGastroDeMaps(p, detalles, serp.porNombre?.dominios ?? null);
+            evidencias.push(...gastro.evidencias);
+            pendientes.push(...gastro.pendientes);
+        }
+
+        // La categoría que Google ya le puso ("Hamburguesería") es más precisa que
+        // el término con el que se importó la lista, y de ella depende el peso de
+        // las reseñas y qué catálogo de señales se ofrece.
+        if (detalles.tipo_principal && !p.especialidad.trim()) {
+            campos.especialidad = detalles.tipo_principal;
+        }
 
         // Datos de la ficha que además refrescan la planilla.
         if (detalles.sitio_web_url && !p.sitio_web_url) campos.sitio_web_url = detalles.sitio_web_url;
