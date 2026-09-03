@@ -508,14 +508,71 @@ export type CanalProspecto = "instagram" | "whatsapp";
 export type QuienLeyo = "dueno" | "secretaria" | "no_se";
 
 /** A qué sistema de prospección pertenece: cambia el guion de mensajes y el ritmo de envío. */
-export type Sistema = "galu" | "vivomenu";
+export type Sistema = "galu" | "vivomenu" | "agencias";
 
 export const SISTEMA_LABELS: Record<Sistema, string> = {
     galu: "Galu — Agencia web",
     vivomenu: "VivoMenu — Menú digital",
+    agencias: "Proveedor — Agencias del exterior",
+};
+
+/**
+ * Una línea de contexto por sistema, para la pantalla. Lo que cambia entre
+ * sistemas no es el tono: es a quién se le vende y qué se le pide.
+ */
+export const SISTEMA_PITCH: Record<Sistema, string> = {
+    galu: "Comercio o profesional local. Hay que educar antes de vender: el análisis va primero, pero cierra con precio y fecha.",
+    vivomenu: "Local gastronómico con pedidos por WhatsApp. Se muestra el producto funcionando, no se explica.",
+    agencias:
+        "Agencia de marketing del exterior que vende redes y pauta pero NO desarrollo web. No hay que educar a nadie ni mandar análisis: se ofrece capacidad de proveedor.",
 };
 
 export type OrigenProspecto = "manual" | "sheets" | "scraper";
+
+// ─────────────────────────────────────────────────────────────
+// Listados de prospección
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Un listado = una tanda de prospección medible: un scrapeo, una ciudad, un
+ * rubro. `sistema` decide el guion; el listado decide contra qué se compara la
+ * tasa de respuesta. Sin esto, "agencias de Guadalajara" y "agencias de
+ * Medellín" caen en el mismo promedio y no se puede saber cuál funciona.
+ */
+export interface ListaProspeccion {
+    id: string;
+    created_at: string;
+    updated_at?: string;
+    nombre: string;
+    sistema: Sistema;
+    pais: string;
+    ciudad: string;
+    rubro: string;
+    origen: OrigenProspecto;
+    /** Qué se busca probar con esta tanda. Se lee al revisar los números. */
+    objetivo: string;
+    notas: string;
+    archivada: boolean;
+}
+
+export function listaVacia(sistema: Sistema = "galu"): Omit<ListaProspeccion, "id" | "created_at"> {
+    return {
+        nombre: "",
+        sistema,
+        pais: "",
+        ciudad: "",
+        rubro: "",
+        origen: "scraper",
+        objetivo: "",
+        notas: "",
+        archivada: false,
+    };
+}
+
+/** Nombre sugerido al crear un listado desde una importación: PAÍS · Ciudad · Rubro. */
+export function nombreSugeridoLista(pais: string, ciudad: string, rubro: string): string {
+    return [pais.trim().toUpperCase(), ciudad.trim(), rubro.trim()].filter(Boolean).join(" · ");
+}
 
 /** Embudo de §5: cada paso pide más que el anterior. */
 export type EstadoProspecto =
@@ -565,6 +622,15 @@ export type FallaVerificable =
     | "carta_llega_como_imagen"
     | "respuesta_automatica_sin_seguir"
     | "pedido_muchas_idas"
+    // Agencias del exterior: lo que califica acá es la AUSENCIA de desarrollo
+    // web, no una falla. Una agencia con la web rota no es mejor prospecto —
+    // una agencia que no vende webs sí, porque le entran pedidos que rechaza.
+    | "no_ofrece_desarrollo"
+    | "casos_solo_redes"
+    | "equipo_sin_devs"
+    | "busca_disenador"
+    | "clientes_sin_web"
+    | "web_propia_desactualizada"
     // Higiene / encontrabilidad: sirven de apoyo, no de titular.
     | "whatsapp_personal"
     | "ficha_incompleta"
@@ -589,11 +655,15 @@ export interface Prospecto {
     updated_at?: string;
 
     sistema: Sistema;
+    /** Tanda a la que pertenece. null = cargado antes de que existieran los listados. */
+    lista_id: string | null;
     negocio: string;
     contacto_nombre: string;
     rubro: string;
     especialidad: string;
     ciudad: string;
+    /** Obligatorio en prospección internacional: hay Santiago, Córdoba y Mérida en varios países. */
+    pais: string;
     direccion: string;
 
     telefono: string;
@@ -601,10 +671,21 @@ export interface Prospecto {
     whatsapp_publicado: boolean;
     es_whatsapp_business: boolean | null;
     instagram_url: string;
+    linkedin_url: string;
+    email: string;
     dias_ultimo_post: number | null;
     sitio_web_url: string;
     maps_url: string;
     canal: CanalProspecto;
+
+    /* ── Calificación de agencias (sistema "agencias") ──────────
+     * null en los tres = todavía no se verificó. `ofrece_desarrollo_web` es el
+     * filtro que manda: si es true, la agencia no es prospecto. */
+    ofrece_desarrollo_web: boolean | null;
+    tam_equipo: number | null;
+    muestra_clientes: boolean | null;
+    /** Lo que lista en su página de servicios, tal cual. De ahí sale la personalización. */
+    servicios: string;
 
     clasificacion_web: ClasificacionWeb;
     demanda_busqueda: DemandaBusqueda;
@@ -630,6 +711,15 @@ export interface Prospecto {
     quien_leyo: QuienLeyo | null;
     revision_url: string;
     mensaje_enviado: string;
+
+    /* ── La oferta que cierra el análisis ───────────────────────
+     * El embudo se cortaba justo acá: el análisis entregaba todo el valor y no
+     * dejaba ninguna decisión sobre la mesa. Estos tres campos existen para que
+     * no se pueda mandar un análisis sin que haya un precio y una fecha atrás.
+     * Ver generarMensaje("m2") y ofertaCompleta(). */
+    oferta_titulo: string;
+    oferta_precio: string;
+    oferta_plazo: string;
 
     cliente_id: string | null;
     origen: OrigenProspecto;
@@ -713,7 +803,27 @@ export const FALLA_LABELS: Record<FallaVerificable, string> = {
     no_aparece_rubro: "No aparece al buscar su rubro + ciudad",
     web_lenta: "La web no carga bien en celular",
     sin_responder_resenas: "No responde las reseñas",
+    no_ofrece_desarrollo: "No ofrece desarrollo web en sus servicios",
+    casos_solo_redes: "Los casos que muestra son de redes y pauta, ninguna web",
+    equipo_sin_devs: "El equipo que muestra no tiene desarrolladores",
+    busca_disenador: "Publicó que busca diseñador o desarrollador",
+    clientes_sin_web: "Sus propios clientes no tienen web",
+    web_propia_desactualizada: "Su propia web está desactualizada",
 };
+
+/**
+ * Las señales que califican a una agencia. El resto del catálogo mira negocios
+ * finales y no aplica: a una agencia no le vendés porque tenga la ficha de
+ * Google incompleta.
+ */
+export const FALLAS_AGENCIA: FallaVerificable[] = [
+    "no_ofrece_desarrollo",
+    "casos_solo_redes",
+    "equipo_sin_devs",
+    "busca_disenador",
+    "clientes_sin_web",
+    "web_propia_desactualizada",
+];
 
 export const QUIEN_LEYO_LABELS: Record<QuienLeyo, string> = {
     dueno: "Dueño / decisor",

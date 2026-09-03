@@ -5,27 +5,30 @@ import {
     ClipboardList, Plus, Upload, Download, RefreshCw, Search, Target,
     Table2, Columns3, BarChart3, Loader2, ExternalLink, Instagram, Phone,
     AlertTriangle, CheckCircle2, Clock, Stethoscope, UtensilsCrossed, Globe,
-    ScanSearch, Copy, Trash2, X,
+    ScanSearch, Copy, Trash2, X, Handshake,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import type { Prospecto, EstadoProspecto, ClasificacionWeb, ScraperBusqueda, Sistema } from "@/lib/types";
+import type {
+    Prospecto, EstadoProspecto, ClasificacionWeb, ScraperBusqueda, Sistema, ListaProspeccion,
+} from "@/lib/types";
 import {
     ESTADO_PROSPECTO_LABELS, ESTADO_PROSPECTO_COLORS, CLASIFICACION_WEB_LABELS,
-    QUIEN_LEYO_LABELS, SISTEMA_LABELS,
+    QUIEN_LEYO_LABELS, SISTEMA_LABELS, SISTEMA_PITCH,
 } from "@/lib/types";
-import { prospectosStore, scraperStore, mensajeError, type ResultadoImportacion } from "@/lib/store";
+import { prospectosStore, scraperStore, listasStore, mensajeError, type ResultadoImportacion } from "@/lib/store";
 import {
     calcularNivelDato, normalizarEscaneo, normalizar, proximaAccion, hoyISO,
     prospectoVacio, fueEnviado, respondio, tasaPorNivelDato, tasaPorRubro,
-    tasaPorQuienLeyo, diagnosticoEmbudo, diasDesde,
+    tasaPorQuienLeyo, tasaPorLista, tasaPorPais, diagnosticoEmbudo, diasDesde,
     NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS, motivoFueraDeCola, compararParaCola,
-    detectarDuplicados, reseñasSanas, MOTIVO_SIN_ESCANEAR, type CorteMetrica,
+    detectarDuplicados, reseñasSanas, MOTIVO_SIN_ESCANEAR, MUESTRA_MINIMA_LISTA,
+    type CorteMetrica,
 } from "@/lib/prospeccion";
 import { calcularRampaVivoMenu, avisoDiaVivoMenu } from "@/lib/vivomenu-mensajes";
 import { resumenEscaneo, type EscaneoAutomatico } from "@/lib/escaneo-auto";
 import ProspectoModal from "./prospecto-modal";
-import ImportarPanel from "./importar-panel";
+import ImportarPanel, { type DestinoImportacion } from "./importar-panel";
 
 type Vista = "cola" | "planilla" | "embudo" | "metricas";
 
@@ -36,7 +39,11 @@ const VISTAS: { id: Vista; label: string; icon: typeof Target }[] = [
     { id: "metricas", label: "Métricas", icon: BarChart3 },
 ];
 
-const SISTEMA_ICONS: Record<Sistema, typeof Globe> = { galu: Globe, vivomenu: UtensilsCrossed };
+const SISTEMA_ICONS: Record<Sistema, typeof Globe> = {
+    galu: Globe,
+    vivomenu: UtensilsCrossed,
+    agencias: Handshake,
+};
 
 const COLUMNAS_EMBUDO: EstadoProspecto[] = [
     "sin_calificar", "calificado", "enviado", "fu1", "fu2", "fu3", "respondio", "revision_enviada", "reunion", "cliente",
@@ -69,6 +76,7 @@ const OBJETIVO_DIARIO_GALU = 10;
 export default function ProspeccionPage() {
     const [prospectos, setProspectos] = useState<Prospecto[]>([]);
     const [busquedas, setBusquedas] = useState<ScraperBusqueda[]>([]);
+    const [listas, setListas] = useState<ListaProspeccion[]>([]);
     const [cargando, setCargando] = useState(true);
     const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
@@ -79,6 +87,8 @@ export default function ProspeccionPage() {
     const [filtroEstado, setFiltroEstado] = useState<EstadoProspecto | "">("");
     const [filtroSegmento, setFiltroSegmento] = useState<ClasificacionWeb | "">("");
     const [filtroNivel, setFiltroNivel] = useState<string>("");
+    /** "" = todos · "sin" = los cargados antes de que existieran los listados. */
+    const [filtroLista, setFiltroLista] = useState<string>("");
 
     const [seleccionado, setSeleccionado] = useState<Prospecto | null>(null);
     const [mostrarImportar, setMostrarImportar] = useState(false);
@@ -101,10 +111,17 @@ export default function ProspeccionPage() {
         }
     }, []);
 
+    const cargarListas = useCallback(() => {
+        // Si la tabla todavía no existe (migración sin correr), la pantalla sigue
+        // funcionando exactamente como antes: sin listados, no sin prospección.
+        listasStore.getAll().then(setListas).catch(() => setListas([]));
+    }, []);
+
     useEffect(() => {
         cargar();
+        cargarListas();
         scraperStore.getAllSearches().then(setBusquedas).catch(() => setBusquedas([]));
-    }, [cargar]);
+    }, [cargar, cargarListas]);
 
     // ─── Derivados ───
 
@@ -127,12 +144,29 @@ export default function ProspeccionPage() {
         [prospectosDelSistema]
     );
 
+    /** Los listados del sistema activo, con cuántos prospectos tiene cada uno. */
+    const listasDelSistema = useMemo(() => {
+        const cuenta = new Map<string, number>();
+        for (const p of prospectosDelSistema) {
+            if (p.lista_id) cuenta.set(p.lista_id, (cuenta.get(p.lista_id) || 0) + 1);
+        }
+        return listas
+            .filter((l) => l.sistema === sistemaActivo && !l.archivada)
+            .map((l) => ({ ...l, cantidad: cuenta.get(l.id) || 0 }));
+    }, [listas, sistemaActivo, prospectosDelSistema]);
+
+    const nombrePorLista = useMemo(
+        () => new Map(listas.map((l) => [l.id, l.nombre])),
+        [listas]
+    );
+
     const filtrados = useMemo(() => {
         const q = normalizar(busqueda);
         return prospectosDelSistema.filter((p) => {
-            if (q && ![p.negocio, p.rubro, p.especialidad, p.ciudad, p.dato_usado, p.telefono].some(
+            if (q && ![p.negocio, p.rubro, p.especialidad, p.ciudad, p.pais, p.dato_usado, p.telefono, p.email].some(
                 (v) => v && normalizar(v).includes(q)
             )) return false;
+            if (filtroLista === "sin" ? !!p.lista_id : filtroLista && p.lista_id !== filtroLista) return false;
             if (filtroRubro && p.rubro !== filtroRubro) return false;
             if (filtroEstado && p.estado !== filtroEstado) return false;
             if (filtroSegmento && p.clasificacion_web !== filtroSegmento) return false;
@@ -142,7 +176,7 @@ export default function ProspeccionPage() {
             }
             return true;
         });
-    }, [prospectosDelSistema, busqueda, filtroRubro, filtroEstado, filtroSegmento, filtroNivel]);
+    }, [prospectosDelSistema, busqueda, filtroLista, filtroRubro, filtroEstado, filtroSegmento, filtroNivel]);
 
     /**
      * Orden de trabajo de §8: primero el segmento, después el score.
@@ -272,6 +306,7 @@ export default function ProspeccionPage() {
         try {
             const r = await prospectosStore.createBulk(items, prospectos);
             await cargar();
+            cargarListas();
             setMostrarImportar(false);
             reportarImportacion(r, "importados");
         } catch (e) {
@@ -280,21 +315,35 @@ export default function ProspeccionPage() {
         }
     };
 
-    const importarScraper = async (b: ScraperBusqueda, sistema: Sistema) => {
+    const importarScraper = async (
+        b: ScraperBusqueda,
+        sistema: Sistema,
+        destino: DestinoImportacion
+    ) => {
         const lista = Array.isArray(b.prospectos) ? b.prospectos : [];
         if (lista.length === 0) {
             toast.error("Esa búsqueda del Scraper no tiene prospectos guardados. Volvé a correrla desde el Scraper.");
             return;
         }
         try {
-            const r = await prospectosStore.importarDesdeScraper(lista, prospectos, sistema);
+            const r = await prospectosStore.importarDesdeScraper(lista, prospectos, sistema, {
+                listaId: destino.listaId,
+                pais: destino.pais,
+            });
             await cargar();
+            cargarListas();
             setMostrarImportar(false);
             reportarImportacion(r, "traídos del Scraper");
         } catch (e) {
             console.error("[prospeccion] Error al importar del Scraper:", e);
             toast.error(mensajeError(e), { duration: 12000 });
         }
+    };
+
+    const crearLista = async (datos: Partial<ListaProspeccion>) => {
+        const creada = await listasStore.create(datos);
+        setListas((prev) => [creada, ...prev]);
+        return creada;
     };
 
     const diagnosticar = async () => {
@@ -459,15 +508,22 @@ export default function ProspeccionPage() {
                 </div>
             </div>
 
-            {/* Sistema de prospección — Galu y VivoMenu comparten planilla, no guion de mensajes */}
-            <div className="flex gap-1.5">
+            {/* Sistema de prospección — los tres comparten planilla, no guion de mensajes */}
+            <div className="flex gap-1.5 flex-wrap">
                 {(Object.keys(SISTEMA_LABELS) as Sistema[]).map((s) => {
                     const Icon = SISTEMA_ICONS[s];
                     const cant = prospectos.filter((p) => p.sistema === s).length;
                     return (
                         <button
                             key={s}
-                            onClick={() => setSistemaActivo(s)}
+                            title={SISTEMA_PITCH[s]}
+                            onClick={() => {
+                                setSistemaActivo(s);
+                                // Los listados son de un sistema. Sin esto, al cambiar de
+                                // pestaña queda activo un filtro de listado que no puede
+                                // coincidir con nada y la pantalla se ve vacía sin motivo.
+                                setFiltroLista("");
+                            }}
                             className={cn(
                                 "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all",
                                 sistemaActivo === s
@@ -497,6 +553,25 @@ export default function ProspeccionPage() {
                     {avisoDia && (
                         <p className="text-xs text-amber-300 font-semibold sm:max-w-xs">{avisoDia}</p>
                     )}
+                </div>
+            )}
+
+            {/* Agencias: lo que hay que recordar antes de escribir, porque es lo
+                contrario de lo que pide el resto de la pantalla. */}
+            {sistemaActivo === "agencias" && (
+                <div className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.06] p-4 flex flex-col sm:flex-row sm:items-start gap-3">
+                    <Handshake className="w-4 h-4 text-emerald-300 shrink-0 mt-0.5" />
+                    <div className="flex-1 space-y-1">
+                        <p className="text-xs sm:text-sm text-emerald-100">
+                            <span className="font-bold">Objetivo 10 por día · una ciudad por semana.</span>{" "}
+                            Califica la agencia que <span className="font-bold">NO</span> ofrece desarrollo web:
+                            es la que rechaza pedidos que podría tomar. Si ya lo ofrece, se descarta.
+                        </p>
+                        <p className="text-[11px] text-emerald-200/70">
+                            Acá no va análisis gratis ni diagnóstico. Se ofrece capacidad de proveedor y se pide un sí o un no.
+                            Canal: mail o LinkedIn — el Instagram lo atiende el community, no quien decide.
+                        </p>
+                    </div>
                 </div>
             )}
 
@@ -579,16 +654,32 @@ export default function ProspeccionPage() {
                                 className="w-full pl-9 pr-3 py-2 bg-card border border-border rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
                             />
                         </div>
+                        {/* El listado va primero: es el corte más grueso, el que
+                            separa una tanda de otra. Los demás filtran adentro. */}
+                        {listasDelSistema.length > 0 && (
+                            <select value={filtroLista} onChange={(e) => setFiltroLista(e.target.value)} className={selectCls}>
+                                <option value="">Todos los listados</option>
+                                {listasDelSistema.map((l) => (
+                                    <option key={l.id} value={l.id}>{l.nombre} ({l.cantidad})</option>
+                                ))}
+                                <option value="sin">Sin listado</option>
+                            </select>
+                        )}
                         <select value={filtroRubro} onChange={(e) => setFiltroRubro(e.target.value)} className={selectCls}>
                             <option value="">Todos los rubros</option>
                             {rubros.map((r) => <option key={r} value={r}>{r}</option>)}
                         </select>
-                        <select value={filtroSegmento} onChange={(e) => setFiltroSegmento(e.target.value as ClasificacionWeb | "")} className={selectCls}>
-                            <option value="">Todos los segmentos</option>
-                            {(Object.keys(CLASIFICACION_WEB_LABELS) as ClasificacionWeb[]).map((c) => (
-                                <option key={c} value={c}>{CLASIFICACION_WEB_LABELS[c]}</option>
-                            ))}
-                        </select>
+                        {/* La clasificación web es del negocio prospectado. En agencias no
+                            dice nada: todas tienen web, es su vidriera. Lo que califica ahí
+                            es si ofrecen desarrollo, y eso se filtra por estado y score. */}
+                        {sistemaActivo !== "agencias" && (
+                            <select value={filtroSegmento} onChange={(e) => setFiltroSegmento(e.target.value as ClasificacionWeb | "")} className={selectCls}>
+                                <option value="">Todos los segmentos</option>
+                                {(Object.keys(CLASIFICACION_WEB_LABELS) as ClasificacionWeb[]).map((c) => (
+                                    <option key={c} value={c}>{CLASIFICACION_WEB_LABELS[c]}</option>
+                                ))}
+                            </select>
+                        )}
                         <select value={filtroNivel} onChange={(e) => setFiltroNivel(e.target.value)} className={selectCls}>
                             <option value="">Todos los niveles</option>
                             <option value="1">Nivel 1</option>
@@ -651,7 +742,9 @@ export default function ProspeccionPage() {
                     )}
                     {vista === "planilla" && <VistaPlanilla prospectos={filtrados} onAbrir={(p) => abrirProspecto(p, filtrados)} onCambiarEstado={(id, estado) => guardar(id, { estado })} />}
                     {vista === "embudo" && <VistaEmbudo prospectos={filtrados} onAbrir={(p) => abrirProspecto(p, filtrados)} />}
-                    {vista === "metricas" && <VistaMetricas prospectos={prospectosDelSistema} />}
+                    {vista === "metricas" && (
+                        <VistaMetricas prospectos={prospectosDelSistema} nombrePorLista={nombrePorLista} />
+                    )}
                 </>
             )}
 
@@ -688,6 +781,8 @@ export default function ProspeccionPage() {
                 <ImportarPanel
                     busquedasScraper={busquedas}
                     sistemaInicial={sistemaActivo}
+                    listas={listas}
+                    onCrearLista={crearLista}
                     onImportarFilas={importarFilas}
                     onImportarScraper={importarScraper}
                     onCerrar={() => setMostrarImportar(false)}
@@ -1139,12 +1234,25 @@ function VistaEmbudo({ prospectos, onAbrir }: { prospectos: Prospecto[]; onAbrir
 // Vista: Métricas — qué mirar a las 3 semanas
 // ═══════════════════════════════════════════════════════════
 
-function VistaMetricas({ prospectos }: { prospectos: Prospecto[] }) {
+function VistaMetricas({
+    prospectos,
+    nombrePorLista,
+}: {
+    prospectos: Prospecto[];
+    nombrePorLista: Map<string, string>;
+}) {
     const enviados = prospectos.filter(fueEnviado).length;
     const porNivel = tasaPorNivelDato(prospectos);
     const porRubro = tasaPorRubro(prospectos);
     const porLector = tasaPorQuienLeyo(prospectos);
+    const porLista = tasaPorLista(prospectos, nombrePorLista);
+    const porPais = tasaPorPais(prospectos);
     const diagnostico = diagnosticoEmbudo(prospectos);
+
+    // Solo tiene sentido mostrar el corte por listado o por país cuando hay más
+    // de uno: con una sola tanda, la tabla repite el número global.
+    const hayVariosListados = porLista.length > 1;
+    const hayVariosPaises = porPais.length > 1;
 
     if (enviados === 0) {
         return <Vacio titulo="Todavía no hay mensajes enviados" detalle="Con ~90 mensajes mandados ya hay señal real." />;
@@ -1179,6 +1287,28 @@ function VistaMetricas({ prospectos }: { prospectos: Prospecto[] }) {
                     }))}
                 />
             </div>
+
+            {/* El corte que decide dónde concentrar el mes siguiente. Va abajo del
+                de nivel de dato a propósito: primero se arregla el mensaje, después
+                se elige el mercado. Con el mensaje roto, todos los listados dan mal. */}
+            {(hayVariosListados || hayVariosPaises) && (
+                <div className="grid lg:grid-cols-2 gap-4">
+                    {hayVariosListados && (
+                        <TablaMetrica
+                            titulo="4. Tasa por listado"
+                            nota={`Una tanda por ciudad. Con ${MUESTRA_MINIMA_LISTA}+ envíos por listado ya se puede decidir en cuál concentrarse; por debajo, un solo "sí" mueve el porcentaje entero.`}
+                            cortes={porLista}
+                        />
+                    )}
+                    {hayVariosPaises && (
+                        <TablaMetrica
+                            titulo="5. Tasa por país"
+                            nota="Junta todos los listados de un mismo país. Es el corte que dice si el mercado funciona, más allá de la ciudad que tocó."
+                            cortes={porPais}
+                        />
+                    )}
+                </div>
+            )}
 
             <div className="rounded-2xl border border-border bg-card p-5">
                 <h3 className="text-sm font-bold text-foreground mb-1">Dónde se corta el embudo</h3>

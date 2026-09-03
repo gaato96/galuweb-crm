@@ -7,6 +7,9 @@ import {
 import {
     generarMensajeVivoMenu, type PasoMensajeVivoMenu,
 } from "@/lib/vivomenu-mensajes";
+import {
+    generarMensajeAgencia, type PasoMensajeAgencia, canalSugerido, CANAL_AGENCIA_LABELS,
+} from "@/lib/agencias-mensajes";
 import { senialPrincipal, PATRON_LABELS } from "@/lib/dolores-rubro";
 
 export const maxDuration = 30;
@@ -15,8 +18,11 @@ const PASOS_GALU: PasoMensaje[] = ["m1", "m2", "m3", "fu1", "fu2", "fu3", "ruteo
 const PASOS_VIVOMENU: PasoMensajeVivoMenu[] = [
     "primer_contacto", "rama_empleado", "rama_dueno", "fu1", "fu2", "fu3", "interes_tibio", "compromiso_visita",
 ];
+const PASOS_AGENCIAS: PasoMensajeAgencia[] = [
+    "m1", "fu1", "fu2", "credenciales", "precios", "primer_trabajo", "ruteo",
+];
 
-/** Reglas que la IA no puede romper, comunes a los dos sistemas. */
+/** Reglas que la IA no puede romper, comunes a los tres sistemas. */
 const REGLAS_COMUNES = `1. Español rioplatense, voseo, tono de persona real escribiendo desde el celular. Nada de "estimado" ni corporativo.
 2. Cero jerga: prohibido "sistema de gestión", "automatización de procesos", "presencia digital", "solución integral",
    "optimizar", "potenciar". Lo tiene que entender alguien sin nada de contexto técnico, de una sola pasada.
@@ -90,6 +96,47 @@ ${porNivel}
    de los dos en cinco segundos, y que ninguno de los dos se sienta acusado de nada.`;
 }
 
+/**
+ * Reglas de agencias. Pisan a propósito dos de las comunes:
+ *
+ *   · El voseo se mantiene (el que escribe es argentino y disimularlo se nota),
+ *     pero el modismo local NO. Un "che" o un "tranqui" a una agencia de
+ *     Guadalajara o de Medellín se lee como que el mensaje no era para ellos.
+ *   · Acá el que lee no es un comerciante en hora pico: es alguien que compra
+ *     servicios de desarrollo todas las semanas y detecta a un proveedor flojo
+ *     en dos líneas. El registro sube de "vecino que te escribe" a "colega".
+ */
+function reglasAgencias(paso: PasoMensajeAgencia): string {
+    const base = `${REGLAS_COMUNES}
+12. PISA LA REGLA 10: nada de "che", "tranqui", "bárbaro", "laburo", "posta" ni modismo argentino de barrio.
+   El que lee está en México, Colombia, Chile o Miami: el voseo está bien y no hay que disimularlo, pero el
+   modismo local hace que el mensaje se lea como reenviado de otro destinatario. Español neutro y directo.
+13. El registro es de colega a colega, no de proveedor pidiendo trabajo. El que lee compra desarrollo todas
+   las semanas: si el mensaje suena a que estás desesperado, el precio que imagina baja antes de leerlo.
+14. PROHIBIDO ABSOLUTO en todos los pasos: la palabra "developer" o "dev full-stack" para describir a quien
+   escribe, ofrecer análisis o diagnóstico gratis, mencionar "diagnóstico antes de diseño", hablar de
+   estrategia o de posicionamiento, y cualquier cosa que suene a que vas a hablar con SU cliente.
+   Se dice "diseñador y desarrollador web", "diseño en Figma y entrego en WordPress". Nada más.
+15. Nunca menciones que no tenés clientes, que estás empezando, ni que tenés la agenda libre por falta de
+   trabajo. "Tengo disponibilidad este mes" es lo máximo que se dice, y se dice como dato, no como ruego.`;
+
+    if (paso === "m1") {
+        return `${base}
+16. La observación de por qué se les escribe a ELLOS va en negativo suave y como dato de su página, jamás
+   como crítica: "vi que hacen X y no vi desarrollo web entre los servicios". No es un problema de ellos,
+   es el motivo por el que les sirve un proveedor. Si suena a que les estás señalando una carencia, se cae.
+17. El pedido final se contesta con una palabra y es sobre un hecho de su operación (si tercerizan cuando
+   les desborda), no sobre si te dejan mandar algo. No pidas reunión, ni llamada, ni el mail del dueño.`;
+    }
+    if (paso === "credenciales" || paso === "precios") {
+        return `${base}
+16. Los links y los precios van TAL CUAL vienen en el borrador: no los redondees, no los reordenes, no les
+   cambies el rango. Un precio distinto al que quedó escrito en el CRM es un problema real después.
+17. Cero adorno alrededor de la lista. Una agencia lee esto como un catálogo: cuanto más corto, mejor.`;
+    }
+    return base;
+}
+
 interface Body {
     prospecto: Prospecto;
     paso: string;
@@ -113,14 +160,21 @@ export async function POST(req: Request) {
         }
 
         const esVivoMenu = sistema === "vivomenu";
-        const pasosValidos: string[] = esVivoMenu ? PASOS_VIVOMENU : PASOS_GALU;
+        const esAgencias = sistema === "agencias";
+        const pasosValidos: string[] = esAgencias
+            ? PASOS_AGENCIAS
+            : esVivoMenu
+              ? PASOS_VIVOMENU
+              : PASOS_GALU;
         if (!pasosValidos.includes(paso)) {
             return NextResponse.json({ error: "Paso de mensaje inválido para este sistema" }, { status: 400 });
         }
 
-        borrador = esVivoMenu
-            ? generarMensajeVivoMenu(paso as PasoMensajeVivoMenu, prospecto)
-            : generarMensaje(paso as PasoMensaje, prospecto);
+        borrador = esAgencias
+            ? generarMensajeAgencia(paso as PasoMensajeAgencia, prospecto)
+            : esVivoMenu
+              ? generarMensajeVivoMenu(paso as PasoMensajeVivoMenu, prospecto)
+              : generarMensaje(paso as PasoMensaje, prospecto);
 
         const apiKey = process.env.GEMINI_API_KEY;
         if (!apiKey) {
@@ -132,11 +186,25 @@ export async function POST(req: Request) {
         const senialTitular = senialPrincipal(escaneo.fallas);
 
         const contextoDatos = `--- DATOS DEL PROSPECTO ---
-Sistema: ${esVivoMenu ? "VivoMenu (menú digital para gastronomía)" : "Galu (agencia web)"}
+Sistema: ${esAgencias ? "Agencias del exterior (Galu como proveedor white label)" : esVivoMenu ? "VivoMenu (menú digital para gastronomía)" : "Galu (agencia web)"}
 Negocio: ${prospecto.negocio}
 Rubro: ${prospecto.rubro}${prospecto.especialidad ? ` (${prospecto.especialidad})` : ""}
-Ciudad: ${prospecto.ciudad}
-Presencia web: ${prospecto.clasificacion_web}
+Ciudad: ${prospecto.ciudad}${prospecto.pais ? `, ${prospecto.pais}` : ""}
+${
+    esAgencias
+        ? `Servicios que ofrece (de su propia página): ${prospecto.servicios || "s/d"}
+¿Ofrece desarrollo web?: ${
+              prospecto.ofrece_desarrollo_web === false
+                  ? "NO — ese es el motivo por el que se le escribe. Va en el mensaje como dato de su página, nunca como crítica."
+                  : prospecto.ofrece_desarrollo_web === true
+                    ? "SÍ — este prospecto no debería estar en la lista. No inventes un ángulo: escribí algo neutro."
+                    : "Sin verificar. NO afirmes que no ofrecen desarrollo web: no está confirmado."
+          }
+Tamaño del equipo: ${prospecto.tam_equipo ?? "s/d"}
+Canal: ${CANAL_AGENCIA_LABELS[canalSugerido(prospecto)]}
+Contacto: ${prospecto.contacto_nombre || "sin nombre — no inventes uno"}`
+        : `Presencia web: ${prospecto.clasificacion_web}`
+}
 Nivel del dato: ${nivel ?? "sin dato"}
 Dato de personalización: ${prospecto.dato_usado || "—"}
 ${escaneo.tiene_queja_cliente ? `Queja textual de un cliente: "${escaneo.queja_textual}"` : ""}
@@ -153,15 +221,42 @@ ${
 Movimiento del local: ${prospecto.reviews_count ?? "s/d"} reseñas${prospecto.rating != null ? `, ${prospecto.rating}★` : ""}`
         : ""
 }
-Canal: ${prospecto.canal === "whatsapp" ? "WhatsApp" : "Instagram DM"}${
-    esVivoMenu ? `\n¿Quién contestó hasta ahora?: ${prospecto.quien_leyo === "secretaria" ? "empleado" : prospecto.quien_leyo === "dueno" ? "dueño" : "sin definir"}` : ""
-}`;
+${
+    esAgencias
+        ? ""
+        : `Canal: ${prospecto.canal === "whatsapp" ? "WhatsApp" : "Instagram DM"}${
+              esVivoMenu
+                  ? `\n¿Quién contestó hasta ahora?: ${prospecto.quien_leyo === "secretaria" ? "empleado" : prospecto.quien_leyo === "dueno" ? "dueño" : "sin definir"}`
+                  : ""
+          }`
+}${
+            // La oferta solo existe en Galu y solo a partir del mensaje 2. Va al
+            // prompt para que la IA no la reescriba: el precio y la fecha son datos
+            // duros, y cambiarlos "para que suene mejor" genera un problema real
+            // cuando el prospecto contesta citando un número que nunca se cotizó.
+            !esAgencias && !esVivoMenu && ["m2", "m3", "fu_revision1", "fu_revision2"].includes(paso)
+                ? `\nOFERTA CERRADA (no se toca, va tal cual): ${prospecto.oferta_titulo || "[sin definir]"} · ${prospecto.oferta_precio || "[sin precio]"} · ${prospecto.oferta_plazo || "[sin plazo]"}`
+                : ""
+        }`;
 
-        const reglas = esVivoMenu
-            ? reglasVivoMenu(paso as PasoMensajeVivoMenu, nivel)
-            : reglasGalu(nivel && nivel <= 2 ? "completa (3 líneas)" : "corta (observación + pregunta, sin diagnóstico)");
+        const reglas = esAgencias
+            ? reglasAgencias(paso as PasoMensajeAgencia)
+            : esVivoMenu
+              ? reglasVivoMenu(paso as PasoMensajeVivoMenu, nivel)
+              : reglasGalu(
+                    nivel && nivel <= 2 ? "completa (3 líneas)" : "corta (observación + pregunta, sin diagnóstico)"
+                ) +
+                (["m2", "m3", "fu_revision1", "fu_revision2"].includes(paso)
+                    ? `
+17. LA OFERTA NO SE TOCA. El título, el precio y el plazo van exactamente como vienen en el borrador. No
+   redondees el precio, no cambies la fecha, no reformules qué se arregla. Si en el borrador hay un
+   marcador entre corchetes, DEJALO entre corchetes: significa que falta completarlo y tiene que verse.
+18. Este mensaje entrega el análisis, pero su trabajo real es dejar UNA decisión sobre la mesa. No agregues
+   más problemas, no ofrezcas nada gratis además del análisis, y no cierres con una pregunta abierta
+   ("cualquier cosa avisame"). Cierra con el pedido concreto que ya trae el borrador.`
+                    : "");
 
-        const prompt = `Sos quien escribe los mensajes en frío de ${esVivoMenu ? "VivoMenu, un menú digital para gastronomía" : "Galu, una agencia web"} de San Miguel de Tucumán.
+        const prompt = `Sos quien escribe los mensajes en frío de ${esAgencias ? "Gastón, diseñador y desarrollador web argentino que trabaja como proveedor de agencias del exterior" : esVivoMenu ? "VivoMenu, un menú digital para gastronomía" : "Galu, una agencia web"}${esAgencias ? "" : " de San Miguel de Tucumán"}.
 Te paso un borrador ya armado con la estructura correcta. Tu trabajo es reescribirlo para que suene natural
 y específico de ESTE negocio, sin cambiar la estructura ni el pedido.
 

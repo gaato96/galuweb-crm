@@ -1,28 +1,42 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { X, Table2, Compass, Loader2, ArrowRight, AlertTriangle } from "lucide-react";
+import { X, Table2, Compass, Loader2, ArrowRight, AlertTriangle, Layers } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import type { Prospecto, ScraperBusqueda, Sistema } from "@/lib/types";
-import { ESCANEO_VACIO, SISTEMA_LABELS } from "@/lib/types";
+import type { Prospecto, ScraperBusqueda, Sistema, ListaProspeccion } from "@/lib/types";
+import { ESCANEO_VACIO, SISTEMA_LABELS, SISTEMA_PITCH, nombreSugeridoLista } from "@/lib/types";
 import {
     parsearPegado, mapearColumnas, clasificarWebDesdeUrl, telefonoAWhatsapp,
-    CAMPOS_IMPORTABLES, type CampoImportable, type FilaParseada,
+    CAMPOS_IMPORTABLES, CAMPOS_SOLO_AGENCIAS, type CampoImportable, type FilaParseada,
 } from "@/lib/prospeccion";
+
+/** A qué listado va la tanda que se está importando. listaId null = sin listado. */
+export interface DestinoImportacion {
+    listaId: string | null;
+    pais: string;
+}
 
 interface Props {
     busquedasScraper: ScraperBusqueda[];
     sistemaInicial?: Sistema;
+    listas: ListaProspeccion[];
+    /** Crea el listado y devuelve su id, para que las filas salgan ya etiquetadas. */
+    onCrearLista: (datos: Partial<ListaProspeccion>) => Promise<ListaProspeccion>;
     onImportarFilas: (items: Partial<Prospecto>[]) => Promise<void>;
-    onImportarScraper: (busqueda: ScraperBusqueda, sistema: Sistema) => Promise<void>;
+    onImportarScraper: (
+        busqueda: ScraperBusqueda,
+        sistema: Sistema,
+        destino: DestinoImportacion
+    ) => Promise<void>;
     onCerrar: () => void;
 }
 
 type Fuente = "sheets" | "scraper";
 
 export default function ImportarPanel({
-    busquedasScraper, sistemaInicial = "galu", onImportarFilas, onImportarScraper, onCerrar,
+    busquedasScraper, sistemaInicial = "galu", listas, onCrearLista,
+    onImportarFilas, onImportarScraper, onCerrar,
 }: Props) {
     const [fuente, setFuente] = useState<Fuente>("sheets");
     const [sistema, setSistema] = useState<Sistema>(sistemaInicial);
@@ -30,7 +44,57 @@ export default function ImportarPanel({
     const [mapeo, setMapeo] = useState<(CampoImportable | "")[]>([]);
     const [rubroPorDefecto, setRubroPorDefecto] = useState("");
     const [ciudadPorDefecto, setCiudadPorDefecto] = useState("");
+    const [paisPorDefecto, setPaisPorDefecto] = useState("");
     const [importando, setImportando] = useState(false);
+
+    /** "" = sin listado · "nueva" = crear una con estos datos · uuid = una existente. */
+    const [listaElegida, setListaElegida] = useState<string>("nueva");
+    const [nombreLista, setNombreLista] = useState("");
+    const [objetivoLista, setObjetivoLista] = useState("");
+    const [creandoLista, setCreandoLista] = useState(false);
+
+    const listasDisponibles = useMemo(
+        () => listas.filter((l) => l.sistema === sistema && !l.archivada),
+        [listas, sistema]
+    );
+
+    // El nombre se arma solo con lo que ya se está cargando (PAÍS · Ciudad · Rubro)
+    // pero queda editable: es lo que después se lee en el corte de métricas, y dos
+    // tandas con el mismo nombre no sirven para decidir nada.
+    const nombreSugerido = nombreSugeridoLista(paisPorDefecto, ciudadPorDefecto, rubroPorDefecto);
+    const nombreFinal = nombreLista.trim() || nombreSugerido;
+
+    /**
+     * Resuelve el destino justo antes de importar. Si eligió "nueva", la crea acá
+     * para que las filas salgan ya etiquetadas. Si la creación falla (por ejemplo,
+     * la migración todavía no corrió), la importación sigue sin listado en vez de
+     * perderse: los prospectos importan más que la etiqueta.
+     */
+    const resolverDestino = async (): Promise<DestinoImportacion> => {
+        const pais = paisPorDefecto.trim();
+        if (listaElegida !== "nueva") return { listaId: listaElegida || null, pais };
+        if (!nombreFinal) return { listaId: null, pais };
+
+        setCreandoLista(true);
+        try {
+            const creada = await onCrearLista({
+                nombre: nombreFinal,
+                sistema,
+                pais,
+                ciudad: ciudadPorDefecto.trim(),
+                rubro: rubroPorDefecto.trim(),
+                origen: fuente === "scraper" ? "scraper" : "sheets",
+                objetivo: objetivoLista.trim(),
+            });
+            return { listaId: creada.id, pais };
+        } catch (e) {
+            toast.error("No se pudo crear el listado — se importa sin él");
+            console.warn("[importar] crear listado", e);
+            return { listaId: null, pais };
+        } finally {
+            setCreandoLista(false);
+        }
+    };
 
     const parseado: FilaParseada | null = useMemo(() => parsearPegado(texto), [texto]);
 
@@ -45,9 +109,11 @@ export default function ImportarPanel({
     const filasAImportar = useMemo(() => {
         if (!parseado) return [];
         return parseado.filas
-            .map((fila) => construirProspecto(fila, mapeo, rubroPorDefecto, ciudadPorDefecto, sistema))
+            .map((fila) =>
+                construirProspecto(fila, mapeo, rubroPorDefecto, ciudadPorDefecto, paisPorDefecto, sistema)
+            )
             .filter((p) => p.negocio && p.negocio.trim().length > 0);
-    }, [parseado, mapeo, rubroPorDefecto, ciudadPorDefecto, sistema]);
+    }, [parseado, mapeo, rubroPorDefecto, ciudadPorDefecto, paisPorDefecto, sistema]);
 
     const faltaNegocio = parseado != null && !mapeo.includes("negocio");
 
@@ -58,9 +124,13 @@ export default function ImportarPanel({
         }
         setImportando(true);
         try {
-            await onImportarFilas(filasAImportar);
+            const destino = await resolverDestino();
+            await onImportarFilas(filasAImportar.map((p) => ({ ...p, lista_id: destino.listaId })));
             setTexto("");
             setMapeo([]);
+            // El listado recién creado ya no se recrea en la próxima tanda: se
+            // deja seleccionado para poder sumarle más filas del mismo scrapeo.
+            if (destino.listaId) setListaElegida(destino.listaId);
         } finally {
             setImportando(false);
         }
@@ -98,6 +168,50 @@ export default function ImportarPanel({
                                 </button>
                             ))}
                         </div>
+                        <p className="text-[11px] text-muted-foreground pt-0.5">{SISTEMA_PITCH[sistema]}</p>
+                    </div>
+
+                    {/* Listado — la tanda. Va acá arriba y no al final porque decide
+                        contra qué se va a comparar la tasa de respuesta de todo lo
+                        que se importe abajo, y elegirlo después ya es tarde. */}
+                    <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2.5">
+                        <label className="flex items-center gap-2 text-[11px] font-bold text-muted-foreground uppercase">
+                            <Layers className="w-3.5 h-3.5" />
+                            Listado
+                        </label>
+                        <select
+                            value={listaElegida}
+                            onChange={(e) => setListaElegida(e.target.value)}
+                            className={inputCls}
+                        >
+                            <option value="nueva">+ Listado nuevo con esta tanda</option>
+                            {listasDisponibles.map((l) => (
+                                <option key={l.id} value={l.id}>Sumar a: {l.nombre}</option>
+                            ))}
+                            <option value="">Sin listado</option>
+                        </select>
+
+                        {listaElegida === "nueva" && (
+                            <div className="grid sm:grid-cols-2 gap-2">
+                                <input
+                                    value={nombreLista}
+                                    onChange={(e) => setNombreLista(e.target.value)}
+                                    placeholder={nombreSugerido || "MX · Guadalajara · Agencias"}
+                                    className={inputCls}
+                                />
+                                <input
+                                    value={objetivoLista}
+                                    onChange={(e) => setObjetivoLista(e.target.value)}
+                                    placeholder="Qué querés probar con esta tanda"
+                                    className={inputCls}
+                                />
+                            </div>
+                        )}
+                        {listaElegida === "nueva" && !nombreFinal && (
+                            <p className="text-[11px] text-amber-300">
+                                Poné un nombre, o completá país, ciudad y rubro abajo y se arma solo. Sin nombre, la tanda entra sin listado.
+                            </p>
+                        )}
                     </div>
 
                     <div className="flex gap-2">
@@ -109,13 +223,13 @@ export default function ImportarPanel({
                 <div className="p-5 space-y-4">
                     {fuente === "sheets" && (
                         <>
-                            <div className="grid sm:grid-cols-2 gap-3">
+                            <div className="grid sm:grid-cols-3 gap-3">
                                 <div className="space-y-1">
                                     <label className="block text-[11px] font-bold text-muted-foreground uppercase">Rubro por defecto</label>
                                     <input
                                         value={rubroPorDefecto}
                                         onChange={(e) => setRubroPorDefecto(e.target.value)}
-                                        placeholder="Se usa si la planilla no trae columna de rubro"
+                                        placeholder={sistema === "agencias" ? "Agencia de marketing" : "Se usa si no hay columna de rubro"}
                                         className={inputCls}
                                     />
                                 </div>
@@ -124,7 +238,19 @@ export default function ImportarPanel({
                                     <input
                                         value={ciudadPorDefecto}
                                         onChange={(e) => setCiudadPorDefecto(e.target.value)}
-                                        placeholder="San Miguel de Tucumán"
+                                        placeholder={sistema === "agencias" ? "Guadalajara" : "San Miguel de Tucumán"}
+                                        className={inputCls}
+                                    />
+                                </div>
+                                {/* Sin país, dos agencias de dos "Santiago" distintos se
+                                    descartan entre sí como duplicadas: el índice único
+                                    de la tabla es (negocio, ciudad, país, sistema). */}
+                                <div className="space-y-1">
+                                    <label className="block text-[11px] font-bold text-muted-foreground uppercase">País por defecto</label>
+                                    <input
+                                        value={paisPorDefecto}
+                                        onChange={(e) => setPaisPorDefecto(e.target.value)}
+                                        placeholder={sistema === "agencias" ? "México" : "Argentina"}
                                         className={inputCls}
                                     />
                                 </div>
@@ -172,7 +298,11 @@ export default function ImportarPanel({
                                                                     className="w-full px-1.5 py-1 bg-background border border-input rounded text-[11px] font-semibold text-foreground"
                                                                 >
                                                                     <option value="">— Ignorar —</option>
-                                                                    {CAMPOS_IMPORTABLES.map((c) => (
+                                                                    {CAMPOS_IMPORTABLES.filter(
+                                                                        (c) =>
+                                                                            sistema === "agencias" ||
+                                                                            !CAMPOS_SOLO_AGENCIAS.includes(c.key)
+                                                                    ).map((c) => (
                                                                         <option key={c.key} value={c.key}>{c.label}</option>
                                                                     ))}
                                                                 </select>
@@ -197,15 +327,20 @@ export default function ImportarPanel({
 
                                     <div className="flex items-center justify-between gap-3">
                                         <p className="text-xs text-muted-foreground">
-                                            Se importarán <span className="font-bold text-primary">{filasAImportar.length}</span> prospectos.
-                                            Los repetidos por negocio + ciudad se saltean.
+                                            Se importarán <span className="font-bold text-primary">{filasAImportar.length}</span> prospectos
+                                            {listaElegida === "nueva" && nombreFinal
+                                                ? <> a un listado nuevo: <span className="font-bold text-foreground">{nombreFinal}</span></>
+                                                : listaElegida
+                                                  ? <> a <span className="font-bold text-foreground">{listasDisponibles.find((l) => l.id === listaElegida)?.nombre}</span></>
+                                                  : " sin listado"}.
+                                            Los repetidos por negocio + ciudad + país se saltean.
                                         </p>
                                         <button
                                             onClick={importar}
-                                            disabled={importando || faltaNegocio || filasAImportar.length === 0}
+                                            disabled={importando || creandoLista || faltaNegocio || filasAImportar.length === 0}
                                             className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-primary hover:bg-primary/90 text-primary-foreground text-xs font-bold shadow-lg disabled:opacity-40"
                                         >
-                                            {importando ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+                                            {importando || creandoLista ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
                                             Importar a la planilla
                                         </button>
                                     </div>
@@ -234,9 +369,13 @@ export default function ImportarPanel({
                                     <button
                                         onClick={async () => {
                                             setImportando(true);
-                                            try { await onImportarScraper(b, sistema); } finally { setImportando(false); }
+                                            try {
+                                                const destino = await resolverDestino();
+                                                await onImportarScraper(b, sistema, destino);
+                                                if (destino.listaId) setListaElegida(destino.listaId);
+                                            } finally { setImportando(false); }
                                         }}
-                                        disabled={importando}
+                                        disabled={importando || creandoLista}
                                         className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary/15 hover:bg-primary/25 border border-primary/30 text-primary text-xs font-bold shrink-0 disabled:opacity-40"
                                     >
                                         {importando ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ArrowRight className="w-3.5 h-3.5" />}
@@ -259,6 +398,7 @@ function construirProspecto(
     mapeo: (CampoImportable | "")[],
     rubroDefecto: string,
     ciudadDefecto: string,
+    paisDefecto: string,
     sistema: Sistema
 ): Partial<Prospecto> {
     const valores: Partial<Record<CampoImportable, string>> = {};
@@ -294,23 +434,36 @@ function construirProspecto(
         return Number.isFinite(n) ? n : null;
     };
 
+    const esAgencia = sistema === "agencias";
+
     return {
         sistema,
         negocio: valores.negocio || "",
+        contacto_nombre: valores.contacto_nombre || "",
         rubro: valores.rubro || rubroDefecto,
         especialidad: valores.especialidad || "",
         ciudad: valores.ciudad || ciudadDefecto,
+        pais: valores.pais || paisDefecto,
         direccion: valores.direccion || "",
         telefono,
         telefono_wa: telefonoAWhatsapp(telefono),
         whatsapp_publicado: !!telefonoAWhatsapp(telefono),
+        email: valores.email || "",
         instagram_url: instagram,
+        linkedin_url: valores.linkedin_url || "",
         sitio_web_url: web.includes("instagram.com") || web.includes("facebook.com") ? "" : web,
         maps_url: valores.maps_url || "",
-        clasificacion_web: clasificarWebDesdeUrl(web),
-        canal: telefonoAWhatsapp(telefono) ? "whatsapp" : "instagram",
+        // Una agencia siempre tiene web (es su vidriera): clasificarla como
+        // "sin web" porque la planilla no traía la URL da una señal falsa que
+        // después ordena mal la cola.
+        clasificacion_web: esAgencia ? "sin_definir" : clasificarWebDesdeUrl(web),
+        // En agencias el WhatsApp casi nunca es el canal, aunque el teléfono
+        // esté publicado: el mail y LinkedIn llegan a quien decide.
+        canal: !esAgencia && telefonoAWhatsapp(telefono) ? "whatsapp" : "instagram",
         rating: decimal(valores.rating),
         reviews_count: entero(valores.reviews_count),
+        servicios: valores.servicios || "",
+        tam_equipo: entero(valores.tam_equipo),
         notas: valores.notas || "",
         escaneo: { ...ESCANEO_VACIO },
         origen: "sheets",

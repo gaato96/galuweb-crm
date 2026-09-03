@@ -21,7 +21,7 @@
 
 import { NextResponse } from "next/server";
 import type { Prospecto, FallaVerificable } from "@/lib/types";
-import { telefonoAWhatsapp, normalizar } from "@/lib/prospeccion";
+import { telefonoAWhatsapp, normalizar, normalizarEscaneo } from "@/lib/prospeccion";
 import { detectarRubro } from "@/lib/dolores-rubro";
 import { extraerPlaceId } from "@/lib/places-url";
 import {
@@ -538,10 +538,172 @@ function aplanar(s: string): string {
 }
 
 // ─────────────────────────────────────────────────────────────
+// Escaneo de agencias — otra fuente, otra pregunta
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Palabras con las que una agencia dice que SÍ hace desarrollo web. Si alguna
+ * aparece en su propia página, deja de ser prospecto: no terceriza lo que vende.
+ *
+ * La lista está en español y en inglés porque el mercado objetivo incluye Miami
+ * y agencias latinoamericanas con el sitio en inglés.
+ */
+const SENIALES_HACE_WEB = [
+    "desarrollo web", "desarrollo de sitios", "desarrollo de paginas", "diseno web",
+    "paginas web", "sitios web", "creacion de sitios", "desarrollo a medida",
+    "wordpress", "shopify", "woocommerce", "webflow", "ecommerce", "e-commerce",
+    "tienda online", "landing page", "desarrollo de software", "aplicaciones web",
+    "web development", "web design", "website development", "custom websites",
+];
+
+/**
+ * Lo que vende una agencia que NO hace web. Sirve para dos cosas: confirmar que
+ * es una agencia de marketing (y no otra cosa que se coló en el scrapeo), y
+ * llenar el campo `servicios` del que sale la personalización del mensaje 1.
+ */
+const SERVICIOS_DE_MARKETING = [
+    "redes sociales", "social media", "community manage", "meta ads", "google ads",
+    "publicidad", "pauta", "branding", "identidad de marca", "contenido",
+    "fotografia", "audiovisual", "email marketing", "seo", "influencer",
+];
+
+function aplanarTexto(html: string): string {
+    return aplanar(sinHtml(decodificarEntidades(html))).replace(/\s+/g, " ");
+}
+
+function vacio(p: Prospecto, pendientes: string[], campos: Partial<Prospecto> = {}): EscaneoAutomatico {
+    return {
+        prospecto_id: p.id,
+        negocio: p.negocio,
+        escaneo: normalizarEscaneo(p.escaneo),
+        campos,
+        evidencias: [],
+        agregadas: [],
+        pendientes,
+        fecha: new Date().toISOString(),
+    };
+}
+
+/**
+ * Escaneo del sistema "agencias". No usa Google Places ni reseñas: una agencia
+ * no se califica por su ficha de Maps (muchas ni la tienen, y a ninguna la
+ * eligen por estrellas). La única fuente que importa es su propia página, y la
+ * única pregunta es si ahí figura desarrollo web.
+ *
+ * Nunca marca `ofrece_desarrollo_web = false` a la ligera: si no se pudo leer la
+ * página, queda en null y sale como pendiente. Un falso "no ofrece web" produce
+ * un mensaje que le dice a una agencia que no hace algo que sí hace, y de ese
+ * mensaje no se vuelve.
+ */
+async function escanearAgencia(p: Prospecto): Promise<EscaneoAutomatico> {
+    const evidencias: EvidenciaSenial[] = [];
+    const campos: Partial<Prospecto> = {};
+    const pendientes: string[] = [];
+
+    const sitio = (p.sitio_web_url || "").trim();
+    if (!sitio) {
+        return vacio(p, [
+            "Sin sitio web cargado no hay nada que escanear: la única fuente que califica a una agencia es su propia página de servicios. Cargala en Datos y volvé a escanear.",
+        ]);
+    }
+
+    const base = sitio.startsWith("http") ? sitio : `https://${sitio}`;
+    let html = "";
+    try {
+        const res = await fetch(base, {
+            headers: { "User-Agent": UA },
+            redirect: "follow",
+            signal: AbortSignal.timeout(8000),
+        });
+        if (res.ok) html = (await res.text()).slice(0, 120_000);
+    } catch {
+        /* Se trata abajo como "no se pudo leer", que no es lo mismo que "no ofrece". */
+    }
+
+    if (!html) {
+        return vacio(p, [
+            `No se pudo leer ${base}. Abrila a mano y fijate una sola cosa: si en Servicios figura desarrollo o diseño web. Queda sin verificar, no como "no ofrece".`,
+        ]);
+    }
+
+    const texto = aplanarTexto(html);
+    const haceWeb = SENIALES_HACE_WEB.filter((s) => texto.includes(s));
+    const servicios = SERVICIOS_DE_MARKETING.filter((s) => texto.includes(s));
+
+    if (haceWeb.length > 0) {
+        campos.ofrece_desarrollo_web = true;
+        pendientes.push(
+            `La home menciona "${haceWeb.slice(0, 3).join('", "')}". Si eso es un servicio propio y no un caso de cliente, no es prospecto: descartala.`
+        );
+    } else if (servicios.length > 0) {
+        // Solo se afirma que NO ofrece web si además se confirmó que ES una agencia
+        // de marketing. Sin ninguna de las dos señales, lo más probable es que la
+        // home se arme con JavaScript y no haya texto que leer — no que no hagan web.
+        campos.ofrece_desarrollo_web = false;
+        evidencias.push({
+            falla: "no_ofrece_desarrollo",
+            fuente: "web",
+            detalle: `La home lista ${servicios.slice(0, 3).join(", ")} y no menciona desarrollo ni diseño web.`,
+            url: base,
+        });
+    } else {
+        pendientes.push(
+            `No se encontró texto de servicios en ${base} (probablemente la home se arma con JavaScript). Abrí la página de Servicios a mano: es el único dato que califica.`
+        );
+    }
+
+    if (servicios.length > 0 && !p.servicios.trim()) {
+        campos.servicios = servicios.slice(0, 5).join(", ");
+    }
+
+    // Un mail en la home es el canal que llega al dueño. Se descartan los que son
+    // de assets o de servicios de tracking, que no le contestan a nadie.
+    if (!p.email.trim()) {
+        const mails = Array.from(
+            new Set((html.match(/[\w.+-]+@[\w-]+\.[\w.-]{2,}/g) || []).map((m) => m.toLowerCase()))
+        ).filter((m) => !/\.(png|jpg|jpeg|svg|gif|webp)$/.test(m) && !m.includes("sentry") && !m.includes("wixpress"));
+        if (mails[0]) campos.email = mails[0];
+    }
+
+    if (!p.linkedin_url.trim()) {
+        const li = html.match(/https?:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/(?:company|in)\/[\w%-]+/i);
+        if (li) campos.linkedin_url = li[0];
+    }
+
+    if (p.muestra_clientes == null && /clientes|portfolio|portafolio|casos|trabajos|clients|our work/.test(texto)) {
+        pendientes.push(
+            'La web tiene sección de clientes o casos. Abrila y fijate si los trabajos incluyen alguna web: si son todos de redes y pauta, marcá la señal "casos solo redes".'
+        );
+    }
+
+    pendientes.push(
+        "A mano, 30 segundos: contá las personas del equipo que muestra (3 a 20 es la ventana). Es el segundo campo que más pesa después del filtro de desarrollo web."
+    );
+
+    const escaneoBase = normalizarEscaneo(p.escaneo);
+    const agregadas = evidencias.map((e) => e.falla).filter((f) => !escaneoBase.fallas.includes(f));
+
+    return {
+        prospecto_id: p.id,
+        negocio: p.negocio,
+        escaneo: { ...escaneoBase, fallas: [...escaneoBase.fallas, ...agregadas] },
+        campos,
+        evidencias,
+        agregadas,
+        pendientes,
+        fecha: new Date().toISOString(),
+    };
+}
+
+// ─────────────────────────────────────────────────────────────
 // El escaneo de un prospecto, de punta a punta
 // ─────────────────────────────────────────────────────────────
 
 async function escanear(p: Prospecto): Promise<EscaneoAutomatico> {
+    // Una agencia no se califica por su ficha de Google: se desvía antes de gastar
+    // una llamada a Places que no va a decir nada útil.
+    if (p.sistema === "agencias") return escanearAgencia(p);
+
     const pendientes: string[] = [];
     const evidencias: EvidenciaSenial[] = [];
     const campos: Partial<Prospecto> = {};

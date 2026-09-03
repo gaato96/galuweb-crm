@@ -7,7 +7,7 @@ import {
     EtapaCliente, Infraestructura, TicketSoporte, LogProyecto, Idea,
     ScraperBusqueda, ProspectoScraped, Prospecto
 } from "./types";
-import { ESCANEO_VACIO, type Sistema } from "./types";
+import { ESCANEO_VACIO, listaVacia, type Sistema, type ListaProspeccion } from "./types";
 import {
     normalizarEscaneo, calcularNivelDato, calcularScore, prospectoVacio,
     clasificarWebDesdeUrl, telefonoAWhatsapp, normalizar
@@ -779,6 +779,65 @@ function conDerivados(p: Prospecto, universo: Prospecto[]): Prospecto {
     };
 }
 
+/**
+ * Listados de prospección — una tanda medible (un scrapeo, una ciudad, un rubro).
+ *
+ * Existe porque `sistema` solo no alcanza a separar el trabajo: "agencias de
+ * Guadalajara" y "agencias de Medellín" son el mismo sistema y el mismo rubro,
+ * y hay que poder comparar su tasa de respuesta por separado para saber en cuál
+ * concentrarse. Ver notas/10-a-quien-le-vendo.md §3.
+ */
+export const listasStore = {
+    getAll: async (): Promise<ListaProspeccion[]> => {
+        const { data, error } = await supabase
+            .from("listas_prospeccion")
+            .select("*")
+            .order("created_at", { ascending: false });
+        if (error) throw error;
+        return (data || []) as ListaProspeccion[];
+    },
+
+    create: async (data: Partial<ListaProspeccion>): Promise<ListaProspeccion> => {
+        const payload = { ...listaVacia(data.sistema || "galu"), ...data };
+        delete (payload as Partial<ListaProspeccion>).id;
+        delete (payload as Partial<ListaProspeccion>).created_at;
+        delete (payload as Partial<ListaProspeccion>).updated_at;
+
+        const { data: created, error } = await supabase
+            .from("listas_prospeccion")
+            .insert(payload)
+            .select()
+            .single();
+        if (error) throw error;
+        return created as ListaProspeccion;
+    },
+
+    update: async (id: string, cambios: Partial<ListaProspeccion>): Promise<ListaProspeccion> => {
+        const payload = { ...cambios };
+        delete (payload as Partial<ListaProspeccion>).created_at;
+        delete (payload as Partial<ListaProspeccion>).updated_at;
+
+        const { data, error } = await supabase
+            .from("listas_prospeccion")
+            .update(payload)
+            .eq("id", id)
+            .select()
+            .single();
+        if (error) throw error;
+        return data as ListaProspeccion;
+    },
+
+    /**
+     * Borra el listado, no los prospectos. La FK es ON DELETE SET NULL: los que
+     * ya tienen trabajo encima quedan sin listado y siguen visibles en
+     * "Sin listado". Borrar un scrapeo nunca puede borrar seguimiento.
+     */
+    delete: async (id: string): Promise<void> => {
+        const { error } = await supabase.from("listas_prospeccion").delete().eq("id", id);
+        if (error) throw error;
+    },
+};
+
 export const prospectosStore = {
     getAll: async (): Promise<Prospecto[]> => {
         const { data, error } = await supabase
@@ -855,25 +914,31 @@ export const prospectosStore = {
     },
 
     /**
-     * Alta masiva. Deduplica contra lo ya cargado por (negocio, ciudad) —
-     * el índice único de la tabla es la última red, pero filtrar acá permite
-     * informar cuántos se saltearon en vez de fallar el insert entero.
+     * Alta masiva. Deduplica contra lo ya cargado por (negocio, ciudad, país,
+     * sistema) — el índice único de la tabla es la última red, pero filtrar acá
+     * permite informar cuántos se saltearon en vez de fallar el insert entero.
+     *
+     * La clave incluye país y sistema desde la migración 20260903: sin país, dos
+     * agencias distintas de dos ciudades homónimas (Santiago de Chile y Santiago
+     * de RD, Mérida de México y Mérida de España) se descartaban entre sí; sin
+     * sistema, un negocio prospectado por Galu bloqueaba al mismo por VivoMenu.
      */
     createBulk: async (
         items: Partial<Prospecto>[],
         universo: Prospecto[] = []
     ): Promise<ResultadoImportacion> => {
-        const yaCargados = new Set(
-            universo.map((p) => `${normalizar(p.negocio)}|${normalizar(p.ciudad)}`)
-        );
+        const claveDe = (p: Prospecto) =>
+            `${normalizar(p.negocio)}|${normalizar(p.ciudad)}|${normalizar(p.pais || "")}|${p.sistema}`;
+
+        const yaCargados = new Set(universo.map(claveDe));
         const vistosEnLote = new Set<string>();
         const limpios: Prospecto[] = [];
         let duplicados = 0;
 
         for (const item of items) {
-            const base = { ...prospectoVacio(), ...item } as Prospecto;
+            const base = { ...prospectoVacio(item.sistema || "galu"), ...item } as Prospecto;
             if (!base.negocio.trim()) { duplicados++; continue; }
-            const clave = `${normalizar(base.negocio)}|${normalizar(base.ciudad)}`;
+            const clave = claveDe(base);
             if (yaCargados.has(clave) || vistosEnLote.has(clave)) { duplicados++; continue; }
             vistosEnLote.add(clave);
 
@@ -954,16 +1019,22 @@ export const prospectosStore = {
     importarDesdeScraper: async (
         scrapeados: ProspectoScraped[],
         universo: Prospecto[] = [],
-        sistema: Sistema = "galu"
+        sistema: Sistema = "galu",
+        opciones: { listaId?: string | null; pais?: string } = {}
     ): Promise<ResultadoImportacion> => {
         const items: Partial<Prospecto>[] = scrapeados.map((s) => {
             const webUrl = s.sitioWebUrl || s.redesSociales?.instagram || s.redesSociales?.facebook || "";
             return {
                 sistema,
+                lista_id: opciones.listaId ?? null,
                 negocio: s.nombre,
                 rubro: s.rubro,
                 ciudad: s.lugar,
+                // El scraper de Maps devuelve el lugar tal como se buscó y no separa
+                // el país. Al importar a un listado, el país del listado lo completa.
+                pais: opciones.pais || "",
                 direccion: s.direccion,
+                linkedin_url: s.redesSociales?.linkedin || "",
                 telefono: s.telefono || "",
                 telefono_wa: s.telefonoClean || telefonoAWhatsapp(s.telefono || ""),
                 whatsapp_publicado: !!s.telefonoClean,

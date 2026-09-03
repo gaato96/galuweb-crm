@@ -196,6 +196,7 @@ export function calcularScore(prospecto: Prospecto, universo: Prospecto[] = []):
         return { total: 0, partes: [{ concepto: "Descartado", puntos: 0 }] };
     }
     if (prospecto.sistema === "vivomenu") return calcularScoreVivoMenu(prospecto);
+    if (prospecto.sistema === "agencias") return calcularScoreAgencia(prospecto);
 
     const partes: { concepto: string; puntos: number }[] = [];
 
@@ -371,6 +372,112 @@ export function calcularScoreVivoMenu(p: Prospecto): DesgloseScore {
     return { total, partes };
 }
 
+/**
+ * Score de agencias — proveedor white label para agencias del exterior.
+ *
+ * Acá se invierte casi todo lo que puntúa en los otros dos sistemas, porque el
+ * cliente es otro: no es un negocio al que hay que convencer de que necesita
+ * una web, es una empresa que YA vendió webs que no puede ejecutar.
+ *
+ *   · La señal que manda es una AUSENCIA: que no ofrezca desarrollo web. Una
+ *     agencia con la web rota no es mejor prospecto — una que no vende webs sí,
+ *     porque cada pedido que le entra hoy lo rechaza o lo terceriza a ciegas.
+ *   · Las reseñas de Google no dicen nada. Una agencia se elige por portfolio y
+ *     por recomendación, no por estrellas en Maps; muchas ni ficha tienen.
+ *   · El tamaño sí importa, y con una ventana estrecha: menos de 3 personas no
+ *     terceriza (lo hace el dueño), más de 30 ya tiene proveedor fijo.
+ *   · "Clasificación web" no aplica: todas tienen web, es su vidriera.
+ */
+export function calcularScoreAgencia(p: Prospecto): DesgloseScore {
+    const partes: { concepto: string; puntos: number }[] = [];
+    const escaneo = normalizarEscaneo(p.escaneo);
+    const fallas = new Set(escaneo.fallas);
+
+    // 1. EL filtro. Es lo único que convierte a una agencia en prospecto o la
+    //    saca de la lista, así que pesa más que todo lo demás junto.
+    if (p.ofrece_desarrollo_web === true) {
+        return {
+            total: 0,
+            partes: [{ concepto: "Ya ofrece desarrollo web: no es prospecto", puntos: 0 }],
+        };
+    }
+    if (p.ofrece_desarrollo_web === false) {
+        partes.push({ concepto: "No ofrece desarrollo web: le entran pedidos que rechaza", puntos: 35 });
+    } else {
+        partes.push({ concepto: "Sin verificar si ofrece desarrollo web", puntos: 0 });
+    }
+
+    // 2. Nivel del dato. Igual que en los otros sistemas: decide si el mensaje
+    //    se lee como escrito para ellos o como plantilla.
+    const nivel = calcularNivelDato(escaneo);
+    if (nivel) {
+        partes.push({ concepto: NIVEL_DATO_LABELS[nivel], puntos: PUNTOS_NIVEL[nivel] });
+    } else {
+        partes.push({ concepto: "Sin dato de personalización", puntos: 0 });
+    }
+
+    // 3. Señales de que hay trabajo de web dando vueltas sin quién lo tome.
+    if (fallas.has("busca_disenador")) {
+        // La más fuerte del catálogo: dijeron en voz alta que les falta la mano
+        // que vos ofrecés. No hay que deducir nada.
+        partes.push({ concepto: "Publicó que busca diseñador o dev", puntos: 20 });
+    }
+    if (fallas.has("casos_solo_redes")) {
+        partes.push({ concepto: "Portfolio de redes y pauta, ninguna web", puntos: 12 });
+    }
+    if (fallas.has("clientes_sin_web")) {
+        partes.push({ concepto: "Sus clientes no tienen web: hay demanda adentro de su cartera", puntos: 10 });
+    }
+    if (fallas.has("equipo_sin_devs")) {
+        partes.push({ concepto: "El equipo que muestra no tiene devs", puntos: 8 });
+    }
+
+    // 4. Tamaño. Ventana estrecha y con castigo en los dos extremos: los dos
+    //    fallan por motivos opuestos y los dos hacen perder el mensaje.
+    if (p.tam_equipo != null) {
+        if (p.tam_equipo >= 3 && p.tam_equipo <= 20) {
+            partes.push({ concepto: `${p.tam_equipo} personas: terceriza y decide rápido`, puntos: 15 });
+        } else if (p.tam_equipo > 20 && p.tam_equipo <= 30) {
+            partes.push({ concepto: `${p.tam_equipo} personas: probablemente ya tenga proveedor`, puntos: 4 });
+        } else if (p.tam_equipo > 30) {
+            partes.push({ concepto: `${p.tam_equipo} personas: tiene proveedor fijo y compras formales`, puntos: -12 });
+        } else {
+            partes.push({ concepto: `${p.tam_equipo}: demasiado chica, lo hace el dueño`, puntos: -10 });
+        }
+    }
+
+    // 5. Que tenga clientes visibles. Sin cartera no hay nada que tercerizar,
+    //    por buena que se vea la agencia.
+    if (p.muestra_clientes === true) {
+        partes.push({ concepto: "Muestra clientes o casos", puntos: 10 });
+    } else if (p.muestra_clientes === false) {
+        partes.push({ concepto: "Sin clientes visibles: no hay trabajo para tercerizar", puntos: -15 });
+    }
+
+    // 6. Canal para llegar al que decide. En agencias del exterior el orden se
+    //    invierte respecto del comercio local: el mail y LinkedIn llegan al
+    //    dueño, y el Instagram lo maneja un community manager que no decide.
+    if (p.email.trim()) {
+        partes.push({ concepto: "Email de contacto", puntos: 8 });
+    } else if (p.linkedin_url.trim()) {
+        partes.push({ concepto: "LinkedIn del equipo", puntos: 6 });
+    } else if (p.instagram_url.trim()) {
+        partes.push({ concepto: "Solo Instagram: lo atiende el community, no el dueño", puntos: 2 });
+    }
+
+    // 7. Actividad. Una agencia con las redes muertas suele estar muerta.
+    if (p.dias_ultimo_post != null) {
+        if (p.dias_ultimo_post <= 30) {
+            partes.push({ concepto: "Publicando este mes: está operando", puntos: 6 });
+        } else if (p.dias_ultimo_post > 120) {
+            partes.push({ concepto: "Sin publicar hace 120+ días: puede estar cerrada", puntos: -15 });
+        }
+    }
+
+    const total = Math.max(0, Math.min(100, partes.reduce((s, x) => s + x.puntos, 0)));
+    return { total, partes };
+}
+
 // ─────────────────────────────────────────────────────────────
 // §3.1 — Descarte rápido
 // ─────────────────────────────────────────────────────────────
@@ -394,7 +501,10 @@ export interface AlertaDescarte {
  */
 export function compararParaCola(sistema: Sistema) {
     return (a: Prospecto, b: Prospecto): number => {
-        if (sistema !== "vivomenu") {
+        // Agencias: la clasificación web de la propia agencia no dice nada (todas
+        // tienen web, es su vidriera). Lo que separa es si ofrece desarrollo o no,
+        // y eso ya vale 35 puntos dentro del score. Ordenar por score alcanza.
+        if (sistema !== "vivomenu" && sistema !== "agencias") {
             const segA = PRIORIDAD_SEGMENTO[a.clasificacion_web];
             const segB = PRIORIDAD_SEGMENTO[b.clasificacion_web];
             if (segA !== segB) return segA - segB;
@@ -409,6 +519,17 @@ export function compararParaCola(sistema: Sistema) {
  * evita que ocupe uno de los diez mensajes del día, que es el recurso escaso.
  */
 export function motivoFueraDeCola(p: Prospecto): string | null {
+    // Agencias: los motivos son otros. Las reseñas de Maps no aplican (una
+    // agencia se elige por portfolio) y el canal por defecto es el mail.
+    if (p.sistema === "agencias") {
+        if (p.ofrece_desarrollo_web === true) return "ya ofrece desarrollo web";
+        if (!p.email.trim() && !p.linkedin_url.trim() && !p.instagram_url.trim()) {
+            return p.sitio_web_url.trim() ? MOTIVO_SIN_ESCANEAR : "sin canal de contacto";
+        }
+        if (p.ofrece_desarrollo_web == null) return MOTIVO_SIN_ESCANEAR;
+        return null;
+    }
+
     const peso = pesoResenaDelRubro(p.rubro);
     const reviews = reseñasSanas(p.reviews_count);
     if (peso !== "debil" && reviews != null && reviews < 5) {
@@ -435,6 +556,46 @@ export const MOTIVO_SIN_ESCANEAR = "sin escanear";
 
 export function alertasDescarte(p: Prospecto): AlertaDescarte[] {
     const alertas: AlertaDescarte[] = [];
+
+    if (p.sistema === "agencias") {
+        if (p.ofrece_desarrollo_web === true) {
+            alertas.push({
+                regla: "Ya ofrece desarrollo web",
+                detalle: "No es prospecto: no terceriza lo que ya vende. Descartar.",
+            });
+        }
+        if (p.ofrece_desarrollo_web == null) {
+            alertas.push({
+                regla: "Falta el filtro principal",
+                detalle: "Abrí su página de servicios y confirmá si ofrece desarrollo web. Sin eso no se puede calificar.",
+            });
+        }
+        if (p.tam_equipo != null && p.tam_equipo < 3) {
+            alertas.push({
+                regla: "Demasiado chica",
+                detalle: `${p.tam_equipo} persona(s): lo hace el dueño, no terceriza.`,
+            });
+        }
+        if (p.tam_equipo != null && p.tam_equipo > 30) {
+            alertas.push({
+                regla: "Demasiado grande",
+                detalle: "Más de 30: proveedor fijo y proceso de compras. El mensaje en frío no llega al que decide.",
+            });
+        }
+        if (p.muestra_clientes === false) {
+            alertas.push({
+                regla: "Sin cartera visible",
+                detalle: "No muestra clientes ni casos. Si no tiene trabajo, no tiene qué tercerizar.",
+            });
+        }
+        if (p.dias_ultimo_post != null && p.dias_ultimo_post > 120) {
+            alertas.push({
+                regla: "Puede estar cerrada",
+                detalle: `Sin publicar hace ${p.dias_ultimo_post} días.`,
+            });
+        }
+        return alertas;
+    }
 
     const reviews = reseñasSanas(p.reviews_count);
     if (reviews != null && reviews < 5) {
@@ -567,24 +728,48 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
         return [linea1, "", linea2, "", linea3].join("\n");
     }
 
+    // §6 corregido (2026-09-03) — El embudo se cortaba exactamente acá: sobre 45
+    // contactos, 5 aceptaron el análisis y ninguno siguió. El mensaje anterior
+    // entregaba el diagnóstico completo, decía "son 4 cosas" y terminaba en una
+    // pregunta de calificación. Tres cosas fallaban a la vez:
+    //
+    //   1. Entregaba todo el valor y no pedía nada a cambio. El que lo recibe
+    //      dice gracias y queda a mano: no hay ninguna razón para escribir de nuevo.
+    //   2. Cuatro problemas son una lista de tareas para el año que viene. Uno
+    //      solo es algo que se arregla el jueves.
+    //   3. No aparecía ni un precio ni una fecha en todo el intercambio, así que
+    //      para avanzar el prospecto tenía que tomar él la iniciativa de
+    //      preguntar cuánto salía. Nadie hace eso.
+    //
+    // El mensaje nuevo entrega lo mismo pero deja UNA decisión arriba de la mesa,
+    // con precio y fecha. La pregunta de calificación se mantiene, pero después
+    // de la oferta y como algo secundario — antes se comía el lugar del pedido.
     if (paso === "m2") {
         const link = p.revision_url || "[link de la revisión]";
+        const oferta = ofertaDe(p);
+
         return [
             `Ahí va 👇 ${link}`,
             "",
-            "Son 4 cosas concretas, la primera la podés arreglar hoy sin ayuda de nadie.",
+            `Son 4 cosas, pero si tuviera que arreglar una sola sería ${oferta.titulo}: es la que más consultas te está costando hoy. Las otras tres están explicadas ahí y las podés hacer vos, sin mí.`,
             "",
-            "Una pregunta para entender: hoy cuando alguien los consulta por primera vez, entra por WhatsApp, por teléfono o por recomendación?",
+            `Esa primera te la dejo resuelta por ${oferta.precio} y la tenés lista ${oferta.plazo}. Te paso el detalle de qué toco?`,
         ].join("\n");
     }
 
+    // Mensaje 3 — se manda cuando contesta algo al m2. Antes ofrecía una llamada
+    // gratis de 20-30 minutos, o sea una segunda cosa gratis encima de la
+    // primera: dos regalos seguidos y ningún momento en el que se pida la venta.
+    // Ahora la llamada sigue existiendo, pero como forma de arrancar el trabajo
+    // ya cotizado, no como una consultoría aparte.
     if (paso === "m3") {
+        const oferta = ofertaDe(p);
         return [
-            "Buenísimo, gracias por contarme. Justo por eso el análisis se queda corto solo: para decirte qué conviene tocar primero necesito entender un poco más cómo laburan hoy en el día a día.",
+            `Buenísimo. Te cuento cómo sería: ${oferta.titulo} lo dejo funcionando en ${oferta.plazo}, por ${oferta.precio}. Se arranca con la mitad y la otra mitad cuando lo ves andando.`,
             "",
-            "Te propongo una llamada corta, 20-30 minutos, sin costo y sin compromiso. Repasamos el análisis juntos y salimos con qué conviene resolver primero y qué costaría.",
+            "Antes de empezar hacemos 20 minutos por llamada o por audio para que me pases los datos y las fotos que quieras que vayan. Nada más que eso.",
             "",
-            "Te sirve esta semana o la que viene?",
+            "Arrancamos esta semana o preferís la que viene?",
         ].join("\n");
     }
 
@@ -599,20 +784,30 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
 
     // §6 — Seguimiento post-análisis. Se manda el link ya entregado, distinto del
     // primer contacto: acá el que falta no es el permiso, es la respuesta.
+    // Los dos repiten la oferta, porque el que no contestó muchas veces ni llegó
+    // a ver que había un precio y una fecha.
     if (paso === "fu_revision1") {
         const link = p.revision_url || "[link de la revisión]";
+        const oferta = ofertaDe(p);
         return [
-            `Che, ¿pudiste ver el análisis que te mandé? ${link}`,
+            `Che, pudiste ver el análisis? ${link}`,
             "",
-            "Sé que a veces queda perdido entre mensajes, por eso te aviso. Cualquier duda, la vemos. Y si te sirve, arrancamos con esos 20-30 minutos.",
+            `Te repito lo único que hay que decidir, así no lo buscás: ${oferta.titulo}, ${oferta.precio}, listo ${oferta.plazo}.`,
+            "",
+            "Si es que no por ahora, decime tranquilo y no te escribo más.",
         ].join("\n");
     }
 
+    // El último toque regala el dato y cierra la puerta él mismo. Un "no" acá
+    // vale más que un prospecto abierto seis meses: libera el lugar de la cola.
     if (paso === "fu_revision2") {
+        const oferta = ofertaDe(p);
         return [
             "Última vuelta por acá, no quiero ser pesado.",
             "",
-            `Si en algún momento te sirve retomarlo, quedo. Y si no es el momento, todo bien igual — éxitos con ${p.negocio || "el consultorio"}!`,
+            `Te dejo el dato aunque no laburemos juntos: ${oferta.titulo} es lo que más te conviene tocar, con nosotros o con quien sea.`,
+            "",
+            `Si en algún momento te sirve retomarlo, quedo. Éxitos con ${p.negocio || "el negocio"}!`,
         ].join("\n");
     }
 
@@ -624,6 +819,47 @@ function minuscula(txt: string): string {
     const t = (txt || "").trim();
     if (!t) return "";
     return t.charAt(0).toLowerCase() + t.slice(1);
+}
+
+// ─────────────────────────────────────────────────────────────
+// La oferta que cierra el análisis
+// ─────────────────────────────────────────────────────────────
+
+export interface OfertaProspecto {
+    titulo: string;
+    precio: string;
+    plazo: string;
+}
+
+/**
+ * Los tres valores que necesita el mensaje 2, con marcadores visibles cuando
+ * faltan. Los marcadores van entre corchetes a propósito: si alguno queda sin
+ * completar, se ve a simple vista en el mensaje antes de mandarlo, en vez de
+ * salir una frase que suena bien y no dice nada.
+ */
+export function ofertaDe(p: Prospecto): OfertaProspecto {
+    return {
+        titulo: p.oferta_titulo.trim() || "[qué arreglo primero]",
+        precio: p.oferta_precio.trim() || "[precio]",
+        plazo: p.oferta_plazo.trim() || "[cuándo]",
+    };
+}
+
+/**
+ * Si esto es false, el análisis no se manda: saldría igual que los 5 que se
+ * cayeron en agosto — todo el valor entregado y nada que decidir.
+ */
+export function ofertaCompleta(p: Prospecto): boolean {
+    return !!(p.oferta_titulo.trim() && p.oferta_precio.trim() && p.oferta_plazo.trim());
+}
+
+/** Qué falta para poder mandar el análisis, en lenguaje de pantalla. */
+export function faltaParaOferta(p: Prospecto): string[] {
+    const falta: string[] = [];
+    if (!p.oferta_titulo.trim()) falta.push("qué arreglás primero");
+    if (!p.oferta_precio.trim()) falta.push("el precio");
+    if (!p.oferta_plazo.trim()) falta.push("para cuándo");
+    return falta;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -645,6 +881,10 @@ const ESTADOS_CERRADOS: EstadoProspecto[] = [
 const CADENCIA_FOLLOWUP: Record<Sistema, { fu1: number; fu2: number; fu3?: number }> = {
     galu: { fu1: 3, fu2: 7 },
     vivomenu: { fu1: 3, fu2: 7, fu3: 14 },
+    // Agencias: dos toques y afuera. Un dueño de agencia que no contestó dos
+    // veces no está evaluando nada, tiene la bandeja llena. Insistir más lo
+    // único que hace es quemar el contacto para cuando sí necesite un proveedor.
+    agencias: { fu1: 4, fu2: 10 },
 };
 
 export function proximaAccion(p: Prospecto, hoy: Date = new Date()): AccionSeguimiento {
@@ -796,6 +1036,32 @@ export function tasaPorQuienLeyo(prospectos: Prospecto[]): CorteMetrica[] {
     return agrupar(prospectos, (p) => p.quien_leyo || "no_se");
 }
 
+/**
+ * El corte que decide dónde concentrar el mes. Una tanda por ciudad, 10 mensajes
+ * por día: a las 4 semanas hay cuatro listados con ~50 envíos cada uno, y este
+ * corte dice cuál responde y cuál no. Antes de los listados no se podía saber,
+ * porque todo caía en el mismo promedio del sistema.
+ */
+export function tasaPorLista(
+    prospectos: Prospecto[],
+    nombrePorId: Map<string, string>
+): CorteMetrica[] {
+    return agrupar(prospectos, (p) =>
+        p.lista_id ? nombrePorId.get(p.lista_id) || "Listado borrado" : "Sin listado"
+    );
+}
+
+export function tasaPorPais(prospectos: Prospecto[]): CorteMetrica[] {
+    return agrupar(prospectos, (p) => p.pais || "Sin país");
+}
+
+/**
+ * Cuántos envíos hacen falta antes de sacar conclusiones de un listado. Por
+ * debajo de esto la tasa de respuesta es ruido: con 10 envíos, un solo "sí"
+ * da 10% y dos dan 20%, y no hay ninguna diferencia real entre las dos cosas.
+ */
+export const MUESTRA_MINIMA_LISTA = 30;
+
 /** §11 — Diagnóstico rápido según dónde se corta el embudo. */
 export interface DiagnosticoEmbudo {
     sintoma: string;
@@ -850,18 +1116,30 @@ export function diagnosticoEmbudo(prospectos: Prospecto[]): DiagnosticoEmbudo[] 
 
 export const CAMPOS_IMPORTABLES = [
     { key: "negocio", label: "Negocio", alias: ["negocio", "nombre", "empresa", "titulo", "name"] },
+    { key: "contacto_nombre", label: "Contacto", alias: ["contacto", "referente", "dueno", "dueño", "owner", "founder"] },
     { key: "rubro", label: "Rubro", alias: ["rubro", "categoria", "category", "tipo"] },
     { key: "especialidad", label: "Especialidad", alias: ["especialidad", "subrubro"] },
     { key: "ciudad", label: "Ciudad", alias: ["ciudad", "lugar", "localidad", "city"] },
+    // País va antes que dirección a propósito: en prospección internacional es
+    // el campo que más se olvida mapear, y sin él el índice único de la tabla
+    // colapsa dos agencias distintas de dos "Santiago" en una sola.
+    { key: "pais", label: "País", alias: ["pais", "país", "country", "nacion"] },
     { key: "direccion", label: "Dirección", alias: ["direccion", "domicilio", "address"] },
     { key: "telefono", label: "Teléfono", alias: ["telefono", "tel", "celular", "phone", "whatsapp"] },
+    { key: "email", label: "Email", alias: ["email", "mail", "correo", "e-mail"] },
     { key: "sitio_web_url", label: "Sitio web", alias: ["sitio", "web", "website", "url", "sitio web", "pagina"] },
     { key: "instagram_url", label: "Instagram", alias: ["instagram", "ig", "red social", "redes"] },
+    { key: "linkedin_url", label: "LinkedIn", alias: ["linkedin", "in", "perfil linkedin"] },
+    { key: "servicios", label: "Servicios que ofrece", alias: ["servicios", "services", "que hace", "oferta"] },
     { key: "maps_url", label: "Link de Maps", alias: ["maps", "google maps", "link", "perfil", "ficha"] },
     { key: "rating", label: "Rating", alias: ["rating", "estrellas", "puntaje", "score", "calificacion"] },
     { key: "reviews_count", label: "Cant. reseñas", alias: ["reviews", "resenas", "reseñas", "opiniones", "comentarios"] },
+    { key: "tam_equipo", label: "Tamaño del equipo", alias: ["equipo", "personas", "empleados", "team", "headcount", "tamano"] },
     { key: "notas", label: "Notas", alias: ["notas", "observaciones", "comentario"] },
 ] as const;
+
+/** Campos que solo tienen sentido en el sistema "agencias". El importador los oculta en los otros. */
+export const CAMPOS_SOLO_AGENCIAS: CampoImportable[] = ["servicios", "linkedin_url", "tam_equipo"];
 
 export type CampoImportable = (typeof CAMPOS_IMPORTABLES)[number]["key"];
 
@@ -1023,21 +1301,31 @@ export function detectarDuplicados(prospectos: Prospecto[]): GrupoDuplicado[] {
 export function prospectoVacio(sistema: Sistema = "galu"): Omit<Prospecto, "id" | "created_at"> {
     return {
         sistema,
+        lista_id: null,
         negocio: "",
         contacto_nombre: "",
         rubro: "",
         especialidad: "",
         ciudad: "",
+        pais: "",
         direccion: "",
         telefono: "",
         telefono_wa: "",
         whatsapp_publicado: false,
         es_whatsapp_business: null,
         instagram_url: "",
+        linkedin_url: "",
+        email: "",
         dias_ultimo_post: null,
         sitio_web_url: "",
         maps_url: "",
+        // En agencias el DM de Instagram lo atiende el community manager. El canal
+        // por defecto es el mail, que sí llega a quien decide.
         canal: "instagram",
+        ofrece_desarrollo_web: null,
+        tam_equipo: null,
+        muestra_clientes: null,
+        servicios: "",
         clasificacion_web: "sin_definir",
         demanda_busqueda: "sin_definir",
         rating: null,
@@ -1060,6 +1348,9 @@ export function prospectoVacio(sistema: Sistema = "galu"): Omit<Prospecto, "id" 
         quien_leyo: null,
         revision_url: "",
         mensaje_enviado: "",
+        oferta_titulo: "",
+        oferta_precio: "",
+        oferta_plazo: "",
         cliente_id: null,
         origen: "manual",
         notas: "",

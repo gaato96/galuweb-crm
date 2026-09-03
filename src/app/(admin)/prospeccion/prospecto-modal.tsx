@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
     X, Save, Trash2, Building2, Radar, MessageSquare, CalendarClock,
     Copy, Check, ExternalLink, AlertTriangle, Sparkles, UserPlus, Loader2, Instagram, Phone, MapPin,
-    ScanSearch, CircleCheck, Hand, ChevronLeft, ChevronRight
+    ScanSearch, CircleCheck, Hand, ChevronLeft, ChevronRight, Handshake, Tag
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -18,7 +18,7 @@ import {
 import {
     calcularNivelDato, calcularScore, normalizarEscaneo, sugerirDatoUsado,
     generarMensaje, alertasDescarte, proximaAccion, hoyISO, telefonoAWhatsapp,
-    resumenParaAnalisis, reseñasSanas,
+    resumenParaAnalisis, reseñasSanas, ofertaCompleta, faltaParaOferta,
     NIVEL_DATO_LABELS, NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS,
     type PasoMensaje,
 } from "@/lib/prospeccion";
@@ -27,6 +27,9 @@ import {
     type PasoMensajeVivoMenu,
 } from "@/lib/vivomenu-mensajes";
 import {
+    generarMensajeAgencia, PASO_AGENCIA_LABELS, type PasoMensajeAgencia,
+} from "@/lib/agencias-mensajes";
+import {
     detectarRubro, senialesPara, senialPrincipal, PATRON_LABELS, RUBRO_LABELS,
 } from "@/lib/dolores-rubro";
 import { pistaDemanda, chequeosDemanda } from "@/lib/demanda-busqueda";
@@ -34,7 +37,7 @@ import { atajosEscaneo } from "@/lib/escaneo-atajos";
 import { FUENTE_LABELS, type EscaneoAutomatico } from "@/lib/escaneo-auto";
 
 type Tab = "datos" | "escaneo" | "mensajes" | "seguimiento";
-type PasoUI = PasoMensaje | PasoMensajeVivoMenu;
+type PasoUI = PasoMensaje | PasoMensajeVivoMenu | PasoMensajeAgencia;
 
 /** VivoMenu reusa el campo quien_leyo con otra etiqueta: "secretaria" = "empleado que atiende". */
 const QUIEN_LEYO_LABELS_VIVOMENU: Record<QuienLeyo, string> = {
@@ -85,6 +88,7 @@ export default function ProspectoModal({
     });
     const [guardando, setGuardando] = useState(false);
     const esVivoMenu = draft.sistema === "vivomenu";
+    const esAgencia = draft.sistema === "agencias";
     const [pasoMensaje, setPasoMensaje] = useState<PasoUI>(esVivoMenu ? "primer_contacto" : "m1");
     const [mensajeEditado, setMensajeEditado] = useState("");
     const [copiado, setCopiado] = useState(false);
@@ -116,14 +120,31 @@ export default function ProspectoModal({
     const pista = useMemo(() => pistaDemanda(draft), [draft.rubro, draft.especialidad, draft.ciudad]);
     const chequeos = useMemo(() => chequeosDemanda(draft), [draft.rubro, draft.especialidad, draft.ciudad]);
 
-    /** Un solo punto de generación: despacha al motor de Galu o al de VivoMenu según el sistema. */
+    /** Un solo punto de generación: despacha al motor del sistema del prospecto. */
     const generar = (paso: PasoUI, p: Prospecto): string =>
-        p.sistema === "vivomenu"
-            ? generarMensajeVivoMenu(paso as PasoMensajeVivoMenu, p)
-            : generarMensaje(paso as PasoMensaje, p);
+        p.sistema === "agencias"
+            ? generarMensajeAgencia(paso as PasoMensajeAgencia, p)
+            : p.sistema === "vivomenu"
+              ? generarMensajeVivoMenu(paso as PasoMensajeVivoMenu, p)
+              : generarMensaje(paso as PasoMensaje, p);
 
     const labelDePaso = (paso: PasoUI): string =>
-        esVivoMenu ? PASO_VIVOMENU_LABELS[paso as PasoMensajeVivoMenu] : PASO_MENSAJE_LABELS[paso as PasoMensaje];
+        esAgencia
+            ? PASO_AGENCIA_LABELS[paso as PasoMensajeAgencia]
+            : esVivoMenu
+              ? PASO_VIVOMENU_LABELS[paso as PasoMensajeVivoMenu]
+              : PASO_MENSAJE_LABELS[paso as PasoMensaje];
+
+    /**
+     * En Galu, el mensaje que entrega el análisis no se puede mandar sin oferta.
+     * Es el arreglo del embudo: sobre 45 contactos, 5 aceptaron el análisis y
+     * ninguno siguió, porque el mensaje entregaba todo y no dejaba nada que
+     * decidir. Con la oferta incompleta el borrador sale con marcadores entre
+     * corchetes y el botón de copiar avisa antes de que se mande así.
+     */
+    const pasoNecesitaOferta =
+        !esAgencia && !esVivoMenu && ["m2", "m3", "fu_revision1", "fu_revision2"].includes(pasoMensaje);
+    const faltanDatosOferta = pasoNecesitaOferta && !ofertaCompleta(draft);
 
     /**
      * Con el modal abierto, el fondo no scrollea.
@@ -260,7 +281,10 @@ export default function ProspectoModal({
 
         // Qué paso mueve qué estado — depende del sistema porque los pasos tienen nombres distintos.
         const primerContacto = esVivoMenu ? "primer_contacto" : "m1";
-        const entregaOferta = esVivoMenu ? "interes_tibio" : "m2";
+        // En agencias el equivalente a "entregué el análisis" es "mandé referencias
+        // y precios": es el momento en que la pelota queda del otro lado. Reusa el
+        // estado revision_enviada para no partir el embudo en dos vocabularios.
+        const entregaOferta = esAgencia ? "credenciales" : esVivoMenu ? "interes_tibio" : "m2";
         const avance: Partial<Prospecto> =
             pasoMensaje === primerContacto
                 ? { estado: "enviado", fecha_envio: hoyISO(), mensaje_enviado: mensajeEditado }
@@ -488,23 +512,121 @@ export default function ProspectoModal({
                                     <input value={draft.especialidad} onChange={(e) => set("especialidad", e.target.value)} className={inputCls} placeholder="Ej: Ortodoncia" />
                                 </Campo>
                                 <Campo label="Ciudad">
-                                    <input value={draft.ciudad} onChange={(e) => set("ciudad", e.target.value)} className={inputCls} placeholder="San Miguel de Tucumán" />
+                                    <input value={draft.ciudad} onChange={(e) => set("ciudad", e.target.value)} className={inputCls} placeholder={esAgencia ? "Guadalajara" : "San Miguel de Tucumán"} />
                                 </Campo>
-                                <Campo label="Dirección">
-                                    <input value={draft.direccion} onChange={(e) => set("direccion", e.target.value)} className={inputCls} />
+                                <Campo label="País" hint="Sin país, dos ciudades homónimas se pisan como duplicadas">
+                                    <input value={draft.pais} onChange={(e) => set("pais", e.target.value)} className={inputCls} placeholder={esAgencia ? "México" : "Argentina"} />
                                 </Campo>
-                                <Campo label="Contacto (si se conoce)">
-                                    <input value={draft.contacto_nombre} onChange={(e) => set("contacto_nombre", e.target.value)} className={inputCls} placeholder="Dr. / Sra. ..." />
+                                {!esAgencia && (
+                                    <Campo label="Dirección">
+                                        <input value={draft.direccion} onChange={(e) => set("direccion", e.target.value)} className={inputCls} />
+                                    </Campo>
+                                )}
+                                <Campo label="Contacto (si se conoce)" hint={esAgencia ? "El dueño o fundador. Un nombre real sube mucho la respuesta" : undefined}>
+                                    <input value={draft.contacto_nombre} onChange={(e) => set("contacto_nombre", e.target.value)} className={inputCls} placeholder={esAgencia ? "Nombre del fundador" : "Dr. / Sra. ..."} />
                                 </Campo>
-                                <Campo label="Cant. de profesionales" hint="1-3 = decide uno solo, ideal">
-                                    <input
-                                        type="number" min={1}
-                                        value={draft.cant_profesionales ?? ""}
-                                        onChange={(e) => set("cant_profesionales", e.target.value ? Number(e.target.value) : null)}
-                                        className={inputCls}
-                                    />
-                                </Campo>
+                                {!esAgencia && (
+                                    <Campo label="Cant. de profesionales" hint="1-3 = decide uno solo, ideal">
+                                        <input
+                                            type="number" min={1}
+                                            value={draft.cant_profesionales ?? ""}
+                                            onChange={(e) => set("cant_profesionales", e.target.value ? Number(e.target.value) : null)}
+                                            className={inputCls}
+                                        />
+                                    </Campo>
+                                )}
                             </div>
+
+                            {/* ── Calificación de agencias ──────────────────────
+                                Tres campos y uno solo decide: si ya ofrece desarrollo
+                                web, no es prospecto y el score cae a cero. Va arriba
+                                de todo lo demás porque es el filtro que hay que
+                                resolver antes de invertir un minuto más en la ficha. */}
+                            {esAgencia && (
+                                <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.05] p-4 space-y-4">
+                                    <p className="text-[11px] font-bold text-emerald-300 uppercase flex items-center gap-2">
+                                        <Handshake className="w-3.5 h-3.5" />
+                                        Calificación de la agencia
+                                    </p>
+
+                                    <Campo
+                                        label="¿Ofrece desarrollo web?"
+                                        hint="EL filtro. Si ya lo ofrece, no terceriza lo que vende: se descarta."
+                                    >
+                                        <div className="flex gap-2">
+                                            {([
+                                                { v: false, label: "No lo ofrece", tono: "ok" },
+                                                { v: true, label: "Sí lo ofrece", tono: "malo" },
+                                                { v: null, label: "Sin verificar", tono: "neutro" },
+                                            ] as const).map((op) => (
+                                                <button
+                                                    key={String(op.v)}
+                                                    type="button"
+                                                    onClick={() => set("ofrece_desarrollo_web", op.v)}
+                                                    className={cn(
+                                                        "flex-1 px-3 py-2 rounded-lg text-xs font-bold border transition-all",
+                                                        draft.ofrece_desarrollo_web === op.v
+                                                            ? op.tono === "ok"
+                                                                ? "bg-emerald-500/20 border-emerald-500/50 text-emerald-200"
+                                                                : op.tono === "malo"
+                                                                  ? "bg-rose-500/20 border-rose-500/50 text-rose-200"
+                                                                  : "bg-secondary border-border text-foreground"
+                                                            : "bg-card border-border text-muted-foreground hover:text-foreground"
+                                                    )}
+                                                >
+                                                    {op.label}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </Campo>
+
+                                    <div className="grid sm:grid-cols-2 gap-4">
+                                        <Campo label="Tamaño del equipo" hint="3 a 20 es la ventana: menos lo hace el dueño, más ya tiene proveedor">
+                                            <input
+                                                type="number" min={1}
+                                                value={draft.tam_equipo ?? ""}
+                                                onChange={(e) => set("tam_equipo", e.target.value ? Number(e.target.value) : null)}
+                                                className={inputCls}
+                                            />
+                                        </Campo>
+                                        <Campo label="¿Muestra clientes o casos?" hint="Sin cartera visible no hay trabajo para tercerizar">
+                                            <div className="flex gap-2">
+                                                {([
+                                                    { v: true, label: "Sí" },
+                                                    { v: false, label: "No" },
+                                                    { v: null, label: "s/d" },
+                                                ] as const).map((op) => (
+                                                    <button
+                                                        key={String(op.v)}
+                                                        type="button"
+                                                        onClick={() => set("muestra_clientes", op.v)}
+                                                        className={cn(
+                                                            "flex-1 px-3 py-2 rounded-lg text-xs font-bold border transition-all",
+                                                            draft.muestra_clientes === op.v
+                                                                ? "bg-primary text-primary-foreground border-primary"
+                                                                : "bg-card border-border text-muted-foreground hover:text-foreground"
+                                                        )}
+                                                    >
+                                                        {op.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        </Campo>
+                                    </div>
+
+                                    <Campo
+                                        label="Servicios que lista"
+                                        hint="Copiado de su propia página. De acá sale la línea de personalización del mensaje 1."
+                                    >
+                                        <input
+                                            value={draft.servicios}
+                                            onChange={(e) => set("servicios", e.target.value)}
+                                            className={inputCls}
+                                            placeholder="Redes sociales, Meta Ads, contenido, branding"
+                                        />
+                                    </Campo>
+                                </div>
+                            )}
 
                             <div className="grid sm:grid-cols-2 gap-4">
                                 <Campo label="Teléfono">
@@ -523,15 +645,29 @@ export default function ProspectoModal({
                                         </p>
                                     )}
                                 </Campo>
+                                {/* En agencias el mail va primero y el Instagram último:
+                                    el DM lo atiende el community manager, no quien decide. */}
+                                {esAgencia && (
+                                    <>
+                                        <Campo label="Email" hint="El canal por defecto en agencias del exterior">
+                                            <input value={draft.email} onChange={(e) => set("email", e.target.value)} className={inputCls} placeholder="hola@agencia.com" />
+                                        </Campo>
+                                        <Campo label="LinkedIn" hint="Del fundador, no de la empresa">
+                                            <input value={draft.linkedin_url} onChange={(e) => set("linkedin_url", e.target.value)} className={inputCls} placeholder="https://linkedin.com/in/..." />
+                                        </Campo>
+                                    </>
+                                )}
                                 <Campo label="Instagram">
                                     <input value={draft.instagram_url} onChange={(e) => set("instagram_url", e.target.value)} className={inputCls} placeholder="https://instagram.com/..." />
                                 </Campo>
                                 <Campo label="Sitio web">
                                     <input value={draft.sitio_web_url} onChange={(e) => set("sitio_web_url", e.target.value)} className={inputCls} />
                                 </Campo>
-                                <Campo label="Link de Google Maps">
-                                    <input value={draft.maps_url} onChange={(e) => set("maps_url", e.target.value)} className={inputCls} />
-                                </Campo>
+                                {!esAgencia && (
+                                    <Campo label="Link de Google Maps">
+                                        <input value={draft.maps_url} onChange={(e) => set("maps_url", e.target.value)} className={inputCls} />
+                                    </Campo>
+                                )}
                                 <Campo label="Rating">
                                     <input
                                         type="number" step="0.1" min={0} max={5}
@@ -1002,9 +1138,11 @@ export default function ProspectoModal({
                     {tab === "mensajes" && (
                         <div className="space-y-4">
                             <div className="flex gap-1.5 flex-wrap">
-                                {(esVivoMenu
-                                    ? (Object.keys(PASO_VIVOMENU_LABELS) as PasoMensajeVivoMenu[])
-                                    : (Object.keys(PASO_MENSAJE_LABELS) as PasoMensaje[])
+                                {(esAgencia
+                                    ? (Object.keys(PASO_AGENCIA_LABELS) as PasoMensajeAgencia[])
+                                    : esVivoMenu
+                                      ? (Object.keys(PASO_VIVOMENU_LABELS) as PasoMensajeVivoMenu[])
+                                      : (Object.keys(PASO_MENSAJE_LABELS) as PasoMensaje[])
                                 ).map((p) => (
                                     <button
                                         key={p}
@@ -1021,7 +1159,80 @@ export default function ProspectoModal({
                                 ))}
                             </div>
 
-                            {!esVivoMenu && pasoMensaje === "m1" && (
+                            {/* ── La oferta que cierra el análisis ──────────────
+                                Los 5 prospectos que aceptaron el análisis en agosto y
+                                no volvieron a contestar se cayeron exactamente acá: el
+                                mensaje entregaba las 4 cosas encontradas y terminaba en
+                                una pregunta de calificación, sin precio ni fecha. Para
+                                avanzar, el prospecto tenía que preguntar él cuánto
+                                salía, y eso no lo hace nadie.
+
+                                Estos tres campos van en la pestaña de mensajes y no en
+                                la de datos a propósito: se completan en el momento de
+                                armar el mensaje 2, mirando el análisis recién hecho. */}
+                            {pasoNecesitaOferta && (
+                                <div
+                                    className={cn(
+                                        "rounded-xl border p-4 space-y-3",
+                                        faltanDatosOferta
+                                            ? "border-amber-500/40 bg-amber-500/[0.07]"
+                                            : "border-emerald-500/30 bg-emerald-500/[0.05]"
+                                    )}
+                                >
+                                    <div className="flex items-start gap-2">
+                                        <Tag className={cn("w-3.5 h-3.5 mt-0.5 shrink-0", faltanDatosOferta ? "text-amber-400" : "text-emerald-400")} />
+                                        <div className="flex-1">
+                                            <p className={cn("text-[11px] font-bold uppercase", faltanDatosOferta ? "text-amber-300" : "text-emerald-300")}>
+                                                La oferta que cierra el análisis
+                                            </p>
+                                            <p className="text-[11px] text-muted-foreground mt-0.5">
+                                                Un solo arreglo, con precio y fecha. Cuatro problemas son una lista de tareas
+                                                para el año que viene; uno es algo que se resuelve el jueves.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="grid sm:grid-cols-3 gap-3">
+                                        <Campo label="Qué arreglás primero">
+                                            <input
+                                                value={draft.oferta_titulo}
+                                                onChange={(e) => { set("oferta_titulo", e.target.value); setMensajeEditado(generar(pasoMensaje, { ...draft, oferta_titulo: e.target.value })); }}
+                                                className={inputCls}
+                                                placeholder="la ficha de Google"
+                                            />
+                                        </Campo>
+                                        <Campo label="Precio">
+                                            <input
+                                                value={draft.oferta_precio}
+                                                onChange={(e) => { set("oferta_precio", e.target.value); setMensajeEditado(generar(pasoMensaje, { ...draft, oferta_precio: e.target.value })); }}
+                                                className={inputCls}
+                                                placeholder="USD 150"
+                                            />
+                                        </Campo>
+                                        <Campo label="Para cuándo">
+                                            <input
+                                                value={draft.oferta_plazo}
+                                                onChange={(e) => { set("oferta_plazo", e.target.value); setMensajeEditado(generar(pasoMensaje, { ...draft, oferta_plazo: e.target.value })); }}
+                                                className={inputCls}
+                                                placeholder="el viernes"
+                                            />
+                                        </Campo>
+                                    </div>
+
+                                    {faltanDatosOferta && (
+                                        <p className="text-[11px] text-amber-300 flex items-start gap-1.5">
+                                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-px" />
+                                            <span>
+                                                Falta {faltaParaOferta(draft).join(", ")}. Sin eso el mensaje sale con marcadores
+                                                entre corchetes — y si se manda igual, es el mismo mensaje que no convirtió a ninguno
+                                                de los 5 que aceptaron el análisis.
+                                            </span>
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
+                            {!esVivoMenu && !esAgencia && pasoMensaje === "m1" && (
                                 <div className="text-[11px] text-muted-foreground bg-secondary/40 border border-border rounded-lg p-3 space-y-1.5">
                                     <p>
                                         {nivel && nivel <= 2
@@ -1037,6 +1248,22 @@ export default function ProspectoModal({
                                         </p>
                                     )}
                                 </div>
+                            )}
+
+                            {esAgencia && pasoMensaje === "m1" && (
+                                <p className="text-[11px] text-muted-foreground bg-secondary/40 border border-border rounded-lg p-3">
+                                    Lo lee alguien que compra desarrollo todas las semanas. No va análisis, no va diagnóstico y no
+                                    va la palabra &quot;developer&quot;: va qué entregás, cuándo podés y a qué precio. La observación
+                                    de por qué se les escribe (que no ofrecen desarrollo web) es un dato de su página, nunca un
+                                    señalamiento. El pedido final se contesta con una palabra.
+                                </p>
+                            )}
+
+                            {esAgencia && (pasoMensaje === "credenciales" || pasoMensaje === "precios") && (
+                                <p className="text-[11px] text-muted-foreground bg-secondary/40 border border-border rounded-lg p-3">
+                                    Tres links, los precios y la disponibilidad. Nada más. No mandes el portfolio completo ni tu
+                                    forma de trabajar: a una agencia eso le suena a que le vas a querer hablar con su cliente.
+                                </p>
                             )}
 
                             {esVivoMenu && pasoMensaje === "primer_contacto" && (
