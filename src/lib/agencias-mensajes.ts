@@ -24,12 +24,25 @@ import type { Prospecto } from "./types";
 
 export const REMITENTE = "Gastón";
 
-/** Los tres casos que se mandan como referencia. Uno afuera, uno grande, uno tercerizado. */
-export const REFERENCIAS = [
-    "freedomcleaningjunior.com — e-commerce para una empresa del Gran Toronto",
-    "creafest.com.ar — landing y ticketing con QR para un evento de 200 personas",
-    "narziso.com.ar — web institucional en WordPress",
+/** Un solo link, siempre el mismo: el portfolio propio. */
+export const SITIO = "galuweb.com";
+
+/**
+ * Qué se nombra como respaldo. Van los trabajos, no los dominios.
+ *
+ * Antes iban las tres URLs sueltas y eso tenía dos costos: un mail frío con
+ * varios links afuera dispara filtros de spam antes de que nadie lo lea, y el
+ * que sí lo abre se va a tres lugares distintos en vez de al portfolio, que es
+ * donde está todo junto y donde se ve cómo trabaja Galu.
+ */
+export const TRABAJOS = [
+    "e-commerce para una empresa del Gran Toronto",
+    "landing con ticketing por QR para un evento de 200 personas",
+    "web institucional en WordPress",
 ];
+
+/** La línea que reemplaza a la lista de links. Va igual en el mail y en el DM. */
+export const LINEA_PORTFOLIO = `Algunos trabajos pueden verlos en ${SITIO}.`;
 
 /**
  * Precios de proveedor en USD (notas/10-a-quien-le-vendo.md §3). Son 50-65% del
@@ -119,8 +132,8 @@ export function generarMensajeAgencia(
             "",
             "Si les llegan pedidos de web que hoy no toman, o que mandan a un freelance distinto cada vez, tener a alguien fijo les ahorra la parte de salir a buscar y explicar todo de nuevo.",
             "",
-            "Qué entrego: sitios en WordPress, landings, e-commerce y diseño en Figma. Algunos trabajos:",
-            ...REFERENCIAS.map((r) => `· ${r}`),
+            "Qué entrego: sitios en WordPress, landings, e-commerce y diseño en Figma.",
+            `Entre otras cosas hice ${TRABAJOS[0]} y ${TRABAJOS[1]}. ${LINEA_PORTFOLIO}`,
             "",
             "Valores de proveedor:",
             ...PRECIOS_PROVEEDOR.slice(0, 4).map((x) => `· ${x.item}: ${x.precio}`),
@@ -180,9 +193,11 @@ export function generarMensajeAgencia(
         // "diagnóstico antes de diseño", ni el portfolio completo. A una agencia
         // eso le suena a que le vas a querer hablar con su cliente.
         return [
-            "Buenísimo. Te dejo tres cosas que hice:",
+            "Buenísimo. Tres cosas que hice:",
             "",
-            ...REFERENCIAS.map((r) => `· ${r}`),
+            ...TRABAJOS.map((t) => `· ${t}`),
+            "",
+            LINEA_PORTFOLIO,
             "",
             "Valores de proveedor:",
             ...PRECIOS_PROVEEDOR.slice(0, 4).map((x) => `· ${x.item}: ${x.precio}`),

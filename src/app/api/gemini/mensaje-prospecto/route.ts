@@ -132,20 +132,24 @@ function reglasAgencias(paso: PasoMensajeAgencia, canal: CanalAgencia): string {
 ${
     canal === "email"
         ? `   PISA LA REGLA 4: en mail no rige el máximo de 90 palabras.
-   El borrador viene largo A PROPÓSITO y no hay que acortarlo. No saques la lista de referencias ni la
-   de precios, no fusiones los bloques y no resumas: un mail frío que no dice qué entrega, con qué
-   respaldo y cuánto sale obliga a un segundo intercambio para decir lo que podía ir de una, y ese
-   segundo intercambio casi nunca llega. Dejá la línea "Asunto:" al principio tal cual está, mantené
-   los bloques separados por líneas en blanco, y cerrá con la firma sola.`
+   El borrador viene largo A PROPÓSITO y no hay que acortarlo. No saques la lista de precios, no
+   fusiones los bloques y no resumas: un mail frío que no dice qué entrega, con qué respaldo y cuánto
+   sale obliga a un segundo intercambio para decir lo que podía ir de una, y ese segundo intercambio
+   casi nunca llega. Dejá la línea "Asunto:" al principio tal cual está, mantené los bloques separados
+   por líneas en blanco, y cerrá con la firma sola.
+   El único link permitido es galuweb.com. PROHIBIDO agregar dominios de clientes o de trabajos.`
         : `   Se lee en la previsualización del celular: corto, sin listas y sin firma. Si no entra en cuatro o
    cinco líneas, está largo.`
 }`;
     }
     if (paso === "credenciales" || paso === "precios") {
         return `${base}
-16. Los links y los precios van TAL CUAL vienen en el borrador: no los redondees, no los reordenes, no les
-   cambies el rango. Un precio distinto al que quedó escrito en el CRM es un problema real después.
-17. Cero adorno alrededor de la lista. Una agencia lee esto como un catálogo: cuanto más corto, mejor.`;
+16. Los precios van TAL CUAL vienen en el borrador: no los redondees, no los reordenes, no les cambies el
+   rango. Un precio distinto al que quedó escrito en el CRM es un problema real después.
+17. Cero adorno alrededor de la lista. Una agencia lee esto como un catálogo: cuanto más corto, mejor.
+18. El único link que puede aparecer es galuweb.com, y solo si el borrador ya lo trae. Está PROHIBIDO
+   agregar dominios de clientes o de trabajos: varios links sueltos en un mail frío disparan filtros de
+   spam, y los trabajos se describen con palabras y se ven todos juntos en el portfolio.`;
     }
     return base;
 }
@@ -154,6 +158,12 @@ interface Body {
     prospecto: Prospecto;
     paso: string;
     sistema?: Sistema;
+    /**
+     * Por dónde se va a mandar. Lo elige quien escribe, no el CRM: el texto por
+     * mail no es el mismo que por mensaje directo. Si no viene, se usa el canal
+     * que sugiere la ficha.
+     */
+    canal?: CanalAgencia;
 }
 
 /**
@@ -165,7 +175,7 @@ interface Body {
 export async function POST(req: Request) {
     let borrador = "";
     try {
-        const { prospecto, paso, sistema: sistemaBody } = (await req.json()) as Body;
+        const { prospecto, paso, sistema: sistemaBody, canal: canalBody } = (await req.json()) as Body;
         const sistema: Sistema = sistemaBody || prospecto?.sistema || "galu";
 
         if (!prospecto?.negocio) {
@@ -184,7 +194,7 @@ export async function POST(req: Request) {
         }
 
         borrador = esAgencias
-            ? generarMensajeAgencia(paso as PasoMensajeAgencia, prospecto)
+            ? generarMensajeAgencia(paso as PasoMensajeAgencia, prospecto, canalBody || canalSugerido(prospecto))
             : esVivoMenu
               ? generarMensajeVivoMenu(paso as PasoMensajeVivoMenu, prospecto)
               : generarMensaje(paso as PasoMensaje, prospecto);
@@ -214,7 +224,7 @@ ${
                     : "Sin verificar. NO afirmes que no ofrecen desarrollo web: no está confirmado."
           }
 Tamaño del equipo: ${prospecto.tam_equipo ?? "s/d"}
-Canal: ${CANAL_AGENCIA_LABELS[canalSugerido(prospecto)]}
+Canal elegido para este envío: ${CANAL_AGENCIA_LABELS[canalBody || canalSugerido(prospecto)]}
 Contacto: ${prospecto.contacto_nombre || "sin nombre — no inventes uno"}`
         : `Presencia web: ${prospecto.clasificacion_web}`
 }
@@ -253,7 +263,7 @@ ${
         }`;
 
         const reglas = esAgencias
-            ? reglasAgencias(paso as PasoMensajeAgencia, canalSugerido(prospecto))
+            ? reglasAgencias(paso as PasoMensajeAgencia, canalBody || canalSugerido(prospecto))
             : esVivoMenu
               ? reglasVivoMenu(paso as PasoMensajeVivoMenu, nivel)
               : reglasGalu(

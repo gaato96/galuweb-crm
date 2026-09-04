@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
     X, Save, Trash2, Building2, Radar, MessageSquare, CalendarClock,
     Copy, Check, ExternalLink, AlertTriangle, Sparkles, UserPlus, Loader2, Instagram, Phone, MapPin,
-    ScanSearch, CircleCheck, Hand, ChevronLeft, ChevronRight, Handshake, Tag
+    ScanSearch, CircleCheck, Hand, ChevronLeft, ChevronRight, Handshake, Tag, Globe, Linkedin, Mail
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -28,6 +28,7 @@ import {
 } from "@/lib/vivomenu-mensajes";
 import {
     generarMensajeAgencia, PASO_AGENCIA_LABELS, type PasoMensajeAgencia,
+    canalSugerido, CANAL_AGENCIA_LABELS, type CanalAgencia,
 } from "@/lib/agencias-mensajes";
 import {
     detectarRubro, senialesPara, senialPrincipal, PATRON_LABELS, RUBRO_LABELS,
@@ -93,6 +94,13 @@ export default function ProspectoModal({
     const [mensajeEditado, setMensajeEditado] = useState("");
     const [copiado, setCopiado] = useState(false);
     const [copiadoWa, setCopiadoWa] = useState(false);
+    const [copiadoMail, setCopiadoMail] = useState(false);
+    /**
+     * Por qué canal se va a mandar. Arranca en el que sugiere la ficha, pero se
+     * puede cambiar: el texto no es el mismo por mail que por mensaje directo, y
+     * quién decide eso es el que va a mandarlo, no el CRM.
+     */
+    const [canalElegido, setCanalElegido] = useState<CanalAgencia>(() => canalSugerido(prospecto));
     const [copiadoResumen, setCopiadoResumen] = useState(false);
     const [generandoIA, setGenerandoIA] = useState(false);
     const [escaneando, setEscaneando] = useState(false);
@@ -121,9 +129,9 @@ export default function ProspectoModal({
     const chequeos = useMemo(() => chequeosDemanda(draft), [draft.rubro, draft.especialidad, draft.ciudad]);
 
     /** Un solo punto de generación: despacha al motor del sistema del prospecto. */
-    const generar = (paso: PasoUI, p: Prospecto): string =>
+    const generar = (paso: PasoUI, p: Prospecto, canal: CanalAgencia = canalElegido): string =>
         p.sistema === "agencias"
-            ? generarMensajeAgencia(paso as PasoMensajeAgencia, p)
+            ? generarMensajeAgencia(paso as PasoMensajeAgencia, p, canal)
             : p.sistema === "vivomenu"
               ? generarMensajeVivoMenu(paso as PasoMensajeVivoMenu, p)
               : generarMensaje(paso as PasoMensaje, p);
@@ -180,7 +188,11 @@ export default function ProspectoModal({
         setResultadoAuto(null);
         const inicial: PasoUI = nuevo.sistema === "vivomenu" ? "primer_contacto" : "m1";
         setPasoMensaje(inicial);
-        setMensajeEditado(generar(inicial, nuevo));
+        // El canal vuelve al sugerido en cada prospecto: lo que se eligió a mano
+        // para el anterior no dice nada del que viene.
+        const canalInicial = canalSugerido(nuevo);
+        setCanalElegido(canalInicial);
+        setMensajeEditado(generar(inicial, nuevo, canalInicial));
         // Foco en el cuerpo para que Re Pág / Av Pág y las flechas scrolleen la
         // ficha sin tener que clickear primero en un campo.
         cuerpoRef.current?.focus({ preventScroll: true });
@@ -243,6 +255,15 @@ export default function ProspectoModal({
         setCopiadoWa(true);
         toast.success(`+${wa} copiado`);
         setTimeout(() => setCopiadoWa(false), 2000);
+    };
+
+    const copiarEmail = () => {
+        const mail = draft.email.trim();
+        if (!mail) return;
+        navigator.clipboard.writeText(mail);
+        setCopiadoMail(true);
+        toast.success(`${mail} copiado`);
+        setTimeout(() => setCopiadoMail(false), 2000);
     };
 
     const copiarMensaje = () => {
@@ -353,7 +374,7 @@ export default function ProspectoModal({
             const res = await fetch("/api/gemini/mensaje-prospecto", {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ prospecto: draft, paso: pasoMensaje, sistema: draft.sistema }),
+                body: JSON.stringify({ prospecto: draft, paso: pasoMensaje, sistema: draft.sistema, canal: canalElegido }),
             });
             const json = await res.json();
             if (!res.ok) throw new Error(json.error || "Error al generar el mensaje");
@@ -436,7 +457,11 @@ export default function ProspectoModal({
                                 {CLASIFICACION_WEB_LABELS[draft.clasificacion_web]}
                             </span>
                         </div>
-                        {(draft.maps_url || draft.instagram_url || draft.telefono) && (
+                        {/* Todo lo que esté cargado se abre desde acá, en un click. Antes
+                            la web y el LinkedIn estaban solo en la pestaña Datos y había
+                            que entrar, copiar la URL y pegarla en una pestaña nueva. */}
+                        {(draft.maps_url || draft.instagram_url || draft.telefono ||
+                          draft.sitio_web_url || draft.linkedin_url || draft.email) && (
                             <div className="flex items-center gap-2 mt-2 flex-wrap">
                                 {(draft.telefono_wa || telefonoAWhatsapp(draft.telefono)) && (
                                     <button
@@ -449,25 +474,34 @@ export default function ProspectoModal({
                                         {copiadoWa ? "Copiado" : `+${draft.telefono_wa || telefonoAWhatsapp(draft.telefono)}`}
                                     </button>
                                 )}
-                                {draft.maps_url && (
-                                    <a
-                                        href={conProtocolo(draft.maps_url)}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-secondary/60 border border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+                                {draft.email && (
+                                    <button
+                                        type="button"
+                                        onClick={copiarEmail}
+                                        title="Copia el mail para pegarlo donde estés escribiendo"
+                                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-sky-500/15 border border-sky-500/30 text-sky-300 hover:bg-sky-500/25"
                                     >
-                                        <MapPin className="w-3.5 h-3.5" /> Maps
-                                    </a>
+                                        {copiadoMail ? <Check className="w-3.5 h-3.5" /> : <Mail className="w-3.5 h-3.5" />}
+                                        {copiadoMail ? "Copiado" : draft.email}
+                                    </button>
+                                )}
+                                {draft.sitio_web_url && (
+                                    <ChipLink url={draft.sitio_web_url} icono={<Globe className="w-3.5 h-3.5" />} label="Web" />
+                                )}
+                                {draft.linkedin_url && (
+                                    <ChipLink
+                                        url={draft.linkedin_url}
+                                        icono={<Linkedin className="w-3.5 h-3.5" />}
+                                        // Ver de un vistazo si es una persona o la página de la
+                                        // empresa: solo a la primera se le puede escribir.
+                                        label={draft.linkedin_url.toLowerCase().includes("/in/") ? "LinkedIn · persona" : "LinkedIn · empresa"}
+                                    />
+                                )}
+                                {draft.maps_url && (
+                                    <ChipLink url={draft.maps_url} icono={<MapPin className="w-3.5 h-3.5" />} label="Maps" />
                                 )}
                                 {draft.instagram_url && (
-                                    <a
-                                        href={conProtocolo(draft.instagram_url)}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-secondary/60 border border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
-                                    >
-                                        <Instagram className="w-3.5 h-3.5" /> Instagram
-                                    </a>
+                                    <ChipLink url={draft.instagram_url} icono={<Instagram className="w-3.5 h-3.5" />} label="Instagram" />
                                 )}
                             </div>
                         )}
@@ -1175,6 +1209,66 @@ export default function ProspectoModal({
                                 ))}
                             </div>
 
+                            {/* ── Por dónde se manda ────────────────────────────
+                                El mail y el mensaje directo no llevan el mismo texto:
+                                un DM se lee en la previsualización del celular y un mail
+                                frío tiene lugar para referencias y precios. Elegir el
+                                canal acá cambia el borrador, así que va antes de leerlo.
+                                Los canales que la ficha no tiene cargados se muestran
+                                igual pero apagados, para no dejar dudas de por qué no
+                                están disponibles. */}
+                            {esAgencia && (
+                                <div className="rounded-xl border border-border bg-background/40 p-3 space-y-2">
+                                    <div className="flex items-baseline justify-between gap-2 flex-wrap">
+                                        <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wide">
+                                            Por dónde lo mando
+                                        </p>
+                                        <p className="text-[11px] text-muted-foreground">
+                                            {CANAL_AGENCIA_LABELS[canalElegido]}
+                                        </p>
+                                    </div>
+                                    <div className="flex gap-1.5 flex-wrap">
+                                        {([
+                                            { c: "email" as const, label: "Mail", hay: !!draft.email.trim() },
+                                            {
+                                                c: "linkedin_persona" as const,
+                                                label: "LinkedIn",
+                                                hay: draft.linkedin_url.toLowerCase().includes("/in/"),
+                                            },
+                                            { c: "instagram" as const, label: "Instagram DM", hay: !!draft.instagram_url.trim() },
+                                        ]).map((op) => (
+                                            <button
+                                                key={op.c}
+                                                type="button"
+                                                disabled={!op.hay}
+                                                title={op.hay ? undefined : "No hay nada cargado en este canal"}
+                                                onClick={() => {
+                                                    setCanalElegido(op.c);
+                                                    setMensajeEditado(generar(pasoMensaje, draft, op.c));
+                                                }}
+                                                className={cn(
+                                                    "px-3 py-1.5 rounded-lg text-[11px] font-bold border transition-all",
+                                                    !op.hay
+                                                        ? "bg-card border-border text-muted-foreground/40 cursor-not-allowed"
+                                                        : canalElegido === op.c
+                                                          ? "bg-primary text-primary-foreground border-primary"
+                                                          : "bg-card border-border text-muted-foreground hover:text-foreground"
+                                                )}
+                                            >
+                                                {op.label}
+                                            </button>
+                                        ))}
+                                    </div>
+                                    {canalElegido === "email" && pasoMensaje === "m1" && (
+                                        <p className="text-[11px] text-muted-foreground">
+                                            Por mail el mensaje va largo a propósito: asunto, qué entregás, los
+                                            trabajos y los precios. Un mail que no dice cuánto sale obliga a un
+                                            segundo intercambio que casi nunca llega.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
                             {/* ── La oferta que cierra el análisis ──────────────
                                 Los 5 prospectos que aceptaron el análisis en agosto y
                                 no volvieron a contestar se cayeron exactamente acá: el
@@ -1554,6 +1648,21 @@ const inputCls =
     "w-full px-3 py-2 bg-background border border-input rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground/40";
 
 const conProtocolo = (url: string) => (url.startsWith("http") ? url : `https://${url}`);
+
+/** Chip de la cabecera: abre en pestaña nueva un link que ya está en la ficha. */
+function ChipLink({ url, icono, label }: { url: string; icono: React.ReactNode; label: string }) {
+    return (
+        <a
+            href={conProtocolo(url)}
+            target="_blank"
+            rel="noopener noreferrer"
+            title={url}
+            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold bg-secondary/60 border border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+        >
+            {icono} {label}
+        </a>
+    );
+}
 
 function Campo({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
     return (
