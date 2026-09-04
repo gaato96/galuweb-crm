@@ -523,7 +523,12 @@ export function motivoFueraDeCola(p: Prospecto): string | null {
     // agencia se elige por portfolio) y el canal por defecto es el mail.
     if (p.sistema === "agencias") {
         if (p.ofrece_desarrollo_web === true) return "ya ofrece desarrollo web";
-        if (!p.email.trim() && !p.linkedin_url.trim() && !p.instagram_url.trim()) {
+        // El LinkedIn de la empresa (/company/) no es un canal: no hay a quién
+        // escribirle ahí. Es el que trae el escaneo casi siempre, porque es el que
+        // va linkeado en el pie de la web, y contarlo como canal daba por
+        // contactables agencias a las que no había por dónde entrar.
+        const linkedinEscribible = p.linkedin_url.trim().toLowerCase().includes("/in/");
+        if (!p.email.trim() && !linkedinEscribible && !p.instagram_url.trim()) {
             return p.sitio_web_url.trim() ? MOTIVO_SIN_ESCANEAR : "sin canal de contacto";
         }
         if (p.ofrece_desarrollo_web == null) return MOTIVO_SIN_ESCANEAR;

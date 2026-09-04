@@ -75,15 +75,16 @@ export const PATRON_LABELS: Record<PatronDolor, string> = {
 };
 
 /** Rubros con catálogo propio. "generico" es el fallback para los que todavía no trabajamos. */
-export type RubroProspeccion = "odontologia" | "gastronomia" | "generico";
+export type RubroProspeccion = "odontologia" | "gastronomia" | "agencias" | "generico";
 
 export const RUBRO_LABELS: Record<RubroProspeccion, string> = {
     odontologia: "Odontología y salud",
     gastronomia: "Gastronomía",
+    agencias: "Agencias de marketing",
     generico: "Genérico",
 };
 
-const CLAVES_RUBRO: Record<Exclude<RubroProspeccion, "generico">, string[]> = {
+const CLAVES_RUBRO: Record<Exclude<RubroProspeccion, "generico" | "agencias">, string[]> = {
     odontologia: [
         "odontolog", "dentista", "dental", "ortodon", "implant", "endodon",
         "periodon", "odontopediatr", "consultorio", "clinica medica", "clínica médica",
@@ -101,12 +102,14 @@ const CLAVES_RUBRO: Record<Exclude<RubroProspeccion, "generico">, string[]> = {
 /**
  * De qué rubro es un prospecto.
  * El sistema manda por encima del texto: todo lo que se carga en VivoMenu es
- * gastronomía por definición, aunque el rubro venga escrito raro desde el scraper.
+ * gastronomía por definición, y todo lo que se carga en agencias es una agencia,
+ * aunque el rubro venga escrito raro desde el scraper.
  */
 export function detectarRubro(
     p: Pick<Prospecto, "rubro" | "especialidad"> & { sistema?: Prospecto["sistema"] }
 ): RubroProspeccion {
     if (p.sistema === "vivomenu") return "gastronomia";
+    if (p.sistema === "agencias") return "agencias";
 
     const texto = normalizar(`${p.rubro || ""} ${p.especialidad || ""}`);
     if (!texto.trim()) return "generico";
@@ -495,6 +498,80 @@ const SENIALES: SenialNivel2[] = [
         peso: 20,
         linea1: (p) => `Entré a la web de ${p.negocio} desde el celular y tarda bastante en abrir.`,
     },
+
+    // ══ AGENCIAS DE MARKETING (proveedor tercerizado) ══════════
+    // Acá no se le vende al negocio final: se le vende a una agencia que ya tiene
+    // los clientes. Lo que se busca no es una falla suya, es el hueco en lo que
+    // ofrece. Por eso ninguna de estas señales entra al mensaje como reproche —
+    // el mensaje 1 de agencias se arma en agencias-mensajes.ts y estas señales
+    // solo sirven para calificar y para saber con qué línea entrar.
+    {
+        id: "no_ofrece_desarrollo",
+        label: "En su página de servicios NO figura desarrollo ni diseño web",
+        donde:
+            "Su web → Servicios. Es EL filtro: si lo ofrece, no terceriza lo que ya vende y se descarta. Ojo con confundir un caso de cliente con un servicio propio.",
+        patron: "demanda_que_no_llega",
+        rubros: ["agencias"],
+        peso: 100,
+        linea1: (p) => `Vi que en ${p.negocio} trabajan redes y pauta, y no vi desarrollo web entre los servicios.`,
+        hallazgo: "no ofrecen desarrollo web entre sus servicios",
+    },
+    {
+        id: "casos_solo_redes",
+        label: "Los casos que muestra son todos de redes y pauta, ninguno de web",
+        donde:
+            "Su web → Portfolio / Casos / Clientes. Confirma lo de arriba desde el otro lado: no es que no lo pongan en la lista, es que no lo hacen.",
+        patron: "demanda_que_no_llega",
+        rubros: ["agencias"],
+        peso: 90,
+        linea1: (p) => `Estuve mirando los casos de ${p.negocio} y son todos de redes y contenido.`,
+        hallazgo: "los casos que muestran son todos de redes y contenido",
+    },
+    {
+        id: "clientes_sin_web",
+        label: "Sus clientes tienen web, y no la hizo la agencia",
+        donde:
+            "Agarrá 2 o 3 clientes de su portfolio y mirá el pie de la web de cada uno. Si la hizo otro, ese trabajo se está yendo afuera todos los meses.",
+        patron: "a_medio_terminar",
+        rubros: ["agencias"],
+        peso: 85,
+        linea1: (p) =>
+            `Vi que varios clientes de ${p.negocio} tienen web hecha por afuera.`,
+        hallazgo: "varios de sus clientes tienen la web hecha por otro proveedor",
+    },
+    {
+        id: "busca_disenador",
+        label: "Publicó una búsqueda de diseñador o desarrollador",
+        donde:
+            "LinkedIn de la empresa → Publicaciones, e Instagram. Es la señal más caliente de todas: hay trabajo que hoy no pueden cubrir y lo están diciendo en público.",
+        patron: "capacidad",
+        rubros: ["agencias"],
+        peso: 95,
+        linea1: (p) => `Vi que en ${p.negocio} están buscando alguien de diseño o desarrollo.`,
+        hallazgo: "están buscando perfil de diseño o desarrollo",
+    },
+    {
+        id: "equipo_sin_devs",
+        label: "El equipo que muestra no tiene ningún perfil técnico",
+        donde:
+            'Su web → Equipo / Nosotros, o el "Personas" de su LinkedIn. Community managers, diseñadores gráficos y pauta, pero nadie que arme un sitio.',
+        patron: "capacidad",
+        rubros: ["agencias"],
+        peso: 70,
+        linea1: (p) => `Vi el equipo de ${p.negocio} y no encontré perfil de desarrollo.`,
+        hallazgo: "no tienen un perfil de desarrollo en el equipo",
+    },
+    {
+        id: "web_propia_desactualizada",
+        label: "Su propia web está desactualizada o a medio hacer",
+        donde:
+            'Portfolio con casos viejos, blog parado hace más de un año, links rotos, "© 2022" en el pie. Señal floja sola, pero suma cuando ya hay otras.',
+        patron: "a_medio_terminar",
+        rubros: ["agencias"],
+        peso: 40,
+        linea1: (p) => `Entré a la web de ${p.negocio} y la vi con material de hace un tiempo.`,
+        hallazgo: "su propia web quedó con material viejo",
+    },
 ];
 
 export const SENIALES_POR_ID: Record<string, SenialNivel2> = Object.fromEntries(
@@ -608,6 +685,29 @@ const LECTURA: Record<RubroProspeccion, Record<PatronDolor, Lectura>> = {
             "el cliente que ya te compró es el más barato de todos, y volver a traerlo depende de que alguien se acuerde de avisarle en el momento justo.",
         a_medio_terminar: () =>
             "lo que quedó empezado ya te costó tiempo y plata. Está puesto y sin terminar de cobrar, y no se nota porque no hay dónde verlo.",
+    },
+
+    // Agencias: el que lee es dueño de una agencia, no de un comercio. No tiene un
+    // problema de clientes ni de visibilidad — tiene un hueco en lo que puede
+    // entregar. Estas lecturas no van al mensaje 1 (ese se arma en
+    // agencias-mensajes.ts), pero sostienen el mismo criterio en toda la ficha.
+    agencias: {
+        demanda_que_no_llega: () =>
+            "el cliente que ya tienen les pide la web tarde o temprano, y hoy esa parte la resuelve otro. No es que falte demanda: es demanda propia que se atiende afuera.",
+        capacidad: () =>
+            "hay trabajo que no pueden tomar por no tener con quién hacerlo, y contratar a alguien fijo para eso recién cierra con volumen constante.",
+        a_medio_terminar: () =>
+            "ese trabajo ya está pago por el cliente, pero lo factura otro proveedor. Es margen que pasa por al lado todos los meses.",
+        margen_regalado: () =>
+            "cuando el desarrollo lo pone un tercero directo con el cliente, la agencia pierde el control de la cuenta además del margen.",
+        operar_a_ciegas: () =>
+            "sin un proveedor fijo, cada pedido de web arranca de cero: buscar quién, pedir precio, explicar todo otra vez.",
+        consulta_perdida: () =>
+            "el pedido entró, pero la respuesta tarda porque hay que salir a averiguar con quién hacerlo.",
+        tiempo_del_dueno: () =>
+            "coordinar freelancers distintos en cada proyecto se lleva horas del dueño que no se facturan a nadie.",
+        no_vuelve: () =>
+            "un cliente al que le resolviste solo una parte se va con el que le resuelve todo.",
     },
 };
 

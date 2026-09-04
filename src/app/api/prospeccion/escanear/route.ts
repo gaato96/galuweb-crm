@@ -264,10 +264,20 @@ function decodificarEntidades(s: string): string {
         .replace(/&([a-zA-Z]+);/g, (todo, nombre) => ENTIDADES[nombre] ?? todo);
 }
 
+/**
+ * El contenido de <script> y <style> se borra entero, no solo sus tags. Sacarle
+ * los tags a un `<script>` deja el JavaScript suelto dentro del texto, y ahí
+ * viven nombres de librerías, rutas y strings de configuración que no son lo
+ * que el sitio dice. Con eso, un WordPress cualquiera "mencionaba wordpress" y
+ * una agencia quedaba marcada como que ofrece desarrollo web.
+ */
 function sinHtml(s: string): string {
-    return decodificarEntidades(s.replace(/<[^>]+>/g, " "))
-        .replace(/\s+/g, " ")
-        .trim();
+    const limpio = s
+        .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, " ")
+        .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, " ")
+        .replace(/<!--[\s\S]*?-->/g, " ")
+        .replace(/<[^>]+>/g, " ");
+    return decodificarEntidades(limpio).replace(/\s+/g, " ").trim();
 }
 
 function dominiosDe(items: ItemSerp[]): string[] {
@@ -542,18 +552,33 @@ function aplanar(s: string): string {
 // ─────────────────────────────────────────────────────────────
 
 /**
- * Palabras con las que una agencia dice que SÍ hace desarrollo web. Si alguna
- * aparece en su propia página, deja de ser prospecto: no terceriza lo que vende.
+ * Frases con las que una agencia nombra el servicio de hacer webs. Son las que
+ * describen la actividad, no las herramientas: una agencia puede nombrar
+ * "wordpress" o "landing page" en un caso de cliente, en un post del blog o en
+ * el pie del tema que usa su propio sitio sin ofrecer nada de eso.
  *
  * La lista está en español y en inglés porque el mercado objetivo incluye Miami
- * y agencias latinoamericanas con el sitio en inglés.
+ * y agencias latinoamericanas con el sitio en inglés. Se compara contra el texto
+ * ya aplanado, así que va sin acentos y sin guiones.
  */
 const SENIALES_HACE_WEB = [
     "desarrollo web", "desarrollo de sitios", "desarrollo de paginas", "diseno web",
-    "paginas web", "sitios web", "creacion de sitios", "desarrollo a medida",
-    "wordpress", "shopify", "woocommerce", "webflow", "ecommerce", "e-commerce",
-    "tienda online", "landing page", "desarrollo de software", "aplicaciones web",
-    "web development", "web design", "website development", "custom websites",
+    "diseno de paginas", "diseno de sitios", "paginas web", "sitios web",
+    "creacion de sitios", "creacion de paginas", "desarrollo a medida",
+    "desarrollo de software", "aplicaciones web",
+    "web development", "web design", "website development", "website design",
+    "custom websites",
+];
+
+/**
+ * Palabras que *sugieren* trabajo de web pero no lo afirman. No descartan a
+ * nadie: solo levantan la mano para que se mire la página de servicios. Antes
+ * estaban mezcladas con las de arriba y se llevaban puestos prospectos buenos
+ * —una agencia con el sitio hecho en WordPress quedaba descartada por eso.
+ */
+const PISTAS_QUIZAS_HACE_WEB = [
+    "wordpress", "shopify", "woocommerce", "webflow", "ecommerce", "e commerce",
+    "tienda online", "landing page", "landing pages",
 ];
 
 /**
@@ -628,12 +653,17 @@ async function escanearAgencia(p: Prospecto): Promise<EscaneoAutomatico> {
 
     const texto = aplanarTexto(html);
     const haceWeb = SENIALES_HACE_WEB.filter((s) => texto.includes(s));
+    const quizas = PISTAS_QUIZAS_HACE_WEB.filter((s) => texto.includes(s));
     const servicios = SERVICIOS_DE_MARKETING.filter((s) => texto.includes(s));
 
     if (haceWeb.length > 0) {
-        campos.ofrece_desarrollo_web = true;
+        // Deliberadamente NO se marca `ofrece_desarrollo_web = true` acá. Leer una
+        // frase en la home no distingue un servicio propio de un caso de cliente
+        // ("le hicimos el diseño web a X") ni de un post del blog, y ese error
+        // descarta prospectos buenos de a decenas sin que nadie lo vea. Queda la
+        // evidencia servida y el descarte lo confirma una persona en un click.
         pendientes.push(
-            `La home menciona "${haceWeb.slice(0, 3).join('", "')}". Si eso es un servicio propio y no un caso de cliente, no es prospecto: descartala.`
+            `La web dice "${haceWeb.slice(0, 3).join('", "')}". Abrí ${base} y fijate si es un servicio que ofrecen o un trabajo que hicieron: si lo ofrecen, marcá "Sí lo ofrece" y se descarta.`
         );
     } else if (servicios.length > 0) {
         // Solo se afirma que NO ofrece web si además se confirmó que ES una agencia
@@ -652,21 +682,69 @@ async function escanearAgencia(p: Prospecto): Promise<EscaneoAutomatico> {
         );
     }
 
+    if (quizas.length > 0 && haceWeb.length === 0) {
+        pendientes.push(
+            `Aparece "${quizas.slice(0, 3).join('", "')}" en la web, pero eso solo no confirma que ofrezcan desarrollo: puede ser la herramienta con la que está hecho su propio sitio, o un caso de cliente. Vale una mirada a Servicios antes de escribirle.`
+        );
+    }
+
     if (servicios.length > 0 && !p.servicios.trim()) {
         campos.servicios = servicios.slice(0, 5).join(", ");
     }
 
-    // Un mail en la home es el canal que llega al dueño. Se descartan los que son
-    // de assets o de servicios de tracking, que no le contestan a nadie.
+    // El canal de contacto se busca en la home y, si ahí no hay nada, en la página
+    // de contacto. Muchas agencias dejan la home como vidriera y ponen el mail una
+    // sola vez, en /contacto. Sin esto quedaban como "sin canal de contacto"
+    // agencias que sí tienen por dónde entrar.
+    let htmlContacto = "";
+    const faltaCanal = !p.email.trim() && !p.instagram_url.trim() && !p.telefono.trim();
+    if (faltaCanal) {
+        for (const ruta of ["/contacto", "/contact", "/contactanos", "/contacto-2"]) {
+            try {
+                const res = await fetch(new URL(ruta, base).toString(), {
+                    headers: { "User-Agent": UA },
+                    redirect: "follow",
+                    signal: AbortSignal.timeout(6000),
+                });
+                if (res.ok) {
+                    htmlContacto = (await res.text()).slice(0, 80_000);
+                    if (/@|instagram\.com|wa\.me/i.test(htmlContacto)) break;
+                    htmlContacto = "";
+                }
+            } catch {
+                /* Que no exista /contacto es lo más común: no es un error. */
+            }
+        }
+    }
+    const htmlContacto_ = html + " " + htmlContacto;
+
+    // Los mails de assets, de tracking y los de ejemplo no le contestan a nadie.
     if (!p.email.trim()) {
         const mails = Array.from(
-            new Set((html.match(/[\w.+-]+@[\w-]+\.[\w.-]{2,}/g) || []).map((m) => m.toLowerCase()))
-        ).filter((m) => !/\.(png|jpg|jpeg|svg|gif|webp)$/.test(m) && !m.includes("sentry") && !m.includes("wixpress"));
+            new Set((htmlContacto_.match(/[\w.+-]+@[\w-]+\.[\w.-]{2,}/g) || []).map((m) => m.toLowerCase()))
+        ).filter(
+            (m) =>
+                !/\.(png|jpg|jpeg|svg|gif|webp|js|css)$/.test(m) &&
+                !/sentry|wixpress|example\.|sentry\.io|godaddy|\.png|@2x/.test(m)
+        );
         if (mails[0]) campos.email = mails[0];
     }
 
+    if (!p.instagram_url.trim()) {
+        const ig = htmlContacto_.match(
+            /https?:\/\/(?:www\.)?instagram\.com\/([\w.]{2,30})/i
+        );
+        // "instagram.com/p/" es un posteo embebido, no el perfil de la agencia.
+        if (ig && !/^(p|reel|explore|accounts)$/i.test(ig[1])) campos.instagram_url = ig[0];
+    }
+
+    if (!p.telefono.trim()) {
+        const wa = htmlContacto_.match(/(?:wa\.me|api\.whatsapp\.com\/send\?phone=)\/?(\+?\d{8,15})/i);
+        if (wa) campos.telefono = wa[1];
+    }
+
     if (!p.linkedin_url.trim()) {
-        const li = html.match(/https?:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/(?:company|in)\/[\w%-]+/i);
+        const li = htmlContacto_.match(/https?:\/\/(?:[a-z]{2,3}\.)?linkedin\.com\/(?:company|in)\/[\w%-]+/i);
         if (li) campos.linkedin_url = li[0];
     }
 

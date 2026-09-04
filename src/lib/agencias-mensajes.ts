@@ -90,8 +90,48 @@ function saludo(p: Prospecto): string {
  * borrador determinístico: la IA lo reescribe para que suene natural, pero no
  * elige el enfoque ni cambia el pedido.
  */
-export function generarMensajeAgencia(paso: PasoMensajeAgencia, p: Prospecto): string {
+export function generarMensajeAgencia(
+    paso: PasoMensajeAgencia,
+    p: Prospecto,
+    canal: CanalAgencia = canalSugerido(p)
+): string {
     const negocio = p.negocio || "la agencia";
+
+    // El mensaje 1 por mail es otro texto, no el mismo con más saltos de línea.
+    // Un DM se lee en diez segundos y tiene que caber en la previsualización; un
+    // mail frío compite con otros veinte y se lo juzga por el asunto y las dos
+    // primeras líneas, pero si supera eso tiene lugar para las tres cosas que una
+    // agencia necesita saber antes de contestar: qué entrega, con qué respaldo y
+    // cuánto sale. Mandar el texto corto por mail obliga a un segundo intercambio
+    // para decir lo que podría haber ido de una.
+    if (paso === "m1" && canal === "email") {
+        const observacion =
+            p.ofrece_desarrollo_web === false
+                ? `Les escribo porque vi que trabajan ${loQueHacen(p)} y no vi desarrollo web entre los servicios que ofrecen.`
+                : `Les escribo porque vi que trabajan ${loQueHacen(p)}.`;
+
+        return [
+            `Asunto: Desarrollo web tercerizado para ${negocio}`,
+            "",
+            `${saludo(p)} Soy ${REMITENTE}, diseñador y desarrollador web. Trabajo desde Argentina con agencias como proveedor tercerizado: ustedes venden y gestionan al cliente, yo diseño y entrego el sitio con la marca de ustedes. El cliente final nunca me ve.`,
+            "",
+            observacion,
+            "",
+            "Si les llegan pedidos de web que hoy no toman, o que mandan a un freelance distinto cada vez, tener a alguien fijo les ahorra la parte de salir a buscar y explicar todo de nuevo.",
+            "",
+            "Qué entrego: sitios en WordPress, landings, e-commerce y diseño en Figma. Algunos trabajos:",
+            ...REFERENCIAS.map((r) => `· ${r}`),
+            "",
+            "Valores de proveedor:",
+            ...PRECIOS_PROVEEDOR.slice(0, 4).map((x) => `· ${x.item}: ${x.precio}`),
+            "",
+            "Entrego en una o dos semanas según el tamaño y tengo disponibilidad este mes.",
+            "",
+            "¿Les sirve tener un proveedor fijo para esto? Con un sí o un no me alcanza.",
+            "",
+            REMITENTE,
+        ].join("\n");
+    }
 
     if (paso === "m1") {
         // Estructura: quién soy y qué entrego · por qué les escribo justo a
@@ -115,7 +155,7 @@ export function generarMensajeAgencia(paso: PasoMensajeAgencia, p: Prospecto): s
 
     if (paso === "fu1") {
         return [
-            `Che, te reescribo por las dudas se haya perdido entre mensajes.`,
+            `Te reescribo por si se perdió entre otros mensajes.`,
             "",
             "Es un sí o un no de una palabra: les sirve tener un proveedor de web y diseño para lo que no llegan a tomar? Si hoy no, lo dejo y listo.",
         ].join("\n");
@@ -184,20 +224,40 @@ export function generarMensajeAgencia(paso: PasoMensajeAgencia, p: Prospecto): s
  */
 export const AGENCIAS_POR_DIA = 10;
 
+export type CanalAgencia =
+    | "email"
+    | "linkedin_persona"
+    | "linkedin_empresa"
+    | "instagram"
+    | "sin_canal";
+
 /**
- * En agencias el canal por defecto es el mail o LinkedIn, no WhatsApp: el
- * Instagram lo atiende un community manager que no decide nada.
+ * En agencias el canal por defecto es el mail. Los dos LinkedIn se cuentan
+ * aparte porque no son lo mismo ni de lejos:
+ *
+ *   · `/in/` es una persona. Se le puede escribir, pero recién después de que
+ *     acepte la invitación — o sea, no es un canal de envío inmediato.
+ *   · `/company/` es la página de la empresa, y ahí no hay a quién escribirle.
+ *     Sirve para mirar el equipo y ver si publicaron una búsqueda de personal,
+ *     que es una señal de calificación. Como canal de contacto no existe.
+ *
+ * El escaneo automático casi siempre encuentra el `/company/` (es el que va
+ * linkeado en el pie de la web), así que tratarlo como canal daba por contactable
+ * a una agencia a la que en realidad no había por dónde escribirle.
  */
-export function canalSugerido(p: Prospecto): "email" | "linkedin" | "instagram" | "sin_canal" {
+export function canalSugerido(p: Prospecto): CanalAgencia {
     if (p.email.trim()) return "email";
-    if (p.linkedin_url.trim()) return "linkedin";
+    const li = p.linkedin_url.trim().toLowerCase();
+    if (li.includes("/in/")) return "linkedin_persona";
     if (p.instagram_url.trim()) return "instagram";
+    if (li.includes("/company/")) return "linkedin_empresa";
     return "sin_canal";
 }
 
-export const CANAL_AGENCIA_LABELS: Record<ReturnType<typeof canalSugerido>, string> = {
-    email: "Email — llega al dueño",
-    linkedin: "LinkedIn — llega al dueño",
+export const CANAL_AGENCIA_LABELS: Record<CanalAgencia, string> = {
+    email: "Email — el canal que llega y no depende de que te acepten",
+    linkedin_persona: "LinkedIn del fundador — hay que esperar que acepte la invitación",
+    linkedin_empresa: "LinkedIn de la empresa — sirve para mirar, no para escribir",
     instagram: "Instagram DM — lo atiende el community, no el que decide",
     sin_canal: "Sin canal cargado",
 };

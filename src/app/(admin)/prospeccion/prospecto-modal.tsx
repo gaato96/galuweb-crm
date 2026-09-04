@@ -930,8 +930,14 @@ export default function ProspectoModal({
                                     <span className="text-[11px] text-muted-foreground">Se toma el nivel más alto que encuentres</span>
                                 </div>
 
-                                {/* Nivel 1 */}
-                                <div className={cn("rounded-lg border p-3 space-y-2", nivel === 1 ? "border-emerald-500/40 bg-emerald-500/5" : "border-border")}>
+                                {/* Nivel 1 — no aplica a agencias: a una agencia no la califica
+                                    la queja de un cliente suyo. Lo que la califica es el hueco
+                                    en lo que ofrece, y eso vive entero en el N2. */}
+                                <div className={cn(
+                                    "rounded-lg border p-3 space-y-2",
+                                    esAgencia && "hidden",
+                                    nivel === 1 ? "border-emerald-500/40 bg-emerald-500/5" : "border-border"
+                                )}>
                                     <Checkbox
                                         checked={draft.escaneo.tiene_queja_cliente}
                                         onChange={(v) => set("escaneo", { ...draft.escaneo, tiene_queja_cliente: v })}
@@ -1057,12 +1063,22 @@ export default function ProspectoModal({
                                     )}
 
                                     <p className="text-[11px] text-muted-foreground">
-                                        Marcá solo lo que <strong>viste</strong>. El dolor de fondo{" "}
-                                        {rubroProsp === "gastronomia"
-                                            ? "(cuánto se lleva la comisión, la plata que se pierde en pedidos mal tomados)"
-                                            : "(turnos que no se presentan, tratamientos a medio hacer)"}{" "}
-                                        no se afirma nunca: entra como lectura del rubro en la línea 2, armada a partir de
-                                        la señal que va de titular.
+                                        {rubroProsp === "agencias" ? (
+                                            <>
+                                                Marcá solo lo que <strong>viste</strong>. Acá las señales no son fallas que
+                                                se le señalan a nadie: sirven para calificar y para saber con qué línea
+                                                entrar. El mensaje 1 no menciona ninguna como problema.
+                                            </>
+                                        ) : (
+                                            <>
+                                                Marcá solo lo que <strong>viste</strong>. El dolor de fondo{" "}
+                                                {rubroProsp === "gastronomia"
+                                                    ? "(cuánto se lleva la comisión, la plata que se pierde en pedidos mal tomados)"
+                                                    : "(turnos que no se presentan, tratamientos a medio hacer)"}{" "}
+                                                no se afirma nunca: entra como lectura del rubro en la línea 2, armada a
+                                                partir de la señal que va de titular.
+                                            </>
+                                        )}
                                     </p>
                                 </div>
 

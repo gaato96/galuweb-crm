@@ -9,6 +9,7 @@ import {
 } from "@/lib/vivomenu-mensajes";
 import {
     generarMensajeAgencia, type PasoMensajeAgencia, canalSugerido, CANAL_AGENCIA_LABELS,
+    type CanalAgencia,
 } from "@/lib/agencias-mensajes";
 import { senialPrincipal, PATRON_LABELS } from "@/lib/dolores-rubro";
 
@@ -106,7 +107,7 @@ ${porNivel}
  *     servicios de desarrollo todas las semanas y detecta a un proveedor flojo
  *     en dos líneas. El registro sube de "vecino que te escribe" a "colega".
  */
-function reglasAgencias(paso: PasoMensajeAgencia): string {
+function reglasAgencias(paso: PasoMensajeAgencia, canal: CanalAgencia): string {
     const base = `${REGLAS_COMUNES}
 12. PISA LA REGLA 10: nada de "che", "tranqui", "bárbaro", "laburo", "posta" ni modismo argentino de barrio.
    El que lee está en México, Colombia, Chile o Miami: el voseo está bien y no hay que disimularlo, pero el
@@ -126,7 +127,19 @@ function reglasAgencias(paso: PasoMensajeAgencia): string {
    como crítica: "vi que hacen X y no vi desarrollo web entre los servicios". No es un problema de ellos,
    es el motivo por el que les sirve un proveedor. Si suena a que les estás señalando una carencia, se cae.
 17. El pedido final se contesta con una palabra y es sobre un hecho de su operación (si tercerizan cuando
-   les desborda), no sobre si te dejan mandar algo. No pidas reunión, ni llamada, ni el mail del dueño.`;
+   les desborda), no sobre si te dejan mandar algo. No pidas reunión, ni llamada, ni el mail del dueño.
+18. CANAL: ${canal === "email" ? "MAIL" : "mensaje directo"}.
+${
+    canal === "email"
+        ? `   PISA LA REGLA 4: en mail no rige el máximo de 90 palabras.
+   El borrador viene largo A PROPÓSITO y no hay que acortarlo. No saques la lista de referencias ni la
+   de precios, no fusiones los bloques y no resumas: un mail frío que no dice qué entrega, con qué
+   respaldo y cuánto sale obliga a un segundo intercambio para decir lo que podía ir de una, y ese
+   segundo intercambio casi nunca llega. Dejá la línea "Asunto:" al principio tal cual está, mantené
+   los bloques separados por líneas en blanco, y cerrá con la firma sola.`
+        : `   Se lee en la previsualización del celular: corto, sin listas y sin firma. Si no entra en cuatro o
+   cinco líneas, está largo.`
+}`;
     }
     if (paso === "credenciales" || paso === "precios") {
         return `${base}
@@ -240,7 +253,7 @@ ${
         }`;
 
         const reglas = esAgencias
-            ? reglasAgencias(paso as PasoMensajeAgencia)
+            ? reglasAgencias(paso as PasoMensajeAgencia, canalSugerido(prospecto))
             : esVivoMenu
               ? reglasVivoMenu(paso as PasoMensajeVivoMenu, nivel)
               : reglasGalu(

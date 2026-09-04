@@ -730,6 +730,7 @@ export default function ProspeccionPage() {
                             onAbrir={(p) => abrirProspecto(p, cola)}
                             objetivoDiario={objetivoDiario}
                             esVivoMenu={sistemaActivo === "vivomenu"}
+                            esAgencia={sistemaActivo === "agencias"}
                             onEscanearBloque={escanearBloque}
                             escaneoLote={escaneoLote}
                             totalDelSistema={prospectosDelSistema.length}
@@ -797,7 +798,7 @@ export default function ProspeccionPage() {
 // ═══════════════════════════════════════════════════════════
 
 function VistaCola({
-    cola, onAbrir, objetivoDiario, fueraDeCola, esVivoMenu, onEscanearBloque, escaneoLote,
+    cola, onAbrir, objetivoDiario, fueraDeCola, esVivoMenu, esAgencia, onEscanearBloque, escaneoLote,
     totalDelSistema, yaTrabajados,
 }: {
     cola: Prospecto[];
@@ -805,6 +806,7 @@ function VistaCola({
     objetivoDiario: number;
     fueraDeCola: Prospecto[];
     esVivoMenu: boolean;
+    esAgencia: boolean;
     onEscanearBloque: (delBloque: Prospecto[]) => Promise<void>;
     escaneoLote: { hechos: number; total: number } | null;
     /** Cuántos hay cargados en este sistema, más allá de si entran a la cola. */
@@ -814,18 +816,20 @@ function VistaCola({
 }) {
     const [verFuera, setVerFuera] = useState(false);
 
-    // Los tres motivos por los que un prospecto queda afuera, separados: el
-    // primero se resuelve con un click y los otros dos no.
+    // Los motivos por los que un prospecto queda afuera, separados: el primero se
+    // resuelve con un click y los otros no. En agencias el resto no son reseñas
+    // flojas sino el filtro ya resuelto en contra ("ya ofrece desarrollo web"),
+    // que es un descarte de verdad y no una tarea pendiente.
     const porEscanear = fueraDeCola.filter((p) => motivoFueraDeCola(p) === MOTIVO_SIN_ESCANEAR);
     const sinCanalReal = fueraDeCola.filter((p) => motivoFueraDeCola(p) === "sin canal de contacto").length;
-    const pocasResenas = fueraDeCola.length - porEscanear.length - sinCanalReal;
+    const otrosMotivos = fueraDeCola.length - porEscanear.length - sinCanalReal;
 
     if (cola.length === 0 && fueraDeCola.length === 0) {
         // Una cola vacía tiene tres causas muy distintas y el mensaje genérico
         // ("importá una planilla") solo acierta en una. Decir cuál es evita salir
         // a buscar el problema al lugar equivocado — que fue exactamente lo que
         // pasó con VivoMenu: había prospectos, pero no en este sistema.
-        const sistema = esVivoMenu ? "VivoMenu" : "Galu";
+        const sistema = esVivoMenu ? "VivoMenu" : esAgencia ? "Agencias" : "Galu";
         if (totalDelSistema === 0) {
             return (
                 <Vacio
@@ -875,10 +879,22 @@ function VistaCola({
                     </button>
                 </div>
                 <p className="text-[11px] text-muted-foreground mb-3">
-                    {esVivoMenu
-                        ? "Ordenado por score. Acá casi todos están en Instagram-como-web, así que separar por segmento no distingue nada."
-                        : "Ordenado por segmento y después por score: primero Instagram-como-web, después sin web, y al final los que ya tienen una."}
-                    {" "}El escaneo trae de una la ficha de Google, las reseñas y la búsqueda por rubro; lo que encuentra queda guardado y el Instagram sigue siendo a mano.
+                    {esAgencia ? (
+                        <>
+                            Ordenado por score. Acá todas tienen web —es su vidriera—, así que el
+                            segmento no distingue: lo que separa es si ofrecen desarrollo o no.{" "}
+                            El escaneo lee su propia página y trae mail, LinkedIn e Instagram. El
+                            filtro de desarrollo web no lo cierra solo: deja el hallazgo anotado y
+                            lo confirmás vos en la ficha.
+                        </>
+                    ) : (
+                        <>
+                            {esVivoMenu
+                                ? "Ordenado por score. Acá casi todos están en Instagram-como-web, así que separar por segmento no distingue nada."
+                                : "Ordenado por segmento y después por score: primero Instagram-como-web, después sin web, y al final los que ya tienen una."}
+                            {" "}El escaneo trae de una la ficha de Google, las reseñas y la búsqueda por rubro; lo que encuentra queda guardado y el Instagram sigue siendo a mano.
+                        </>
+                    )}
                 </p>
                 <div className="grid gap-2">
                     {bloque.map((p, i) => <FilaCola key={p.id} p={p} indice={i + 1} onAbrir={onAbrir} destacado />)}
@@ -918,10 +934,16 @@ function VistaCola({
                                     teléfono ni Instagram cargado. */}
                                 {[
                                     porEscanear.length > 0
-                                        ? `${porEscanear.length} sin escanear (el teléfono está en Google, falta traerlo)`
+                                        ? esAgencia
+                                            ? `${porEscanear.length} sin calificar (falta confirmar si ofrecen desarrollo web)`
+                                            : `${porEscanear.length} sin escanear (el teléfono está en Google, falta traerlo)`
                                         : "",
                                     sinCanalReal > 0 ? `${sinCanalReal} sin canal de contacto` : "",
-                                    pocasResenas > 0 ? `${pocasResenas} con menos de 5 reseñas` : "",
+                                    otrosMotivos > 0
+                                        ? esAgencia
+                                            ? `${otrosMotivos} descartadas porque ya ofrecen desarrollo web`
+                                            : `${otrosMotivos} con menos de 5 reseñas`
+                                        : "",
                                 ].filter(Boolean).join(" · ")}
                                 . Siguen en la planilla, pero no gastan uno de los {objetivoDiario} mensajes del día.
                             </span>
@@ -936,8 +958,9 @@ function VistaCola({
                     {porEscanear.length > 0 && (
                         <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-3 flex-wrap">
                             <p className="text-[11px] text-muted-foreground min-w-0 flex-1">
-                                Escaneá los primeros {Math.min(porEscanear.length, 20)} y van a aparecer en la cola con
-                                su teléfono, sus reseñas reales y las señales de la ficha.
+                                {esAgencia
+                                    ? `Escaneá los primeros ${Math.min(porEscanear.length, 20)}: el escaneo lee su web y trae mail, LinkedIn e Instagram. Las que quedan sin confirmar no se descartan — hay que abrir su página de Servicios y marcar el filtro a mano.`
+                                    : `Escaneá los primeros ${Math.min(porEscanear.length, 20)} y van a aparecer en la cola con su teléfono, sus reseñas reales y las señales de la ficha.`}
                             </p>
                             <button
                                 onClick={() => onEscanearBloque(porEscanear.slice(0, 20))}
