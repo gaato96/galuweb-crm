@@ -5,7 +5,7 @@ import { X, Table2, Compass, Loader2, ArrowRight, AlertTriangle, Layers } from "
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import type { Prospecto, ScraperBusqueda, Sistema, ListaProspeccion } from "@/lib/types";
-import { ESCANEO_VACIO, SISTEMA_LABELS, SISTEMA_PITCH, nombreSugeridoLista } from "@/lib/types";
+import { ESCANEO_VACIO, SISTEMA_LABELS, SISTEMA_PITCH, SISTEMAS_ACTIVOS, nombreSugeridoLista } from "@/lib/types";
 import {
     parsearPegado, mapearColumnas, clasificarWebDesdeUrl, telefonoAWhatsapp,
     CAMPOS_IMPORTABLES, CAMPOS_SOLO_AGENCIAS, type CampoImportable, type FilaParseada,
@@ -35,7 +35,7 @@ interface Props {
 type Fuente = "sheets" | "scraper";
 
 export default function ImportarPanel({
-    busquedasScraper, sistemaInicial = "galu", listas, onCrearLista,
+    busquedasScraper, sistemaInicial = "agencias", listas, onCrearLista,
     onImportarFilas, onImportarScraper, onCerrar,
 }: Props) {
     const [fuente, setFuente] = useState<Fuente>("sheets");
@@ -155,7 +155,7 @@ export default function ImportarPanel({
                     <div className="space-y-1">
                         <label className="block text-[11px] font-bold text-muted-foreground uppercase">Sistema de prospección</label>
                         <div className="flex gap-2">
-                            {(Object.keys(SISTEMA_LABELS) as Sistema[]).map((s) => (
+                            {SISTEMAS_ACTIVOS.map((s) => (
                                 <button
                                     key={s}
                                     onClick={() => setSistema(s)}
@@ -229,7 +229,7 @@ export default function ImportarPanel({
                                     <input
                                         value={rubroPorDefecto}
                                         onChange={(e) => setRubroPorDefecto(e.target.value)}
-                                        placeholder={sistema === "agencias" ? "Agencia de marketing" : "Se usa si no hay columna de rubro"}
+                                        placeholder={sistema === "agencias" ? "Agencia de marketing" : sistema === "odontologia" ? "Consultorio odontológico" : "Se usa si no hay columna de rubro"}
                                         className={inputCls}
                                     />
                                 </div>

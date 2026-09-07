@@ -12,6 +12,9 @@ import {
     type CanalAgencia,
 } from "@/lib/agencias-mensajes";
 import { senialPrincipal, PATRON_LABELS } from "@/lib/dolores-rubro";
+import {
+    generarMensajeOdontologia, vozDe, type PasoMensajeOdontologia,
+} from "@/lib/odontologia-mensajes";
 
 export const maxDuration = 30;
 
@@ -22,9 +25,28 @@ const PASOS_VIVOMENU: PasoMensajeVivoMenu[] = [
 const PASOS_AGENCIAS: PasoMensajeAgencia[] = [
     "m1", "fu1", "fu2", "credenciales", "precios", "primer_trabajo", "ruteo",
 ];
+const PASOS_ODONTOLOGIA: PasoMensajeOdontologia[] = [
+    "m1", "m1_sin_prueba", "fu1", "fu2", "fu3", "video", "precio", "ruteo",
+];
 
 /** Reglas que la IA no puede romper, comunes a los tres sistemas. */
-const REGLAS_COMUNES = `1. Español rioplatense, voseo, tono de persona real escribiendo desde el celular. Nada de "estimado" ni corporativo.
+/**
+ * La voz no siempre es rioplatense.
+ *
+ * Los mensajes en frío a México van en neutro (plan §4), y el guion de
+ * odontología ya arma el borrador en la voz que corresponde según el país. Sin
+ * esta anulación la IA lo reescribía de vuelta a voseo, porque la regla 1 se lo
+ * pedía — y un "che, ¿cuándo podés?" a un consultorio de Guadalajara delata
+ * la plantilla en la primera línea.
+ */
+const REGLA_1_RIO = `1. Español rioplatense, voseo, tono de persona real escribiendo desde el celular. Nada de "estimado" ni corporativo.`;
+const REGLA_1_NEUTRO = `1. Español neutro latinoamericano, tono de persona real escribiendo desde el celular. PROHIBIDO el voseo ("vos", "podés", "tenés", "che") y prohibido el "estimado" corporativo.`;
+
+function reglaDeVoz(prospecto: { pais?: string }): string {
+    return vozDe({ pais: prospecto.pais || "" }) === "rio" ? REGLA_1_RIO : REGLA_1_NEUTRO;
+}
+
+const REGLAS_COMUNES = `${REGLA_1_RIO}
 2. Cero jerga: prohibido "sistema de gestión", "automatización de procesos", "presencia digital", "solución integral",
    "optimizar", "potenciar". Lo tiene que entender alguien sin nada de contexto técnico, de una sola pasada.
 3. No inventes datos que no estén en la sección de arriba. Si algo falta, omitilo en vez de rellenar con genérico.
@@ -184,11 +206,14 @@ export async function POST(req: Request) {
 
         const esVivoMenu = sistema === "vivomenu";
         const esAgencias = sistema === "agencias";
+        const esOdonto = sistema === "odontologia";
         const pasosValidos: string[] = esAgencias
             ? PASOS_AGENCIAS
             : esVivoMenu
               ? PASOS_VIVOMENU
-              : PASOS_GALU;
+              : esOdonto
+                ? PASOS_ODONTOLOGIA
+                : PASOS_GALU;
         if (!pasosValidos.includes(paso)) {
             return NextResponse.json({ error: "Paso de mensaje inválido para este sistema" }, { status: 400 });
         }
@@ -197,7 +222,9 @@ export async function POST(req: Request) {
             ? generarMensajeAgencia(paso as PasoMensajeAgencia, prospecto, canalBody || canalSugerido(prospecto))
             : esVivoMenu
               ? generarMensajeVivoMenu(paso as PasoMensajeVivoMenu, prospecto)
-              : generarMensaje(paso as PasoMensaje, prospecto);
+              : esOdonto
+                ? generarMensajeOdontologia(paso as PasoMensajeOdontologia, prospecto, vozDe(prospecto))
+                : generarMensaje(paso as PasoMensaje, prospecto);
 
         const apiKey = process.env.GEMINI_API_KEY;
         if (!apiKey) {
@@ -279,7 +306,7 @@ ${
    ("cualquier cosa avisame"). Cierra con el pedido concreto que ya trae el borrador.`
                     : "");
 
-        const prompt = `Sos quien escribe los mensajes en frío de ${esAgencias ? "Gastón, diseñador y desarrollador web argentino que trabaja como proveedor de agencias del exterior" : esVivoMenu ? "VivoMenu, un menú digital para gastronomía" : "Galu, una agencia web"}${esAgencias ? "" : " de San Miguel de Tucumán"}.
+        const prompt = `Sos quien escribe los mensajes en frío de ${esAgencias ? "Gastón, diseñador y desarrollador web argentino que trabaja como proveedor de agencias del exterior" : esVivoMenu ? "VivoMenu, un menú digital para gastronomía" : esOdonto ? "Sarvo, un agente de IA que atiende el WhatsApp y la agenda de consultorios odontológicos" : "Galu, una agencia web"}${esAgencias || esOdonto ? "" : " de San Miguel de Tucumán"}.
 Te paso un borrador ya armado con la estructura correcta. Tu trabajo es reescribirlo para que suene natural
 y específico de ESTE negocio, sin cambiar la estructura ni el pedido.
 
@@ -300,7 +327,10 @@ separados por una línea en blanco (son burbujas distintas de WhatsApp), manten�
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
-                    contents: [{ parts: [{ text: prompt }] }],
+                    // La regla de voz se cambia acá y no al armar el prompt, para no
+                    // tener que partir el literal entero: si el prospecto es mexicano,
+                    // la regla 1 pasa a neutro y la IA deja de devolver el borrador al voseo.
+                    contents: [{ parts: [{ text: prompt.replace(REGLA_1_RIO, reglaDeVoz(prospecto)) }] }],
                     generationConfig: {
                         temperature: 0.8,
                         maxOutputTokens: 800,

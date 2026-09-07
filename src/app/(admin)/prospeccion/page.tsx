@@ -15,6 +15,7 @@ import type {
 import {
     ESTADO_PROSPECTO_LABELS, ESTADO_PROSPECTO_COLORS, CLASIFICACION_WEB_LABELS,
     QUIEN_LEYO_LABELS, SISTEMA_LABELS, SISTEMA_PITCH,
+    SISTEMAS_ACTIVOS, SISTEMAS_ARCHIVADOS, sistemaArchivado,
 } from "@/lib/types";
 import { prospectosStore, scraperStore, listasStore, mensajeError, type ResultadoImportacion } from "@/lib/store";
 import {
@@ -43,7 +44,15 @@ const SISTEMA_ICONS: Record<Sistema, typeof Globe> = {
     galu: Globe,
     vivomenu: UtensilsCrossed,
     agencias: Handshake,
+    odontologia: Stethoscope,
 };
+
+/**
+ * Orden de las solapas: primero los que admiten carga nueva, y los archivados
+ * al final. "galu" sigue estando —sus 45 prospectos son el registro de qué se
+ * probó— pero no puede seguir siendo la primera puerta que se ve.
+ */
+const SISTEMAS_EN_ORDEN: Sistema[] = [...SISTEMAS_ACTIVOS, ...SISTEMAS_ARCHIVADOS];
 
 const COLUMNAS_EMBUDO: EstadoProspecto[] = [
     "sin_calificar", "calificado", "enviado", "fu1", "fu2", "fu3", "respondio", "revision_enviada", "reunion", "cliente",
@@ -508,9 +517,9 @@ export default function ProspeccionPage() {
                 </div>
             </div>
 
-            {/* Sistema de prospección — los tres comparten planilla, no guion de mensajes */}
+            {/* Sistema de prospección — comparten planilla, no guion de mensajes */}
             <div className="flex gap-1.5 flex-wrap">
-                {(Object.keys(SISTEMA_LABELS) as Sistema[]).map((s) => {
+                {SISTEMAS_EN_ORDEN.map((s) => {
                     const Icon = SISTEMA_ICONS[s];
                     const cant = prospectos.filter((p) => p.sistema === s).length;
                     return (
@@ -528,7 +537,11 @@ export default function ProspeccionPage() {
                                 "flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold border transition-all",
                                 sistemaActivo === s
                                     ? "bg-primary text-primary-foreground border-primary shadow-md"
-                                    : "bg-card border-border text-muted-foreground hover:text-foreground hover:border-primary/40"
+                                    : "bg-card border-border text-muted-foreground hover:text-foreground hover:border-primary/40",
+                                // Los archivados siguen entrando —el historial se consulta—
+                                // pero atenuados, para que la vista no invite a volver a un
+                                // ICP que el plan ya dio de baja.
+                                sistemaArchivado(s) && sistemaActivo !== s && "opacity-50"
                             )}
                         >
                             <Icon className="w-4 h-4" />

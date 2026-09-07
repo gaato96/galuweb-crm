@@ -508,13 +508,32 @@ export type CanalProspecto = "instagram" | "whatsapp";
 export type QuienLeyo = "dueno" | "secretaria" | "no_se";
 
 /** A qué sistema de prospección pertenece: cambia el guion de mensajes y el ritmo de envío. */
-export type Sistema = "galu" | "vivomenu" | "agencias";
+export type Sistema = "galu" | "vivomenu" | "agencias" | "odontologia";
 
 export const SISTEMA_LABELS: Record<Sistema, string> = {
-    galu: "Galu — Agencia web",
+    galu: "Galu — Agencia web (archivado)",
     vivomenu: "VivoMenu — Menú digital",
     agencias: "Proveedor — Agencias del exterior",
+    odontologia: "Sarvo — Consultorios odontológicos",
 };
+
+/**
+ * Sistemas archivados: siguen consultándose y conservan su historial, pero no
+ * se cargan prospectos nuevos ni aparecen como opción al importar.
+ *
+ * "galu" quedó acá el 2026-09-05. Era el ICP anterior —comercio o profesional
+ * local, con análisis gratis por delante— y el plan lo dio de baja después de
+ * 45 contactos en frío, 5 análisis pedidos y cero clientes. Los 45 no se borran:
+ * son el registro de qué se probó y cómo salió.
+ */
+export const SISTEMAS_ARCHIVADOS: Sistema[] = ["galu"];
+
+export function sistemaArchivado(s: Sistema): boolean {
+    return SISTEMAS_ARCHIVADOS.includes(s);
+}
+
+/** Los que admiten carga nueva, en el orden en que se trabajan. */
+export const SISTEMAS_ACTIVOS: Sistema[] = ["agencias", "odontologia", "vivomenu"];
 
 /**
  * Una línea de contexto por sistema, para la pantalla. Lo que cambia entre
@@ -525,6 +544,8 @@ export const SISTEMA_PITCH: Record<Sistema, string> = {
     vivomenu: "Local gastronómico con pedidos por WhatsApp. Se muestra el producto funcionando, no se explica.",
     agencias:
         "Agencia de marketing del exterior que vende redes y pauta pero NO desarrollo web. No hay que educar a nadie ni mandar análisis: se ofrece capacidad de proveedor.",
+    odontologia:
+        "Consultorio odontológico que publica WhatsApp y tarda en contestar. No se vende una web ni se manda análisis: se le muestra la hora que tardó en responderte y se pide permiso para mandar un video de 40 segundos.",
 };
 
 export type OrigenProspecto = "manual" | "sheets" | "scraper";
@@ -555,7 +576,7 @@ export interface ListaProspeccion {
     archivada: boolean;
 }
 
-export function listaVacia(sistema: Sistema = "galu"): Omit<ListaProspeccion, "id" | "created_at"> {
+export function listaVacia(sistema: Sistema = "agencias"): Omit<ListaProspeccion, "id" | "created_at"> {
     return {
         nombre: "",
         sistema,
@@ -704,6 +725,17 @@ export interface Prospecto {
     fecha_fu2: string | null;
     fecha_fu3: string | null;
     fecha_respuesta: string | null;
+    /* ── La prueba de la hora (sistema "odontologia") ──────────
+     * El plan manda escribirle al consultorio como paciente un sábado a la
+     * noche preguntando un precio, y anotar la hora exacta de la respuesta.
+     * Ese dato no es color: es literalmente el mensaje de apertura, y además
+     * es lo que más pesa en el score. Por eso vive acá y no en las notas.
+     * Timestamps ISO completos — la hora importa tanto como el día. */
+    prueba_enviada_at: string | null;
+    prueba_respondida_at: string | null;
+    /** Nunca contestaron. Es el mejor caso posible para vender, no un dato faltante. */
+    prueba_sin_respuesta: boolean;
+
     /** §6 — cuándo se entregó el análisis. Arranca la cadencia de fu_revision1/2. */
     fecha_revision: string | null;
     fecha_revision_fu1: string | null;

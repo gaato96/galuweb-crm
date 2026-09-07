@@ -197,6 +197,7 @@ export function calcularScore(prospecto: Prospecto, universo: Prospecto[] = []):
     }
     if (prospecto.sistema === "vivomenu") return calcularScoreVivoMenu(prospecto);
     if (prospecto.sistema === "agencias") return calcularScoreAgencia(prospecto);
+    if (prospecto.sistema === "odontologia") return calcularScoreOdontologia(prospecto);
 
     const partes: { concepto: string; puntos: number }[] = [];
 
@@ -482,6 +483,122 @@ export function calcularScoreAgencia(p: Prospecto): DesgloseScore {
 // §3.1 — Descarte rápido
 // ─────────────────────────────────────────────────────────────
 
+/**
+ * Score de consultorios odontológicos (sistema "odontologia", producto Sarvo).
+ *
+ * Lo que lo distingue de los otros tres: el dato que más pesa no se observa, se
+ * provoca. Se le escribe al consultorio como paciente un sábado a la noche y se
+ * anota cuánto tardó en contestar. Un consultorio que responde en diez minutos
+ * no tiene el problema que Sarvo resuelve, por buenas que se vean todas las
+ * demás señales — y por eso ahí el puntaje es negativo, no cero.
+ */
+export function calcularScoreOdontologia(p: Prospecto): DesgloseScore {
+    const partes: { concepto: string; puntos: number }[] = [];
+    const escaneo = normalizarEscaneo(p.escaneo);
+    const fallas = new Set(escaneo.fallas);
+
+    // 1. EL filtro. Sin WhatsApp publicado no hay dónde instalar el producto.
+    //    No es "un dato menos": es que no se le puede vender.
+    if (!p.whatsapp_publicado && !p.telefono_wa.trim()) {
+        return {
+            total: 0,
+            partes: [{ concepto: "No publica WhatsApp: no hay dónde instalar Sarvo", puntos: 0 }],
+        };
+    }
+    partes.push({ concepto: "Publica WhatsApp", puntos: 20 });
+
+    // 2. La prueba de la hora. Es el corazón del sistema y vale más que
+    //    cualquier otra señal, porque además de calificar es el mensaje.
+    const horas = horasDePrueba(p);
+    if (p.prueba_sin_respuesta) {
+        partes.push({ concepto: "Nunca contestaron la prueba", puntos: 40 });
+    } else if (horas == null) {
+        partes.push({ concepto: "Prueba del sábado sin correr", puntos: 0 });
+    } else if (horas >= 24) {
+        partes.push({ concepto: `Tardaron ${horas} h en contestar`, puntos: 35 });
+    } else if (horas >= 12) {
+        partes.push({ concepto: `Tardaron ${horas} h en contestar`, puntos: 28 });
+    } else if (horas >= 4) {
+        partes.push({ concepto: `Tardaron ${horas} h en contestar`, puntos: 18 });
+    } else if (horas >= 1) {
+        partes.push({ concepto: `Tardaron ${horas} h en contestar`, puntos: 8 });
+    } else {
+        partes.push({ concepto: "Contestaron en menos de una hora: no tienen el dolor", puntos: -20 });
+    }
+
+    // 3. Nivel del dato, igual que en los otros sistemas.
+    const nivel = calcularNivelDato(escaneo);
+    if (nivel) {
+        partes.push({ concepto: NIVEL_DATO_LABELS[nivel], puntos: PUNTOS_NIVEL[nivel] });
+    }
+
+    // 4. Señales de agenda manejada a mano. Son las del catálogo de dolores
+    //    que apuntan a consulta perdida y a capacidad.
+    if (fallas.has("comentarios_sin_responder")) {
+        partes.push({ concepto: "Comentarios pidiendo turno sin responder", puntos: 12 });
+    }
+    if (fallas.has("aviso_ausentismo")) {
+        partes.push({ concepto: "Publicaron que avisen si no pueden venir: el ausentismo les duele", puntos: 12 });
+    }
+    if (fallas.has("turnos_disponibles_posteo")) {
+        partes.push({ concepto: "Publican que quedan turnos libres", puntos: 10 });
+    }
+    if (fallas.has("varios_prof_un_canal")) {
+        partes.push({ concepto: "Varios profesionales y un solo canal de turnos", puntos: 10 });
+    }
+    if (fallas.has("sin_reserva_online")) {
+        partes.push({ concepto: "Sin ninguna forma de reservar online", puntos: 8 });
+    }
+
+    // 5. Volumen. Las reseñas son el proxy de cuánta consulta reciben: un
+    //    consultorio sin pacientes no tiene turnos que perder.
+    const reviews = reseñasSanas(p.reviews_count);
+    if (reviews != null) {
+        if (reviews >= 100) partes.push({ concepto: `${reviews} reseñas: mucho movimiento`, puntos: 12 });
+        else if (reviews >= 30) partes.push({ concepto: `${reviews} reseñas: movimiento sostenido`, puntos: 8 });
+        else if (reviews < 5) partes.push({ concepto: `${reviews} reseñas: puede no tener volumen`, puntos: -8 });
+    }
+
+    // 6. Cantidad de profesionales. Más sillones, más agenda que coordinar, y
+    //    además decide el plan que se le cotiza (§3 del plan).
+    if (p.cant_profesionales != null && p.cant_profesionales > 1) {
+        partes.push({
+            concepto: `${p.cant_profesionales} profesionales: agenda que coordinar`,
+            puntos: p.cant_profesionales >= 4 ? 12 : 8,
+        });
+    }
+
+    // 7. WhatsApp Business App. Cuenta en contra, y es contraintuitivo: si el
+    //    número principal está en la app, pasarlo a Cloud API borra el historial
+    //    de conversaciones con sus pacientes y no pueden volver a usar la app con
+    //    ese número. Es el frenazo del cierre que describe el roadmap de Sarvo.
+    //    No descalifica, pero hay que saberlo antes de prometer un plazo.
+    if (p.es_whatsapp_business === true) {
+        partes.push({ concepto: "Usa WhatsApp Business App: el alta le cuesta el historial", puntos: -6 });
+    }
+
+    // 8. Actividad. Un consultorio con las redes muertas puede estar cerrado.
+    if (p.dias_ultimo_post != null && p.dias_ultimo_post > 120) {
+        partes.push({ concepto: "Sin publicar hace 120+ días: puede estar cerrado", puntos: -15 });
+    }
+
+    const total = Math.max(0, Math.min(100, partes.reduce((s, x) => s + x.puntos, 0)));
+    return { total, partes };
+}
+
+/**
+ * Horas entre el mensaje de prueba y la respuesta. Duplica a propósito la
+ * lógica de odontologia-mensajes.ts para no cruzar los módulos: acá se usa
+ * para puntuar, allá para redactar.
+ */
+function horasDePrueba(p: Prospecto): number | null {
+    if (!p.prueba_enviada_at || !p.prueba_respondida_at) return null;
+    const desde = new Date(p.prueba_enviada_at).getTime();
+    const hasta = new Date(p.prueba_respondida_at).getTime();
+    if (Number.isNaN(desde) || Number.isNaN(hasta)) return null;
+    return Math.max(0, Math.round((hasta - desde) / 3_600_000));
+}
+
 export interface AlertaDescarte {
     regla: string;
     detalle: string;
@@ -504,7 +621,7 @@ export function compararParaCola(sistema: Sistema) {
         // Agencias: la clasificación web de la propia agencia no dice nada (todas
         // tienen web, es su vidriera). Lo que separa es si ofrece desarrollo o no,
         // y eso ya vale 35 puntos dentro del score. Ordenar por score alcanza.
-        if (sistema !== "vivomenu" && sistema !== "agencias") {
+        if (sistema === "galu") {
             const segA = PRIORIDAD_SEGMENTO[a.clasificacion_web];
             const segB = PRIORIDAD_SEGMENTO[b.clasificacion_web];
             if (segA !== segB) return segA - segB;
@@ -890,6 +1007,11 @@ const CADENCIA_FOLLOWUP: Record<Sistema, { fu1: number; fu2: number; fu3?: numbe
     // veces no está evaluando nada, tiene la bandeja llena. Insistir más lo
     // único que hace es quemar el contacto para cuando sí necesite un proveedor.
     agencias: { fu1: 4, fu2: 10 },
+    // Odontología: tres toques. Un odontólogo no tiene la bandeja saturada de un
+    // dueño de agencia — tiene el celular lleno de pacientes, que es distinto:
+    // no te ignora, te pierde entre mensajes. El tercer toque a los 14 días
+    // recupera más de lo que quema.
+    odontologia: { fu1: 3, fu2: 7, fu3: 14 },
 };
 
 export function proximaAccion(p: Prospecto, hoy: Date = new Date()): AccionSeguimiento {
@@ -1303,7 +1425,7 @@ export function detectarDuplicados(prospectos: Prospecto[]): GrupoDuplicado[] {
     return resultado.sort((a, b) => b.borrar.length - a.borrar.length);
 }
 
-export function prospectoVacio(sistema: Sistema = "galu"): Omit<Prospecto, "id" | "created_at"> {
+export function prospectoVacio(sistema: Sistema = "agencias"): Omit<Prospecto, "id" | "created_at"> {
     return {
         sistema,
         lista_id: null,
@@ -1347,6 +1469,9 @@ export function prospectoVacio(sistema: Sistema = "galu"): Omit<Prospecto, "id" 
         fecha_fu2: null,
         fecha_fu3: null,
         fecha_respuesta: null,
+        prueba_enviada_at: null,
+        prueba_respondida_at: null,
+        prueba_sin_respuesta: false,
         fecha_revision: null,
         fecha_revision_fu1: null,
         fecha_revision_fu2: null,

@@ -110,6 +110,7 @@ export function detectarRubro(
 ): RubroProspeccion {
     if (p.sistema === "vivomenu") return "gastronomia";
     if (p.sistema === "agencias") return "agencias";
+    if (p.sistema === "odontologia") return "odontologia";
 
     const texto = normalizar(`${p.rubro || ""} ${p.especialidad || ""}`);
     if (!texto.trim()) return "generico";

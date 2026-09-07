@@ -4,7 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
     X, Save, Trash2, Building2, Radar, MessageSquare, CalendarClock,
     Copy, Check, ExternalLink, AlertTriangle, Sparkles, UserPlus, Loader2, Instagram, Phone, MapPin,
-    ScanSearch, CircleCheck, Hand, ChevronLeft, ChevronRight, Handshake, Tag, Globe, Linkedin, Mail
+    ScanSearch, CircleCheck, Hand, ChevronLeft, ChevronRight, Handshake, Tag, Globe, Linkedin, Mail,
+    Stethoscope,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -27,6 +28,11 @@ import {
     type PasoMensajeVivoMenu,
 } from "@/lib/vivomenu-mensajes";
 import {
+    generarMensajeOdontologia, PASO_ODONTOLOGIA_LABELS, tienePrueba, vozDe,
+    frasePrueba, horasPrueba,
+    type PasoMensajeOdontologia,
+} from "@/lib/odontologia-mensajes";
+import {
     generarMensajeAgencia, PASO_AGENCIA_LABELS, type PasoMensajeAgencia,
     canalSugerido, CANAL_AGENCIA_LABELS, type CanalAgencia,
 } from "@/lib/agencias-mensajes";
@@ -38,7 +44,7 @@ import { atajosEscaneo } from "@/lib/escaneo-atajos";
 import { FUENTE_LABELS, type EscaneoAutomatico } from "@/lib/escaneo-auto";
 
 type Tab = "datos" | "escaneo" | "mensajes" | "seguimiento";
-type PasoUI = PasoMensaje | PasoMensajeVivoMenu | PasoMensajeAgencia;
+type PasoUI = PasoMensaje | PasoMensajeVivoMenu | PasoMensajeAgencia | PasoMensajeOdontologia;
 
 /** VivoMenu reusa el campo quien_leyo con otra etiqueta: "secretaria" = "empleado que atiende". */
 const QUIEN_LEYO_LABELS_VIVOMENU: Record<QuienLeyo, string> = {
@@ -90,6 +96,7 @@ export default function ProspectoModal({
     const [guardando, setGuardando] = useState(false);
     const esVivoMenu = draft.sistema === "vivomenu";
     const esAgencia = draft.sistema === "agencias";
+    const esOdonto = draft.sistema === "odontologia";
     const [pasoMensaje, setPasoMensaje] = useState<PasoUI>(esVivoMenu ? "primer_contacto" : "m1");
     const [mensajeEditado, setMensajeEditado] = useState("");
     const [copiado, setCopiado] = useState(false);
@@ -134,14 +141,18 @@ export default function ProspectoModal({
             ? generarMensajeAgencia(paso as PasoMensajeAgencia, p, canal)
             : p.sistema === "vivomenu"
               ? generarMensajeVivoMenu(paso as PasoMensajeVivoMenu, p)
-              : generarMensaje(paso as PasoMensaje, p);
+              : p.sistema === "odontologia"
+                ? generarMensajeOdontologia(paso as PasoMensajeOdontologia, p, vozDe(p))
+                : generarMensaje(paso as PasoMensaje, p);
 
     const labelDePaso = (paso: PasoUI): string =>
         esAgencia
             ? PASO_AGENCIA_LABELS[paso as PasoMensajeAgencia]
             : esVivoMenu
               ? PASO_VIVOMENU_LABELS[paso as PasoMensajeVivoMenu]
-              : PASO_MENSAJE_LABELS[paso as PasoMensaje];
+              : esOdonto
+                ? PASO_ODONTOLOGIA_LABELS[paso as PasoMensajeOdontologia]
+                : PASO_MENSAJE_LABELS[paso as PasoMensaje];
 
     /**
      * En Galu, el mensaje que entrega el análisis no se puede mandar sin oferta.
@@ -151,7 +162,7 @@ export default function ProspectoModal({
      * corchetes y el botón de copiar avisa antes de que se mande así.
      */
     const pasoNecesitaOferta =
-        !esAgencia && !esVivoMenu && ["m2", "m3", "fu_revision1", "fu_revision2"].includes(pasoMensaje);
+        !esAgencia && !esVivoMenu && !esOdonto && ["m2", "m3", "fu_revision1", "fu_revision2"].includes(pasoMensaje);
     const faltanDatosOferta = pasoNecesitaOferta && !ofertaCompleta(draft);
 
     /**
@@ -186,7 +197,12 @@ export default function ProspectoModal({
         };
         setDraft(nuevo);
         setResultadoAuto(null);
-        const inicial: PasoUI = nuevo.sistema === "vivomenu" ? "primer_contacto" : "m1";
+        const inicial: PasoUI =
+            nuevo.sistema === "vivomenu"
+                ? "primer_contacto"
+                : nuevo.sistema === "odontologia" && !tienePrueba(nuevo)
+                  ? "m1_sin_prueba"
+                  : "m1";
         setPasoMensaje(inicial);
         // El canal vuelve al sugerido en cada prospecto: lo que se eligió a mano
         // para el anterior no dice nada del que viene.
@@ -576,6 +592,85 @@ export default function ProspectoModal({
                                 web, no es prospecto y el score cae a cero. Va arriba
                                 de todo lo demás porque es el filtro que hay que
                                 resolver antes de invertir un minuto más en la ficha. */}
+                            {/* Odontología: la prueba de la hora. Va arriba de todo por el
+                                mismo motivo que el filtro de las agencias — sin este dato el
+                                mensaje 1 no se puede escribir y el score no se puede calcular,
+                                así que no tiene sentido completar el resto de la ficha antes. */}
+                            {esOdonto && (
+                                <div className="rounded-xl border border-sky-500/25 bg-sky-500/[0.05] p-4 space-y-4">
+                                    <p className="text-[11px] font-bold text-sky-300 uppercase flex items-center gap-2">
+                                        <Stethoscope className="w-3.5 h-3.5" />
+                                        La prueba de la hora
+                                    </p>
+                                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                        Escribile como paciente un sábado a la noche preguntando el precio de una
+                                        limpieza, y anotá la hora exacta. No es un dato del CRM: es la primera
+                                        línea del mensaje y es lo que más pesa en el score.
+                                    </p>
+
+                                    <div className="grid sm:grid-cols-2 gap-4">
+                                        <Campo label="Le escribí" hint="Sábado a la noche: nadie está atendiendo y el contraste se nota">
+                                            <input
+                                                type="datetime-local"
+                                                value={aLocal(draft.prueba_enviada_at)}
+                                                onChange={(e) => set("prueba_enviada_at", aISO(e.target.value))}
+                                                className={inputCls}
+                                            />
+                                        </Campo>
+                                        <Campo label="Me contestaron" hint="Vacío mientras no contesten">
+                                            <input
+                                                type="datetime-local"
+                                                value={aLocal(draft.prueba_respondida_at)}
+                                                disabled={draft.prueba_sin_respuesta}
+                                                onChange={(e) => set("prueba_respondida_at", aISO(e.target.value))}
+                                                className={cn(inputCls, draft.prueba_sin_respuesta && "opacity-40")}
+                                            />
+                                        </Campo>
+                                    </div>
+
+                                    {/* "Nunca contestaron" no es lo mismo que "todavía no cargué la
+                                        respuesta": para vender es el mejor caso posible, y sin esta
+                                        casilla los dos quedaban indistinguibles en cero. */}
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            const nuevo = !draft.prueba_sin_respuesta;
+                                            set("prueba_sin_respuesta", nuevo);
+                                            if (nuevo) set("prueba_respondida_at", null);
+                                        }}
+                                        className={cn(
+                                            "w-full px-3 py-2 rounded-lg text-xs font-bold border transition-all text-left flex items-center gap-2",
+                                            draft.prueba_sin_respuesta
+                                                ? "bg-amber-500/20 border-amber-500/50 text-amber-200"
+                                                : "bg-card border-border text-muted-foreground hover:text-foreground"
+                                        )}
+                                    >
+                                        {draft.prueba_sin_respuesta ? <CircleCheck className="w-3.5 h-3.5" /> : <Hand className="w-3.5 h-3.5" />}
+                                        Nunca contestaron
+                                    </button>
+
+                                    {/* La línea que va a salir en el mensaje, tal cual. Verla acá
+                                        evita mandar un m1 con una frase que no cierra. */}
+                                    {tienePrueba(draft) ? (
+                                        <div className="rounded-lg bg-background/60 border border-border p-3 space-y-1">
+                                            <p className="text-[10px] font-bold text-muted-foreground uppercase">
+                                                Así va a salir en el mensaje
+                                                {horasPrueba(draft) != null && !draft.prueba_sin_respuesta
+                                                    ? ` · ${horasPrueba(draft)} h`
+                                                    : ""}
+                                            </p>
+                                            <p className="text-xs text-foreground leading-relaxed">{frasePrueba(draft, vozDe(draft))}</p>
+                                        </div>
+                                    ) : (
+                                        <p className="text-[11px] text-amber-300/80 flex items-start gap-2">
+                                            <AlertTriangle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                                            Sin la prueba corrida el mensaje 1 sale por la variante débil, que usa el
+                                            escaneo en vez de la hora. Anda mejor con la prueba.
+                                        </p>
+                                    )}
+                                </div>
+                            )}
+
                             {esAgencia && (
                                 <div className="rounded-xl border border-emerald-500/25 bg-emerald-500/[0.05] p-4 space-y-4">
                                     <p className="text-[11px] font-bold text-emerald-300 uppercase flex items-center gap-2">
@@ -1648,6 +1743,28 @@ const inputCls =
     "w-full px-3 py-2 bg-background border border-input rounded-lg text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/40 transition-all placeholder:text-muted-foreground/40";
 
 const conProtocolo = (url: string) => (url.startsWith("http") ? url : `https://${url}`);
+
+/**
+ * ISO ↔ el formato que pide <input type="datetime-local">, que es hora local
+ * sin zona ("YYYY-MM-DDTHH:mm").
+ *
+ * Se carga a mano mirando el WhatsApp, así que lo que se escribe es la hora del
+ * reloj de quien lo carga. Convertir a UTC para guardar y de vuelta para mostrar
+ * es lo que evita que "sábado 21:40" aparezca como domingo a la madrugada.
+ */
+const aLocal = (iso: string | null): string => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const p = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
+};
+
+const aISO = (local: string): string | null => {
+    if (!local) return null;
+    const d = new Date(local);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+};
 
 /** Chip de la cabecera: abre en pestaña nueva un link que ya está en la ficha. */
 function ChipLink({ url, icono, label }: { url: string; icono: React.ReactNode; label: string }) {
