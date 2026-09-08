@@ -24,6 +24,7 @@ import {
     tasaPorQuienLeyo, tasaPorLista, tasaPorPais, diagnosticoEmbudo, diasDesde,
     NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS, motivoFueraDeCola, compararParaCola,
     detectarDuplicados, reseñasSanas, MOTIVO_SIN_ESCANEAR, MUESTRA_MINIMA_LISTA,
+    copiarASistema,
     type CorteMetrica,
 } from "@/lib/prospeccion";
 import { calcularRampaVivoMenu, avisoDiaVivoMenu } from "@/lib/vivomenu-mensajes";
@@ -55,7 +56,11 @@ const SISTEMA_ICONS: Record<Sistema, typeof Globe> = {
 const SISTEMAS_EN_ORDEN: Sistema[] = [...SISTEMAS_ACTIVOS, ...SISTEMAS_ARCHIVADOS];
 
 const COLUMNAS_EMBUDO: EstadoProspecto[] = [
-    "sin_calificar", "calificado", "enviado", "fu1", "fu2", "fu3", "respondio", "revision_enviada", "reunion", "cliente",
+    "sin_calificar", "calificado", "enviado", "fu1", "fu2", "fu3", "respondio", "revision_enviada", "reunion",
+    // "acordado" va entre la reunión y el cliente porque eso es: ya dijo que sí,
+    // todavía no facturó. Es la meta del carril de agencias y hasta ahora no
+    // tenía columna, así que esos acuerdos no se veían en ningún lado.
+    "acordado", "cliente",
 ];
 
 /**
@@ -89,7 +94,10 @@ export default function ProspeccionPage() {
     const [cargando, setCargando] = useState(true);
     const [errorCarga, setErrorCarga] = useState<string | null>(null);
 
-    const [sistemaActivo, setSistemaActivo] = useState<Sistema>("galu");
+    // Arranca en agencias: es el carril que se trabaja todos los días y "galu"
+    // quedó archivado.
+    const [sistemaActivo, setSistemaActivo] = useState<Sistema>("agencias");
+    const [copiando, setCopiando] = useState(false);
     const [vista, setVista] = useState<Vista>("cola");
     const [busqueda, setBusqueda] = useState("");
     const [filtroRubro, setFiltroRubro] = useState("");
@@ -449,6 +457,50 @@ export default function ProspeccionPage() {
         }
     };
 
+    /**
+     * Copia lo que está filtrado en pantalla a otro sistema.
+     *
+     * El caso que lo motivó: los odontólogos de Tucumán viven en el sistema "galu"
+     * con el guion del análisis gratis, y hay que volver a trabajarlos con Sarvo.
+     * Rehacer el scrapeo sería tirar a la basura la calificación ya hecha.
+     *
+     * La selección es el filtro de pantalla, no una lista de checkboxes: filtrar
+     * por listado y rubro ya es exactamente el gesto de "estos". Y es copia, no
+     * mudanza — ver copiarASistema(): el registro de qué se probó con el producto
+     * viejo tiene que quedar donde está.
+     */
+    const copiarASistemaDestino = async (destino: Sistema) => {
+        if (filtrados.length === 0) {
+            toast.error("No hay prospectos filtrados para copiar");
+            return;
+        }
+        const ok = window.confirm(
+            `Copiar ${filtrados.length} prospecto${filtrados.length === 1 ? "" : "s"} a "${SISTEMA_LABELS[destino]}".\n\n` +
+            `Los originales quedan intactos en ${SISTEMA_LABELS[sistemaActivo]}. Las copias arrancan ` +
+            `sin estado, sin fechas y sin escaneo: el embudo nuevo empieza de cero.`
+        );
+        if (!ok) return;
+
+        setCopiando(true);
+        try {
+            const copias = filtrados.map((p) => copiarASistema(p, destino, null));
+            const res = await prospectosStore.createBulk(copias, prospectos);
+            setProspectos((prev) => [...prev, ...res.insertados].sort((a, b) => b.score - a.score));
+            const partes = [`${res.insertados.length} copiado${res.insertados.length === 1 ? "" : "s"}`];
+            if (res.duplicados > 0) partes.push(`${res.duplicados} ya estaban`);
+            if (res.fallidos.length > 0) partes.push(`${res.fallidos.length} fallaron`);
+            toast.success(partes.join(" · "));
+            if (res.insertados.length > 0) {
+                setSistemaActivo(destino);
+                setFiltroLista("");
+            }
+        } catch (e) {
+            toast.error(mensajeError(e));
+        } finally {
+            setCopiando(false);
+        }
+    };
+
     const exportarCsv = () => {
         if (filtrados.length === 0) {
             toast.error("No hay prospectos para exportar");
@@ -676,6 +728,28 @@ export default function ProspeccionPage() {
                                     <option key={l.id} value={l.id}>{l.nombre} ({l.cantidad})</option>
                                 ))}
                                 <option value="sin">Sin listado</option>
+                            </select>
+                        )}
+                        {/* Copiar a otro sistema. Actúa sobre lo que está filtrado en
+                            pantalla, que ya es el gesto de "estos": filtrás por listado
+                            y rubro, y copiás. Vuelve solo a "" para que no se dispare
+                            dos veces. */}
+                        {filtrados.length > 0 && (
+                            <select
+                                value=""
+                                disabled={copiando}
+                                onChange={(e) => {
+                                    const destino = e.target.value as Sistema;
+                                    e.target.value = "";
+                                    if (destino) void copiarASistemaDestino(destino);
+                                }}
+                                className={selectCls}
+                                title="Copia los prospectos filtrados a otro sistema. Los originales no se tocan."
+                            >
+                                <option value="">{copiando ? "Copiando…" : `Copiar ${filtrados.length} a…`}</option>
+                                {SISTEMAS_ACTIVOS.filter((s) => s !== sistemaActivo).map((s) => (
+                                    <option key={s} value={s}>{SISTEMA_LABELS[s]}</option>
+                                ))}
                             </select>
                         )}
                         <select value={filtroRubro} onChange={(e) => setFiltroRubro(e.target.value)} className={selectCls}>

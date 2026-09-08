@@ -18,12 +18,12 @@ import {
 
 export const maxDuration = 30;
 
-const PASOS_GALU: PasoMensaje[] = ["m1", "m2", "m3", "fu1", "fu2", "fu3", "ruteo", "fu_revision1", "fu_revision2"];
+const PASOS_GALU: PasoMensaje[] = ["m1", "m2", "m3", "fu1", "fu2", "fu3", "ruteo", "fu_revision1", "fu_revision2", "toque_vigencia"];
 const PASOS_VIVOMENU: PasoMensajeVivoMenu[] = [
     "primer_contacto", "rama_empleado", "rama_dueno", "fu1", "fu2", "fu3", "interes_tibio", "compromiso_visita",
 ];
 const PASOS_AGENCIAS: PasoMensajeAgencia[] = [
-    "m1", "fu1", "fu2", "credenciales", "precios", "primer_trabajo", "ruteo",
+    "m1", "fu1", "fu2", "credenciales", "precios", "primer_trabajo", "ruteo", "toque_vigencia",
 ];
 const PASOS_ODONTOLOGIA: PasoMensajeOdontologia[] = [
     "m1", "m1_sin_prueba", "fu1", "fu2", "fu3", "video", "precio", "ruteo",

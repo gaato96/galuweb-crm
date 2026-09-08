@@ -337,7 +337,11 @@ export default function ProspectoModal({
                           ? { fecha_revision_fu1: hoyISO() }
                           : pasoMensaje === "fu_revision2"
                             ? { fecha_revision_fu2: hoyISO() }
-                            : {};
+                            // El toque de vigencia no mueve el estado: reinicia el reloj.
+                            // Sigue "acordado" hasta que llegue trabajo de verdad.
+                            : pasoMensaje === "toque_vigencia"
+                              ? { fecha_ultimo_toque: hoyISO() }
+                              : {};
 
         if (Object.keys(avance).length > 0) {
             setDraft((d) => ({ ...d, ...avance }));
@@ -1545,7 +1549,20 @@ export default function ProspectoModal({
 
                             <div className="grid sm:grid-cols-2 gap-4">
                                 <Campo label="Estado">
-                                    <select value={draft.estado} onChange={(e) => set("estado", e.target.value as EstadoProspecto)} className={inputCls}>
+                                    <select
+                                        value={draft.estado}
+                                        onChange={(e) => {
+                                            const nuevo = e.target.value as EstadoProspecto;
+                                            set("estado", nuevo);
+                                            // Sin fecha de acuerdo el reloj de vigencia no arranca y el
+                                            // prospecto queda vencido desde el minuto cero. Se sella acá,
+                                            // que es el único momento en que se sabe cuándo dijo que sí.
+                                            if (nuevo === "acordado" && !draft.fecha_acuerdo) {
+                                                set("fecha_acuerdo", hoyISO());
+                                            }
+                                        }}
+                                        className={inputCls}
+                                    >
                                         {(Object.keys(ESTADO_PROSPECTO_LABELS) as EstadoProspecto[]).map((e) => (
                                             <option key={e} value={e}>{ESTADO_PROSPECTO_LABELS[e]}</option>
                                         ))}

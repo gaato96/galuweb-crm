@@ -606,6 +606,7 @@ export type EstadoProspecto =
     | "fu3"               // follow-up 3 — solo VivoMenu (día 14)
     | "sin_respuesta"     // cerrado tras el último follow-up
     | "respondio"         // dijo "sí" o contestó
+    | "acordado"          // quedó el acuerdo, falta que llegue el trabajo
     | "revision_enviada"  // §6 — se entregó el análisis de una página
     | "reunion"           // aceptó el diagnóstico de 30 min
     | "cliente";          // convertido a cliente del CRM
@@ -733,6 +734,19 @@ export interface Prospecto {
      * Timestamps ISO completos — la hora importa tanto como el día. */
     prueba_enviada_at: string | null;
     prueba_respondida_at: string | null;
+
+    /* ── El acuerdo sin trabajo todavía ──────────────────
+     * Una agencia que dice "dale, te avisamos cuando nos entre algo de web" no
+     * es "respondió" —ya pasó eso— ni es cliente —no facturó un peso—. Es la
+     * meta del carril de agencias y hasta ahora no tenía dónde vivir, así que
+     * se caía del embudo y se olvidaba.
+     *
+     * Lo que la mata no es que diga que no: es que a las seis semanas no se
+     * acuerde de que existís. Por eso el estado tiene cadencia propia, larga y
+     * sin apuro (ver DIAS_VIGENCIA), en vez de quedar cerrado como los demás. */
+    fecha_acuerdo: string | null;
+    /** Último toque de vigencia. Arranca en fecha_acuerdo y se pisa en cada toque. */
+    fecha_ultimo_toque: string | null;
     /** Nunca contestaron. Es el mejor caso posible para vender, no un dato faltante. */
     prueba_sin_respuesta: boolean;
 
@@ -776,6 +790,7 @@ export const ESTADO_PROSPECTO_LABELS: Record<EstadoProspecto, string> = {
     fu3: "Follow-up 3",
     sin_respuesta: "Sin respuesta",
     respondio: "Respondió",
+    acordado: "Acordado — espera trabajo",
     revision_enviada: "Análisis enviado",
     reunion: "Reunión agendada",
     cliente: "Cliente",
@@ -791,6 +806,7 @@ export const ESTADO_PROSPECTO_COLORS: Record<EstadoProspecto, string> = {
     fu3: "bg-orange-500/20 text-orange-100 border-orange-500/30",
     sin_respuesta: "bg-gray-500/20 text-gray-400 border-gray-500/30",
     respondio: "bg-cyan-500/20 text-cyan-300 border-cyan-500/30",
+    acordado: "bg-teal-500/20 text-teal-200 border-teal-500/40",
     revision_enviada: "bg-blue-500/20 text-blue-300 border-blue-500/30",
     reunion: "bg-indigo-500/20 text-indigo-300 border-indigo-500/30",
     cliente: "bg-emerald-500/20 text-emerald-300 border-emerald-500/30",

@@ -63,7 +63,8 @@ export type PasoMensajeAgencia =
     | "credenciales"  // contestó: referencias, precios y disponibilidad
     | "precios"       // pidió valores sueltos
     | "primer_trabajo" // proponer arrancar por algo chico
-    | "ruteo";        // el que contesta no decide
+    | "ruteo"         // el que contesta no decide
+    | "toque_vigencia"; // dijo que sí, no llegó trabajo: se mantiene vigente
 
 export const PASO_AGENCIA_LABELS: Record<PasoMensajeAgencia, string> = {
     m1: "Mensaje 1 — Capacidad disponible",
@@ -73,6 +74,7 @@ export const PASO_AGENCIA_LABELS: Record<PasoMensajeAgencia, string> = {
     precios: "Solo la lista de precios",
     primer_trabajo: "Proponer el primer trabajo chico",
     ruteo: "Línea de ruteo al que decide",
+    toque_vigencia: "Toque de vigencia (cada 21 días)",
 };
 
 /**
@@ -109,6 +111,28 @@ export function generarMensajeAgencia(
     canal: CanalAgencia = canalSugerido(p)
 ): string {
     const negocio = p.negocio || "la agencia";
+
+    /* El toque de vigencia va antes de la rama de canal porque no cambia con el
+     * canal: es el mismo texto corto por mail o por DM.
+     *
+     * Es el mensaje más difícil de escribir de todo el guion, porque el riesgo no
+     * es que no conteste —no hace falta que conteste— sino volverse molesto con
+     * alguien que ya te dijo que sí. Tres reglas: no se pregunta si hay novedades,
+     * no se pide nada, y se trae algo nuevo propio. Un "¿cómo va todo?" cada tres
+     * semanas es exactamente lo que hace que te dejen de contestar. */
+    if (paso === "toque_vigencia") {
+        const nombre = p.contacto_nombre.trim().split(" ")[0];
+        return [
+            nombre ? `Hola ${nombre}, ¿cómo va?` : "Hola, ¿cómo va?",
+            "",
+            `Te escribo cortito para que me tengan presente: sigo con lugar para tomar trabajo de ${negocio ? "ustedes" : "web"} este mes.`,
+            "",
+            "[QUÉ TERMINASTE ESTE MES — una línea concreta: un sitio, un rubro, un plazo]",
+            "",
+            `Cualquier cosa que les entre de web, avísenme y les paso plazo y valor el mismo día. ${LINEA_PORTFOLIO}`,
+        ].join("\n");
+    }
+
 
     // El mensaje 1 por mail es otro texto, no el mismo con más saltos de línea.
     // Un DM se lee en diez segundos y tiene que caber en la previsualización; un

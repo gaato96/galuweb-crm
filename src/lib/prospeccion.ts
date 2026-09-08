@@ -753,7 +753,8 @@ export function alertasDescarte(p: Prospecto): AlertaDescarte[] {
 
 export type PasoMensaje =
     | "m1" | "m2" | "m3" | "fu1" | "fu2" | "fu3" | "ruteo"
-    | "fu_revision1" | "fu_revision2";
+    | "fu_revision1" | "fu_revision2"
+    | "toque_vigencia";
 
 export const PASO_MENSAJE_LABELS: Record<PasoMensaje, string> = {
     m1: "Mensaje 1 — Permiso",
@@ -766,6 +767,7 @@ export const PASO_MENSAJE_LABELS: Record<PasoMensaje, string> = {
     // Post-análisis: se manda el link ya entregado (m2/m3), no el mensaje de permiso.
     fu_revision1: "Follow-up análisis 1 (3-4 días)",
     fu_revision2: "Follow-up análisis 2 (7-10 días)",
+    toque_vigencia: "Toque de vigencia (cada 21 días)",
 };
 
 /**
@@ -793,6 +795,23 @@ const CONSECUENCIA_GENERICA: Record<ClasificacionWeb, string> = {
  * §4 regla de uso: con nivel 3 o 4 va la versión corta, sin diagnóstico de la consecuencia.
  */
 export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
+    // El toque de vigencia no pertenece al embudo de conversión: es lo que se le
+    // manda a alguien que YA dijo que sí y con quien no hay nada que negociar.
+    // Por eso sale antes de todo el armado de niveles de dato y ofertas.
+    if (paso === "toque_vigencia") {
+        const nombre = p.contacto_nombre.trim().split(" ")[0];
+        const hola = nombre ? `Hola ${nombre}, ¿cómo va?` : "Hola, ¿cómo va?";
+        return [
+            hola,
+            "",
+            "Te escribo cortito para que me tengas presente: sigo con lugar para tomar trabajo este mes.",
+            "",
+            "[QUÉ TERMINASTE ESTE MES — una línea, concreta]",
+            "",
+            "Si te entra algo, avisame y te paso plazo el mismo día.",
+        ].join("\n");
+    }
+
     const escaneo = normalizarEscaneo(p.escaneo);
     const nivel = calcularNivelDato(escaneo);
     const rubro = p.especialidad || p.rubro || "tu rubro";
@@ -997,6 +1016,17 @@ const ESTADOS_CERRADOS: EstadoProspecto[] = [
 ];
 
 /**
+ * Cada cuánto se toca a alguien que ya acordó pero todavía no mandó trabajo.
+ *
+ * Tres semanas no es un número elegido al azar: más seguido se lee como
+ * apuro por alguien que no te debe nada, y más espaciado te saca de la cabeza
+ * justo cuando le entra el cliente que te iba a derivar. El toque no pregunta
+ * "¿hay novedades?" —eso pone al otro a dar explicaciones— sino que informa
+ * capacidad y suma una novedad propia.
+ */
+export const DIAS_VIGENCIA = 21;
+
+/**
  * Doc 08 (Galu) define solo dos toques: día 3-4 y día 7-10.
  * VivoMenu §5 Rama C define tres: día 3, día 7 y día 14 — sin mensaje 4 en ninguno.
  */
@@ -1035,6 +1065,15 @@ export function proximaAccion(p: Prospecto, hoy: Date = new Date()): AccionSegui
     // pero sobre fecha_revision en vez de fecha_envio, porque el mensaje 1 nunca fue.
     // Solo Galu: en VivoMenu "revision_enviada" es el paso "interés tibio" y no tiene
     // un fu_revision propio todavía, y fu_revision1/2 no existen en su tipo de paso.
+    // El acuerdo sin trabajo tiene su propio reloj y no muere nunca solo: mientras
+    // el estado siga en "acordado", cada 21 días vuelve a aparecer en la cola.
+    if (p.estado === "acordado") {
+        const desde = p.fecha_ultimo_toque || p.fecha_acuerdo;
+        if (!desde) return { paso: "toque_vigencia", vencido: true, dias: 0 };
+        const dias = diasDesde(desde, hoy);
+        return { paso: "toque_vigencia", vencido: dias >= DIAS_VIGENCIA, dias };
+    }
+
     if (p.sistema === "galu" && p.estado === "revision_enviada" && p.fecha_revision) {
         if (!p.fecha_revision_fu1) {
             const dias = diasDesde(p.fecha_revision, hoy);
@@ -1380,7 +1419,10 @@ const RANGO_ESTADO: Record<EstadoProspecto, number> = {
     respondio: 6,
     revision_enviada: 7,
     reunion: 8,
-    cliente: 9,
+    // Un acuerdo cerrado pesa más que una reunión agendada: la reunión todavía se
+    // puede caer, el acuerdo ya se dio. Solo lo supera un cliente facturando.
+    acordado: 9,
+    cliente: 10,
 };
 
 export interface GrupoDuplicado {
@@ -1423,6 +1465,61 @@ export function detectarDuplicados(prospectos: Prospecto[]): GrupoDuplicado[] {
         resultado.push({ clave, conservar: ordenados[0], borrar: ordenados.slice(1) });
     }
     return resultado.sort((a, b) => b.borrar.length - a.borrar.length);
+}
+
+/**
+ * Copia un prospecto a otro sistema, para volver a trabajar la misma lista con
+ * otro producto y otro guion.
+ *
+ * Es copia y no mudanza a propósito. Los 45 odontólogos de Tucumán a los que se
+ * les ofreció un análisis tienen que seguir figurando en el sistema "galu" con
+ * su resultado —cero clientes—, porque ese es el registro de qué se probó. Lo
+ * que arranca de cero es el embudo nuevo: si se arrastraran los estados y las
+ * fechas viejas, la tasa de respuesta de Sarvo nacería contaminada con la del
+ * producto anterior y no habría forma de saber si el guion nuevo funciona.
+ *
+ * Se lleva lo que describe al negocio —que no cambió— y se deja atrás todo lo
+ * que describe la conversación —que sí—. El escaneo también se limpia: sus
+ * señales apuntaban al dolor del producto viejo.
+ *
+ * El índice único de la tabla es (negocio, ciudad, país, sistema), así que la
+ * copia no colisiona con el original y createBulk deduplica sola.
+ */
+export function copiarASistema(
+    p: Prospecto,
+    sistema: Sistema,
+    listaId: string | null = null
+): Omit<Prospecto, "id" | "created_at"> {
+    return {
+        ...prospectoVacio(sistema),
+        lista_id: listaId,
+        // Identidad y contacto: es el mismo negocio.
+        negocio: p.negocio,
+        contacto_nombre: p.contacto_nombre,
+        rubro: p.rubro,
+        especialidad: p.especialidad,
+        ciudad: p.ciudad,
+        pais: p.pais,
+        direccion: p.direccion,
+        telefono: p.telefono,
+        telefono_wa: p.telefono_wa,
+        whatsapp_publicado: p.whatsapp_publicado,
+        es_whatsapp_business: p.es_whatsapp_business,
+        instagram_url: p.instagram_url,
+        linkedin_url: p.linkedin_url,
+        email: p.email,
+        sitio_web_url: p.sitio_web_url,
+        maps_url: p.maps_url,
+        canal: p.canal,
+        // Observaciones del negocio que no dependen del producto que se le vende.
+        clasificacion_web: p.clasificacion_web,
+        rating: p.rating,
+        reviews_count: p.reviews_count,
+        cant_profesionales: p.cant_profesionales,
+        dias_ultimo_post: p.dias_ultimo_post,
+        origen: p.origen,
+        notas: p.notas,
+    };
 }
 
 export function prospectoVacio(sistema: Sistema = "agencias"): Omit<Prospecto, "id" | "created_at"> {
@@ -1469,6 +1566,8 @@ export function prospectoVacio(sistema: Sistema = "agencias"): Omit<Prospecto, "
         fecha_fu2: null,
         fecha_fu3: null,
         fecha_respuesta: null,
+        fecha_acuerdo: null,
+        fecha_ultimo_toque: null,
         prueba_enviada_at: null,
         prueba_respondida_at: null,
         prueba_sin_respuesta: false,
