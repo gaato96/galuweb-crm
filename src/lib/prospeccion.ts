@@ -497,15 +497,24 @@ export function calcularScoreOdontologia(p: Prospecto): DesgloseScore {
     const escaneo = normalizarEscaneo(p.escaneo);
     const fallas = new Set(escaneo.fallas);
 
-    // 1. EL filtro. Sin WhatsApp publicado no hay dónde instalar el producto.
-    //    No es "un dato menos": es que no se le puede vender.
+    // 1. EL filtro. Sin un WhatsApp donde escribirle no hay dónde instalar el
+    //    producto. No es "un dato menos": es que no se le puede vender.
     if (!p.whatsapp_publicado && !p.telefono_wa.trim()) {
         return {
             total: 0,
-            partes: [{ concepto: "No publica WhatsApp: no hay dónde instalar Sarvo", puntos: 0 }],
+            partes: [{ concepto: "Sin WhatsApp: no hay dónde instalar Sarvo", puntos: 0 }],
         };
     }
-    partes.push({ concepto: "Publica WhatsApp", puntos: 20 });
+    // Los dos casos no valen lo mismo y decían la misma frase. El escaneo saca
+    // el móvil de la ficha de Google, pero desde ahí NO se puede afirmar que el
+    // consultorio lo publique como WhatsApp — eso lo confirma una persona
+    // mirando la ficha o el Instagram. El filtro del plan es "que publiquen
+    // WhatsApp", así que el confirmado tiene que pesar más que el deducido.
+    if (p.whatsapp_publicado) {
+        partes.push({ concepto: "Publica WhatsApp (confirmado)", puntos: 20 });
+    } else {
+        partes.push({ concepto: "Tiene móvil en la ficha, falta confirmar que sea WhatsApp", puntos: 10 });
+    }
 
     // 2. La prueba de la hora. Es el corazón del sistema y vale más que
     //    cualquier otra señal, porque además de calificar es el mensaje.

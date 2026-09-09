@@ -22,7 +22,7 @@
 import { NextResponse } from "next/server";
 import type { Prospecto, FallaVerificable } from "@/lib/types";
 import { telefonoAWhatsapp, normalizar, normalizarEscaneo } from "@/lib/prospeccion";
-import { detectarRubro } from "@/lib/dolores-rubro";
+import { detectarRubro, type RubroProspeccion } from "@/lib/dolores-rubro";
 import { extraerPlaceId } from "@/lib/places-url";
 import {
     senialesDeMaps, senialDeSerp, senialesDeWeb, clasificarConChequeo,
@@ -395,8 +395,41 @@ const FALLAS_DE_RESENAS_GASTRO: FallaVerificable[] = [
     "carta_desactualizada",
 ];
 
-function queBuscarEnResenas(esGastro: boolean): string {
-    if (esGastro) {
+/**
+ * Odontología (Sarvo). Sale "resenas_pedido_errado", que es una señal de pedido
+ * de comida y no tenía nada que hacer acá: dejarla habilitada solo abría la
+ * puerta a un falso positivo raro en un consultorio.
+ */
+const FALLAS_DE_RESENAS_ODONTO: FallaVerificable[] = [
+    "demora_en_contestar",
+    "sin_reserva_online",
+    "varios_prof_un_canal",
+];
+
+function fallasDeResenasPara(rubro: RubroProspeccion): FallaVerificable[] {
+    if (rubro === "gastronomia") return FALLAS_DE_RESENAS_GASTRO;
+    if (rubro === "odontologia") return FALLAS_DE_RESENAS_ODONTO;
+    return FALLAS_DE_RESENAS;
+}
+
+function queBuscarEnResenas(rubro: RubroProspeccion): string {
+    /* Odontología tenía el texto genérico, que está escrito para vender webs y
+     * dice literal "nada que una web no arregle". Eso le pedía a Gemini que
+     * descartara justo las quejas que Sarvo resuelve —no contestan el WhatsApp,
+     * tardé dos días en que me dieran un turno— porque una web, efectivamente,
+     * no las arregla. El producto acá no es una web: es un agente que contesta. */
+    if (rubro === "odontologia") {
+        return `Buscás una queja de un paciente sobre un problema que se resuelve con un asistente que contesta
+el WhatsApp del consultorio a cualquier hora y agenda el turno solo:
+no contestan los mensajes, no contestaron nunca, tardé días en que me respondieran, hay que llamar muchas veces,
+no atienden el teléfono, cuesta conseguir turno, no hay forma de reservar sin ir, me dieron el turno tarde,
+nadie me confirmó, me enteré el mismo día de que no atendían.
+
+NO sirve, y no lo devuelvas: quejas sobre el resultado del tratamiento, el dolor, el precio, la anestesia,
+la limpieza del consultorio, o el trato de un profesional. Nada de eso lo arregla un asistente que agenda,
+y usarlo como línea 1 hace que el mensaje se lea como un ataque a su trabajo clínico.`;
+    }
+    if (rubro === "gastronomia") {
         return `Buscás una queja de un cliente sobre un problema que se resuelve con un menú digital donde el cliente
 arma el pedido solo, o con un sistema que ordena cómo entra ese pedido a la cocina:
 el pedido llegó mal, incompleto o cambiado; faltaba algo; les dieron otra cosa; tardaron muchísimo en contestar
@@ -418,16 +451,24 @@ sobre el resultado de un tratamiento, sobre precios caros, ni nada que una web n
 async function leerResenas(p: Prospecto, resenas: ResenaMaps[]): Promise<LecturaResenas> {
     if (!GEMINI_API_KEY || resenas.length === 0) return LECTURA_VACIA;
 
-    const esGastro = detectarRubro(p) === "gastronomia";
-    const fallasPermitidas = esGastro ? FALLAS_DE_RESENAS_GASTRO : FALLAS_DE_RESENAS;
+    const rubro = detectarRubro(p);
+    const esGastro = rubro === "gastronomia";
+    const esOdonto = rubro === "odontologia";
+    const fallasPermitidas = fallasDeResenasPara(rubro);
+
+    // Quién dice ser el que lee. Con "agencia web" puesto para un consultorio,
+    // Gemini filtraba las quejas por si una web las resolvía o no.
+    const quienLee = esGastro
+        ? " de VivoMenu, un menú digital y sistema de pedidos para locales de comida"
+        : esOdonto
+          ? " de Sarvo, un asistente de IA que contesta el WhatsApp de consultorios odontológicos y agenda los turnos solo"
+          : " de una agencia web de Tucumán";
 
     const listado = resenas
         .map((r, i) => `[${i + 1}] ${r.autor} · ${r.rating ?? "?"}★ · ${r.fecha}\n${r.texto}`)
         .join("\n\n");
 
-    const prompt = `Sos quien prepara los datos para escribir un mensaje en frío${
-        esGastro ? " de VivoMenu, un menú digital y sistema de pedidos para locales de comida de Tucumán" : " de una agencia web de Tucumán"
-    }.
+    const prompt = `Sos quien prepara los datos para escribir un mensaje en frío${quienLee}.
 Te paso las reseñas de Google de un negocio. Tu único trabajo es EXTRAER, no redactar.
 
 --- NEGOCIO ---
@@ -437,7 +478,7 @@ ${p.negocio} — ${p.especialidad || p.rubro} en ${p.ciudad}
 ${listado}
 
 --- QUÉ BUSCAR ---
-${queBuscarEnResenas(esGastro)}
+${queBuscarEnResenas(rubro)}
 
 --- REGLAS ---
 1. queja_textual va TEXTUAL, copiada carácter por carácter de una reseña. No la resumas, no la corrijas,
