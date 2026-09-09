@@ -23,7 +23,7 @@ import {
     prospectoVacio, fueEnviado, respondio, tasaPorNivelDato, tasaPorRubro,
     tasaPorQuienLeyo, tasaPorLista, tasaPorPais, diagnosticoEmbudo, diasDesde,
     NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS, motivoFueraDeCola, compararParaCola,
-    detectarDuplicados, reseñasSanas, MOTIVO_SIN_ESCANEAR, MUESTRA_MINIMA_LISTA,
+    detectarDuplicados, reseñasSanas, MOTIVO_SIN_ESCANEAR, MOTIVO_FALTA_A_MANO, MUESTRA_MINIMA_LISTA,
     copiarASistema,
     type CorteMetrica,
 } from "@/lib/prospeccion";
@@ -387,7 +387,8 @@ export default function ProspeccionPage() {
         setEscaneoLote({ hechos: 0, total: delBloque.length });
 
         const conSenial: string[] = [];
-        let sinSenial = 0;
+        let conDatos = 0;
+        let sinNada = 0;
         let fallidos = 0;
 
         try {
@@ -403,10 +404,28 @@ export default function ProspeccionPage() {
                     if (!res.ok) throw new Error(json.error || "Error al escanear");
 
                     for (const r of (json.resultados || []) as EscaneoAutomatico[]) {
-                        if (r.agregadas.length === 0) { sinSenial++; continue; }
+                        /* Acá estaba el bug que hacía que el botón no cambiara nada.
+                         *
+                         * Antes: si no había señales nuevas (`agregadas`), se hacía
+                         * `continue` y se tiraba TODO el resultado. Pero `agregadas` son
+                         * solo señales de dolor — el teléfono, el Instagram, el mail,
+                         * las reseñas y la clasificación web viajan en `campos`, que es
+                         * otra cosa. O sea que el caso más común y el único que import
+                         * a para esta pantalla —"traíme el teléfono de la ficha de
+                         * Google, que no tiene ninguna queja en las reseñas"— se
+                         * descartaba entero y el prospecto quedaba igual que antes,
+                         * afuera de la cola y pidiendo escaneo de nuevo.
+                         *
+                         * Ahora se guarda siempre: los campos que haya, más el sello de
+                         * escaneado, que es lo que evita que el próximo lote sean los
+                         * mismos veinte. */
+                        const { escaneado_at: _sello, ...datos } = r.campos;
+                        const traeDatos = Object.keys(datos).length > 0;
                         try {
                             await guardar(r.prospecto_id, { ...r.campos, escaneo: r.escaneo });
-                            conSenial.push(resumenEscaneo(r));
+                            if (r.agregadas.length > 0) conSenial.push(resumenEscaneo(r));
+                            else if (traeDatos) conDatos++;
+                            else sinNada++;
                         } catch {
                             fallidos++;
                         }
@@ -418,14 +437,21 @@ export default function ProspeccionPage() {
                 setEscaneoLote({ hechos: Math.min(i + TANDA, delBloque.length), total: delBloque.length });
             }
 
-            if (conSenial.length > 0) {
-                toast.success(
-                    `${conSenial.length} de ${delBloque.length} con señales nuevas. Abrí cada uno para revisar antes de mandar.`,
-                    { duration: 8000 }
-                );
-                console.info("[escaneo lote]\n" + conSenial.join("\n"));
+            // Tres resultados distintos, y antes se contaban dos. "Trajo el
+            // teléfono pero ninguna queja" no es lo mismo que "no encontró nada":
+            // el primero entra a la cola, el segundo no.
+            const partes: string[] = [];
+            if (conSenial.length > 0) partes.push(`${conSenial.length} con señales`);
+            if (conDatos > 0) partes.push(`${conDatos} con datos nuevos`);
+            if (sinNada > 0) partes.push(`${sinNada} sin nada que traer`);
+
+            if (conSenial.length > 0 || conDatos > 0) {
+                toast.success(`${partes.join(" · ")}. Los que entraron a la cola ya están arriba.`, {
+                    duration: 8000,
+                });
+                if (conSenial.length > 0) console.info("[escaneo lote]\n" + conSenial.join("\n"));
             } else if (fallidos === 0) {
-                toast.info(`Sin señales automáticas en los ${sinSenial}. Quedan para escaneo de Instagram a mano.`);
+                toast.info(`Los ${sinNada} quedaron escaneados y sin datos nuevos. No vuelven a pedir escaneo.`);
             }
             if (fallidos > 0) toast.error(`${fallidos} no se pudieron escanear. Probá de nuevo con esos.`);
         } finally {
@@ -909,7 +935,8 @@ function VistaCola({
     // que es un descarte de verdad y no una tarea pendiente.
     const porEscanear = fueraDeCola.filter((p) => motivoFueraDeCola(p) === MOTIVO_SIN_ESCANEAR);
     const sinCanalReal = fueraDeCola.filter((p) => motivoFueraDeCola(p) === "sin canal de contacto").length;
-    const otrosMotivos = fueraDeCola.length - porEscanear.length - sinCanalReal;
+    const faltaAMano = fueraDeCola.filter((p) => motivoFueraDeCola(p) === MOTIVO_FALTA_A_MANO).length;
+    const otrosMotivos = fueraDeCola.length - porEscanear.length - sinCanalReal - faltaAMano;
 
     if (cola.length === 0 && fueraDeCola.length === 0) {
         // Una cola vacía tiene tres causas muy distintas y el mensaje genérico
@@ -1026,6 +1053,7 @@ function VistaCola({
                                             : `${porEscanear.length} sin escanear (el teléfono está en Google, falta traerlo)`
                                         : "",
                                     sinCanalReal > 0 ? `${sinCanalReal} sin canal de contacto` : "",
+                                    faltaAMano > 0 ? `${faltaAMano} ya escaneados, falta revisarlos a mano` : "",
                                     otrosMotivos > 0
                                         ? esAgencia
                                             ? `${otrosMotivos} descartadas porque ya ofrecen desarrollo web`
@@ -1046,18 +1074,19 @@ function VistaCola({
                         <div className="mt-3 pt-3 border-t border-border flex items-center justify-between gap-3 flex-wrap">
                             <p className="text-[11px] text-muted-foreground min-w-0 flex-1">
                                 {esAgencia
-                                    ? `Escaneá los primeros ${Math.min(porEscanear.length, 20)}: el escaneo lee su web y trae mail, LinkedIn e Instagram. Las que quedan sin confirmar no se descartan — hay que abrir su página de Servicios y marcar el filtro a mano.`
-                                    : `Escaneá los primeros ${Math.min(porEscanear.length, 20)} y van a aparecer en la cola con su teléfono, sus reseñas reales y las señales de la ficha.`}
+                                    ? `El escaneo lee su web y trae mail, LinkedIn e Instagram. Las que quedan sin confirmar no se descartan — hay que abrir su página de Servicios y marcar el filtro a mano.`
+                                    : `Van a aparecer en la cola con su teléfono, sus reseñas reales y las señales de la ficha.`}
+                                {porEscanear.length > 40 ? ` Son ${porEscanear.length}: va de a 5 y tarda un rato, se puede dejar corriendo.` : ""}
                             </p>
                             <button
-                                onClick={() => onEscanearBloque(porEscanear.slice(0, 20))}
+                                onClick={() => onEscanearBloque(porEscanear)}
                                 disabled={!!escaneoLote}
                                 className="shrink-0 flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/15 border border-primary/40 text-primary text-[11px] font-bold hover:bg-primary/25 disabled:opacity-50"
                             >
                                 <ScanSearch className="w-3.5 h-3.5" />
                                 {escaneoLote
                                     ? `Escaneando ${escaneoLote.hechos}/${escaneoLote.total}`
-                                    : `Escanear ${Math.min(porEscanear.length, 20)} sin escanear`}
+                                    : `Escanear los ${porEscanear.length}`}
                             </button>
                         </div>
                     )}

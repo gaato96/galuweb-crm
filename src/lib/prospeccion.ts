@@ -646,9 +646,18 @@ export function motivoFueraDeCola(p: Prospecto): string | null {
         // contactables agencias a las que no había por dónde entrar.
         const linkedinEscribible = p.linkedin_url.trim().toLowerCase().includes("/in/");
         if (!p.email.trim() && !linkedinEscribible && !p.instagram_url.trim()) {
-            return p.sitio_web_url.trim() ? MOTIVO_SIN_ESCANEAR : "sin canal de contacto";
+            // Si ya se escaneó y sigue sin mail, LinkedIn ni Instagram, no es una
+            // tarea pendiente: es que no hay por dónde entrar.
+            return p.sitio_web_url.trim() && !p.escaneado_at
+                ? MOTIVO_SIN_ESCANEAR
+                : "sin canal de contacto";
         }
-        if (p.ofrece_desarrollo_web == null) return MOTIVO_SIN_ESCANEAR;
+        // El filtro de agencias el robot lo resuelve a veces y a veces no. Si ya
+        // pasó y sigue en null, no lo va a resolver apretándolo de nuevo: hay que
+        // abrir su página de Servicios a mano.
+        if (p.ofrece_desarrollo_web == null) {
+            return p.escaneado_at ? MOTIVO_FALTA_A_MANO : MOTIVO_SIN_ESCANEAR;
+        }
         return null;
     }
 
@@ -665,7 +674,11 @@ export function motivoFueraDeCola(p: Prospecto): string | null {
         //     todavía. El escaneo lo trae en un click. Eso no es un descarte,
         //     es una tarea pendiente.
         //   · Sin ficha ni nada, ahí sí no hay por dónde entrar.
-        return p.maps_url.trim() ? MOTIVO_SIN_ESCANEAR : "sin canal de contacto";
+        // Con ficha de Google el teléfono existe y el escaneo lo trae. Pero si el
+        // escaneo ya corrió y no lo trajo, insistir no cambia nada.
+        return p.maps_url.trim() && !p.escaneado_at
+            ? MOTIVO_SIN_ESCANEAR
+            : "sin canal de contacto";
     }
     return null;
 }
@@ -675,6 +688,15 @@ export function motivoFueraDeCola(p: Prospecto): string | null {
  * de "no se puede contactar", así que vive en una constante y no suelto.
  */
 export const MOTIVO_SIN_ESCANEAR = "sin escanear";
+
+/**
+ * Ya se escaneó y lo que falta no lo puede traer el robot.
+ *
+ * Existe para que el botón de escanear deje de ofrecer los mismos prospectos
+ * una y otra vez: lo que cae acá necesita una persona abriendo una página, no
+ * otra corrida del escaneo.
+ */
+export const MOTIVO_FALTA_A_MANO = "falta revisar a mano";
 
 export function alertasDescarte(p: Prospecto): AlertaDescarte[] {
     const alertas: AlertaDescarte[] = [];
@@ -1566,6 +1588,7 @@ export function prospectoVacio(sistema: Sistema = "agencias"): Omit<Prospecto, "
         fecha_fu2: null,
         fecha_fu3: null,
         fecha_respuesta: null,
+        escaneado_at: null,
         fecha_acuerdo: null,
         fecha_ultimo_toque: null,
         prueba_enviada_at: null,

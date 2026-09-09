@@ -732,6 +732,14 @@ export interface Prospecto {
      * Ese dato no es color: es literalmente el mensaje de apertura, y además
      * es lo que más pesa en el score. Por eso vive acá y no en las notas.
      * Timestamps ISO completos — la hora importa tanto como el día. */
+    /* ── Cuándo pasó el robot por acá ────────────────────
+     * Sin esto no había forma de distinguir "todavía no lo escaneé" de "lo
+     * escaneé y no encontró nada", así que los que no tenían nada que encontrar
+     * volvían al mismo bloque de pendientes para siempre y había que apretar el
+     * botón una y otra vez sobre los mismos. Se sella en cada corrida, encuentre
+     * o no encuentre algo. */
+    escaneado_at: string | null;
+
     prueba_enviada_at: string | null;
     prueba_respondida_at: string | null;
 

@@ -964,6 +964,14 @@ export async function POST(req: Request) {
             }
         }
 
+        // El sello va en TODOS los resultados, incluso en los que no encontraron
+        // nada y en los que fallaron. Es lo que permite que el próximo lote sea
+        // otro y no el mismo de siempre.
+        const sello = new Date().toISOString();
+        for (const r of resultados) {
+            r.campos = { ...r.campos, escaneado_at: sello };
+        }
+
         return NextResponse.json({
             resultados,
             proveedor_busqueda: CSE_ID && CSE_KEY ? "cse" : "ddg",
