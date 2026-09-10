@@ -1193,7 +1193,8 @@ export function resumenParaAnalisis(p: Prospecto): string {
 // ─────────────────────────────────────────────────────────────
 
 const ESTADOS_ENVIADOS: EstadoProspecto[] = [
-    "enviado", "fu1", "fu2", "sin_respuesta", "respondio", "revision_enviada", "reunion", "cliente",
+    "enviado", "fu1", "fu2", "fu3", "sin_respuesta", "respondio", "revision_enviada",
+    "acordado", "reunion", "cliente",
 ];
 const ESTADOS_RESPONDIO: EstadoProspecto[] = ["respondio", "revision_enviada", "reunion", "cliente"];
 
@@ -1202,6 +1203,65 @@ export interface CorteMetrica {
     enviados: number;
     respondieron: number;
     tasa: number;
+}
+
+// ───────────────────────────────────────────────────
+// El mismo negocio, en otro sistema
+// ───────────────────────────────────────────────────
+//
+// Copiar una lista a otro sistema arranca el embudo nuevo en cero —que es lo
+// correcto, si no la tasa de respuesta del producto nuevo nace contaminada—,
+// pero eso deja al copiado sin ninguna señal de que a ese negocio ya se le
+// escribió por el producto anterior. Y esa información no se perdió: sigue
+// entera en el prospecto original, en el otro sistema.
+//
+// Estas funciones la van a buscar. No se guarda nada nuevo en la base: se cruza
+// en memoria contra los prospectos que la pantalla ya tiene cargados.
+
+/** La identidad del negocio, sin el sistema. Es la clave única de la tabla menos esa columna. */
+export function claveNegocio(p: Pick<Prospecto, "negocio" | "ciudad" | "pais">): string {
+    return `${normalizar(p.negocio)}|${normalizar(p.ciudad)}|${normalizar(p.pais || "")}`;
+}
+
+/**
+ * Índice negocio → todas sus copias, en todos los sistemas. Se arma una vez por
+ * pantalla: sin esto, cruzar cada fila contra el universo entero es O(n²) y con
+ * 500 prospectos se nota al scrollear.
+ */
+export function indexarPorNegocio(prospectos: Prospecto[]): Map<string, Prospecto[]> {
+    const mapa = new Map<string, Prospecto[]>();
+    for (const p of prospectos) {
+        const k = claveNegocio(p);
+        const lista = mapa.get(k);
+        if (lista) lista.push(p);
+        else mapa.set(k, [p]);
+    }
+    return mapa;
+}
+
+/**
+ * ¿A este negocio ya se le escribió desde otro sistema? Devuelve esa copia.
+ *
+ * No descalifica: escribirle de nuevo con otro producto y otro guion es una
+ * decisión legítima —no es el mismo mensaje ni la misma oferta—. Lo que no se
+ * puede es no saberlo.
+ */
+export function gemeloYaContactado(
+    p: Prospecto,
+    indice: Map<string, Prospecto[]>
+): Prospecto | null {
+    const copias = indice.get(claveNegocio(p));
+    if (!copias) return null;
+    for (const otro of copias) {
+        if (otro.id === p.id || otro.sistema === p.sistema) continue;
+        if (fueEnviado(otro)) return otro;
+    }
+    return null;
+}
+
+/** Cuándo se le escribió, para poder decirlo en la pantalla. */
+export function fechaDeContacto(p: Prospecto): string | null {
+    return p.fecha_fu3 || p.fecha_fu2 || p.fecha_fu1 || p.fecha_envio;
 }
 
 export function fueEnviado(p: Prospecto): boolean {

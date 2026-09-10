@@ -21,6 +21,7 @@ import {
     generarMensaje, alertasDescarte, proximaAccion, hoyISO, telefonoAWhatsapp,
     resumenParaAnalisis, reseñasSanas, ofertaCompleta, faltaParaOferta,
     NIVEL_DATO_LABELS, NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS,
+    indexarPorNegocio, gemeloYaContactado, fechaDeContacto,
     type PasoMensaje,
 } from "@/lib/prospeccion";
 import {
@@ -97,6 +98,18 @@ export default function ProspectoModal({
     const esVivoMenu = draft.sistema === "vivomenu";
     const esAgencia = draft.sistema === "agencias";
     const esOdonto = draft.sistema === "odontologia";
+
+    /**
+     * El mismo negocio, ya contactado desde otro sistema.
+     *
+     * Al copiar una lista de un producto a otro la copia arranca en cero —que es
+     * lo correcto—, pero ese cero tapa que a ese negocio ya se le escribió por el
+     * producto anterior. El dato nunca se perdió: está en el prospecto original.
+     */
+    const gemelo = useMemo(
+        () => gemeloYaContactado(draft, indexarPorNegocio(universo)),
+        [draft, universo]
+    );
     const [pasoMensaje, setPasoMensaje] = useState<PasoUI>(esVivoMenu ? "primer_contacto" : "m1");
     const [mensajeEditado, setMensajeEditado] = useState("");
     const [copiado, setCopiado] = useState(false);
@@ -590,6 +603,36 @@ export default function ProspectoModal({
                                     </Campo>
                                 )}
                             </div>
+
+                            {/* A este negocio ya se le escribió desde otro producto.
+                                Va primero que todo: es lo único de esta ficha que
+                                puede hacer que el mensaje no haya que mandarlo. */}
+                            {gemelo && (
+                                <div className="rounded-xl border border-amber-500/40 bg-amber-500/[0.07] p-4 space-y-2">
+                                    <p className="text-[11px] font-bold text-amber-200 uppercase flex items-center gap-2">
+                                        <AlertTriangle className="w-3.5 h-3.5" />
+                                        Ya le escribiste a este negocio
+                                    </p>
+                                    <p className="text-xs text-foreground leading-relaxed">
+                                        Está cargado también en <strong>{SISTEMA_LABELS[gemelo.sistema]}</strong>,
+                                        con estado <strong>{ESTADO_PROSPECTO_LABELS[gemelo.estado]}</strong>
+                                        {fechaDeContacto(gemelo) ? <> · último mensaje el <strong>{fechaDeContacto(gemelo)}</strong></> : null}.
+                                    </p>
+                                    {gemelo.mensaje_enviado.trim() && (
+                                        <details className="text-[11px] text-muted-foreground">
+                                            <summary className="cursor-pointer hover:text-foreground">Ver lo que le mandaste</summary>
+                                            <p className="mt-2 whitespace-pre-wrap rounded-lg bg-background/60 border border-border p-2.5">
+                                                {gemelo.mensaje_enviado}
+                                            </p>
+                                        </details>
+                                    )}
+                                    <p className="text-[11px] text-muted-foreground leading-relaxed">
+                                        No es un impedimento: este es otro producto y otro guion. Pero decidilo a
+                                        propósito, y si le escribís, que el mensaje no arranque como si fuera la
+                                        primera vez.
+                                    </p>
+                                </div>
+                            )}
 
                             {/* ── Calificación de agencias ──────────────────────
                                 Tres campos y uno solo decide: si ya ofrece desarrollo

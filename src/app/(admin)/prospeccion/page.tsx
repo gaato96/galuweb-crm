@@ -24,7 +24,7 @@ import {
     tasaPorQuienLeyo, tasaPorLista, tasaPorPais, diagnosticoEmbudo, diasDesde,
     NIVEL_DATO_COLORS, PASO_MENSAJE_LABELS, motivoFueraDeCola, compararParaCola,
     detectarDuplicados, reseñasSanas, MOTIVO_SIN_ESCANEAR, MOTIVO_FALTA_A_MANO, MUESTRA_MINIMA_LISTA,
-    copiarASistema,
+    copiarASistema, indexarPorNegocio, gemeloYaContactado, fechaDeContacto, fueEnviado as yaSeEnvio,
     type CorteMetrica,
 } from "@/lib/prospeccion";
 import { calcularRampaVivoMenu, avisoDiaVivoMenu } from "@/lib/vivomenu-mensajes";
@@ -106,6 +106,8 @@ export default function ProspeccionPage() {
     const [filtroNivel, setFiltroNivel] = useState<string>("");
     /** "" = todos · "sin" = los cargados antes de que existieran los listados. */
     const [filtroLista, setFiltroLista] = useState<string>("");
+    /** "" = todos · "ya" = solo los que ya se contactaron por otro sistema · "no" = solo los vírgenes. */
+    const [filtroGemelo, setFiltroGemelo] = useState<"" | "ya" | "no">("");
 
     const [seleccionado, setSeleccionado] = useState<Prospecto | null>(null);
     const [mostrarImportar, setMostrarImportar] = useState(false);
@@ -177,6 +179,19 @@ export default function ProspeccionPage() {
         [listas]
     );
 
+    /**
+     * El mismo negocio puede estar cargado en varios sistemas —es lo que pasa al
+     * copiar una lista de un producto a otro—. El índice cruza TODOS los
+     * prospectos, no solo los del sistema activo, para poder avisar en cada ficha
+     * si a ese negocio ya se le escribió desde otro lado.
+     */
+    const indiceNegocios = useMemo(() => indexarPorNegocio(prospectos), [prospectos]);
+
+    const hayGemelos = useMemo(
+        () => prospectosDelSistema.some((p) => gemeloYaContactado(p, indiceNegocios)),
+        [prospectosDelSistema, indiceNegocios]
+    );
+
     const filtrados = useMemo(() => {
         const q = normalizar(busqueda);
         return prospectosDelSistema.filter((p) => {
@@ -191,9 +206,13 @@ export default function ProspeccionPage() {
                 const n = calcularNivelDato(normalizarEscaneo(p.escaneo));
                 if (filtroNivel === "sin" ? n !== null : String(n) !== filtroNivel) return false;
             }
+            if (filtroGemelo) {
+                const gemelo = gemeloYaContactado(p, indiceNegocios);
+                if (filtroGemelo === "ya" ? !gemelo : !!gemelo) return false;
+            }
             return true;
         });
-    }, [prospectosDelSistema, busqueda, filtroLista, filtroRubro, filtroEstado, filtroSegmento, filtroNivel]);
+    }, [prospectosDelSistema, busqueda, filtroLista, filtroRubro, filtroEstado, filtroSegmento, filtroNivel, filtroGemelo, indiceNegocios]);
 
     /**
      * Orden de trabajo de §8: primero el segmento, después el score.
@@ -500,8 +519,41 @@ export default function ProspeccionPage() {
             toast.error("No hay prospectos filtrados para copiar");
             return;
         }
+        /* Los ya contactados se cuentan y se avisan ANTES de copiar.
+         *
+         * Copiar el listado entero y después no saber a quién se le había escrito
+         * es exactamente el problema que esto evita: la copia arranca en cero a
+         * propósito —si no, la tasa del producto nuevo nace contaminada— y ese
+         * cero borra de la vista que a 45 de esos negocios ya se les mandó un
+         * mensaje por el producto anterior. */
+        const yaContactados = filtrados.filter(yaSeEnvio);
+        const virgenes = filtrados.filter((p) => !yaSeEnvio(p));
+
+        let aCopiar = filtrados;
+        if (yaContactados.length > 0) {
+            const soloVirgenes = window.confirm(
+                `De los ${filtrados.length}, a ${yaContactados.length} ya les escribiste desde ${SISTEMA_LABELS[sistemaActivo]}.\n\n` +
+                `Aceptar = copiar solo los ${virgenes.length} sin contactar.\n` +
+                `Cancelar = elegir de nuevo (te lo pregunto otra vez).`
+            );
+            if (!soloVirgenes) {
+                const todos = window.confirm(
+                    `¿Copiar los ${filtrados.length}, incluidos los ${yaContactados.length} ya contactados?\n\n` +
+                    `Se pueden copiar igual: el mensaje de ${SISTEMA_LABELS[destino]} es otro producto y otro guion. ` +
+                    `Van a quedar marcados con "ya contactado" en la ficha y en la cola.`
+                );
+                if (!todos) return;
+            } else {
+                aCopiar = virgenes;
+            }
+        }
+        if (aCopiar.length === 0) {
+            toast.error("No quedó ninguno para copiar");
+            return;
+        }
+
         const ok = window.confirm(
-            `Copiar ${filtrados.length} prospecto${filtrados.length === 1 ? "" : "s"} a "${SISTEMA_LABELS[destino]}".\n\n` +
+            `Copiar ${aCopiar.length} prospecto${aCopiar.length === 1 ? "" : "s"} a "${SISTEMA_LABELS[destino]}".\n\n` +
             `Los originales quedan intactos en ${SISTEMA_LABELS[sistemaActivo]}. Las copias arrancan ` +
             `sin estado, sin fechas y sin escaneo: el embudo nuevo empieza de cero.`
         );
@@ -509,7 +561,7 @@ export default function ProspeccionPage() {
 
         setCopiando(true);
         try {
-            const copias = filtrados.map((p) => copiarASistema(p, destino, null));
+            const copias = aCopiar.map((p) => copiarASistema(p, destino, null));
             const res = await prospectosStore.createBulk(copias, prospectos);
             setProspectos((prev) => [...prev, ...res.insertados].sort((a, b) => b.score - a.score));
             const partes = [`${res.insertados.length} copiado${res.insertados.length === 1 ? "" : "s"}`];
@@ -778,6 +830,20 @@ export default function ProspeccionPage() {
                                 ))}
                             </select>
                         )}
+                        {/* Aparece solo cuando hay algo que separar: si ningún negocio de
+                            este sistema está cargado también en otro, el filtro sobra. */}
+                        {hayGemelos && (
+                            <select
+                                value={filtroGemelo}
+                                onChange={(e) => setFiltroGemelo(e.target.value as "" | "ya" | "no")}
+                                className={selectCls}
+                                title="Cruza contra los otros sistemas: el mismo negocio puede estar cargado dos veces"
+                            >
+                                <option value="">Contactados o no</option>
+                                <option value="no">Sin contactar nunca</option>
+                                <option value="ya">Ya contactados por otro producto</option>
+                            </select>
+                        )}
                         <select value={filtroRubro} onChange={(e) => setFiltroRubro(e.target.value)} className={selectCls}>
                             <option value="">Todos los rubros</option>
                             {rubros.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -839,6 +905,7 @@ export default function ProspeccionPage() {
                     {vista === "cola" && (
                         <VistaCola
                             cola={cola}
+                            indiceNegocios={indiceNegocios}
                             fueraDeCola={fueraDeCola}
                             onAbrir={(p) => abrirProspecto(p, cola)}
                             objetivoDiario={objetivoDiario}
@@ -911,7 +978,7 @@ export default function ProspeccionPage() {
 // ═══════════════════════════════════════════════════════════
 
 function VistaCola({
-    cola, onAbrir, objetivoDiario, fueraDeCola, esVivoMenu, esAgencia, onEscanearBloque, escaneoLote,
+    cola, onAbrir, objetivoDiario, fueraDeCola, esVivoMenu, esAgencia, onEscanearBloque, escaneoLote, indiceNegocios,
     totalDelSistema, yaTrabajados,
 }: {
     cola: Prospecto[];
@@ -921,6 +988,8 @@ function VistaCola({
     esVivoMenu: boolean;
     esAgencia: boolean;
     onEscanearBloque: (delBloque: Prospecto[]) => Promise<void>;
+    /** Para avisar en la fila si a ese negocio ya se le escribio desde otro sistema. */
+    indiceNegocios: Map<string, Prospecto[]>;
     escaneoLote: { hechos: number; total: number } | null;
     /** Cuántos hay cargados en este sistema, más allá de si entran a la cola. */
     totalDelSistema: number;
@@ -1011,7 +1080,7 @@ function VistaCola({
                     )}
                 </p>
                 <div className="grid gap-2">
-                    {bloque.map((p, i) => <FilaCola key={p.id} p={p} indice={i + 1} onAbrir={onAbrir} destacado />)}
+                    {bloque.map((p, i) => <FilaCola key={p.id} p={p} indice={i + 1} onAbrir={onAbrir} destacado gemelo={gemeloYaContactado(p, indiceNegocios)} />)}
                 </div>
             </div>
 
@@ -1021,7 +1090,7 @@ function VistaCola({
                         Siguientes en la fila ({resto.length})
                     </p>
                     <div className="grid gap-2">
-                        {resto.slice(0, 40).map((p, i) => <FilaCola key={p.id} p={p} indice={objetivoDiario + i + 1} onAbrir={onAbrir} />)}
+                        {resto.slice(0, 40).map((p, i) => <FilaCola key={p.id} p={p} indice={objetivoDiario + i + 1} onAbrir={onAbrir} gemelo={gemeloYaContactado(p, indiceNegocios)} />)}
                     </div>
                     {resto.length > 40 && (
                         <p className="text-xs text-muted-foreground text-center mt-3">
@@ -1123,7 +1192,11 @@ function VistaCola({
     );
 }
 
-function FilaCola({ p, indice, onAbrir, destacado }: { p: Prospecto; indice: number; onAbrir: (p: Prospecto) => void; destacado?: boolean }) {
+function FilaCola({ p, indice, onAbrir, destacado, gemelo }: {
+    p: Prospecto; indice: number; onAbrir: (p: Prospecto) => void; destacado?: boolean;
+    /** El mismo negocio en otro sistema, si ya se le escribió desde ahí. */
+    gemelo?: Prospecto | null;
+}) {
     const nivel = calcularNivelDato(normalizarEscaneo(p.escaneo));
     const link = p.instagram_url || p.maps_url || p.sitio_web_url;
 
@@ -1143,7 +1216,19 @@ function FilaCola({ p, indice, onAbrir, destacado }: { p: Prospecto; indice: num
             </span>
 
             <div className="min-w-0 flex-1">
-                <p className="text-sm font-bold text-foreground truncate">{p.negocio}</p>
+                <p className="text-sm font-bold text-foreground truncate">
+                    {p.negocio}
+                    {gemelo && (
+                        <span
+                            className="ml-1.5 align-middle px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-amber-500/20 text-amber-200 border border-amber-500/40"
+                            title={`Ya le escribiste por ${SISTEMA_LABELS[gemelo.sistema]}${
+                                fechaDeContacto(gemelo) ? ` el ${fechaDeContacto(gemelo)}` : ""
+                            } · estado: ${ESTADO_PROSPECTO_LABELS[gemelo.estado]}`}
+                        >
+                            YA CONTACTADO
+                        </span>
+                    )}
+                </p>
                 <p className="text-[11px] text-muted-foreground truncate">
                     {[p.especialidad || p.rubro, p.ciudad].filter(Boolean).join(" · ")}
                     {reseñasSanas(p.reviews_count) != null && ` · ${reseñasSanas(p.reviews_count)} reseñas`}
