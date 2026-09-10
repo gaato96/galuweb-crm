@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, daysFromNow } from "@/lib/utils";
 import { finanzasStore, proyectosStore } from "@/lib/store";
+import { hoyISO } from "@/lib/prospeccion";
 import type { Finanza, TipoFinanza, Proyecto } from "@/lib/types";
 import { toast } from "sonner";
 
@@ -40,7 +41,7 @@ export default function FinanzasPage() {
         tipo: "ingreso" as TipoFinanza,
         descripcion: "",
         cuotas_totales: 1,
-        fecha_cobro: new Date().toISOString().split("T")[0],
+        fecha_cobro: hoyISO(),
         proyecto_id: "",
         cobrado: true,
         es_recurrente: false,
@@ -166,7 +167,7 @@ export default function FinanzasPage() {
             tipo: "ingreso",
             descripcion: "",
             cuotas_totales: 1,
-            fecha_cobro: new Date().toISOString().split("T")[0],
+            fecha_cobro: hoyISO(),
             proyecto_id: "",
             cobrado: true,
             es_recurrente: false,
@@ -203,7 +204,7 @@ export default function FinanzasPage() {
             tipo: f.tipo,
             descripcion: f.descripcion,
             cuotas_totales: f.cuotas_totales || 1,
-            fecha_cobro: f.fecha_cobro || new Date().toISOString().split("T")[0],
+            fecha_cobro: f.fecha_cobro || hoyISO(),
             proyecto_id: f.proyecto_id || "",
             cobrado: f.cobrado ?? true,
             es_recurrente: f.es_recurrente ?? false,

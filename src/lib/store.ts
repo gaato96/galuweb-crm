@@ -10,7 +10,7 @@ import {
 import { ESCANEO_VACIO, listaVacia, type Sistema, type ListaProspeccion } from "./types";
 import {
     normalizarEscaneo, calcularNivelDato, calcularScore, prospectoVacio,
-    clasificarWebDesdeUrl, telefonoAWhatsapp, normalizar
+    clasificarWebDesdeUrl, telefonoAWhatsapp, normalizar, hoyISO
 } from "./prospeccion";
 
 // ============================================================
@@ -229,7 +229,7 @@ export const finanzasStore = {
         return updated;
     },
     marcarCobrado: async (id: string, cobrado: boolean = true): Promise<Finanza> => {
-        const today = new Date().toISOString().split("T")[0];
+        const today = hoyISO();
         const { data: updated, error } = await supabase
             .from("finanzas")
             .update({ cobrado, fecha_cobrado: cobrado ? today : null })
@@ -706,7 +706,7 @@ export const scraperStore = {
             notas_seguimiento: [
                 {
                     id: `nota-${Date.now()}`,
-                    fecha: new Date().toISOString().split("T")[0],
+                    fecha: hoyISO(),
                     texto: `Scrapeado de Google Maps (${prospecto.lugar}). Dirección: ${prospecto.direccion}. Posee sitio web: ${prospecto.tieneSitioWeb ? (prospecto.sitioWebUrl || 'Sí') : 'NO'}`
                 }
             ]
@@ -1078,7 +1078,7 @@ export const prospectosStore = {
             notas_seguimiento: [
                 {
                     id: `nota-${Date.now()}`,
-                    fecha: new Date().toISOString().split("T")[0],
+                    fecha: hoyISO(),
                     texto: `Viene de la planilla de prospección. Estado al convertir: ${p.estado}. Leyó: ${p.quien_leyo || "no sé"}.`,
                 },
             ],

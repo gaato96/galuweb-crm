@@ -1123,8 +1123,20 @@ export function diasDesde(fecha: string, hoy: Date = new Date()): number {
     return Math.floor((hoy.getTime() - d.getTime()) / 86_400_000);
 }
 
+/**
+ * La fecha de hoy en la zona del que está usando el CRM, no en UTC.
+ *
+ * Acá había un bug que se veía todas las noches: `toISOString()` devuelve UTC,
+ * y en Argentina (UTC-3) a partir de las 21:00 eso ya es el día siguiente. O sea
+ * que a las 21:08 el contador de "enviados hoy" se ponía en cero solo, y todo lo
+ * que se mandaba de ahí en adelante quedaba sellado con la fecha de mañana — lo
+ * que además corría un día toda la cadencia de follow-ups.
+ *
+ * `en-CA` porque su formato de fecha corto ya es YYYY-MM-DD, que es lo que
+ * espera Postgres y lo que compara el resto del código.
+ */
 export function hoyISO(): string {
-    return new Date().toISOString().split("T")[0];
+    return new Date().toLocaleDateString("en-CA");
 }
 
 // ─────────────────────────────────────────────────────────────
