@@ -9,6 +9,20 @@ con el template de siempre (`src/components/cotizacion-pdf-template.tsx`).
 - **Total:** USD 750 (lista USD 1.150 − USD 400 de descuento por referencia)
 - **Modalidad de pago:** 3 pagos mensuales de USD 250
 
+## Documento para el cliente
+
+`celeste-villalba.html` es la propuesta ya maquetada con el mismo diseño del PDF del CRM
+(`src/components/cotizacion-pdf-template.tsx`): navy `#101B2A`, acento `#FBC02D`, Montserrat.
+Es autocontenido — la tipografía y los logos van embebidos como data URI, así que se ve igual
+sin conexión y en cualquier máquina.
+
+Para regenerar el PDF (los `.pdf` no se versionan, ver `.gitignore`):
+
+```sh
+chrome --headless --print-to-pdf=Cotizacion_Celeste_Villalba.pdf --no-pdf-header-footer \
+  file://$PWD/docs/cotizaciones/celeste-villalba.html
+```
+
 ---
 
 ## Ítems de inversión
