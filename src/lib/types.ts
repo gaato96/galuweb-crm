@@ -525,6 +525,11 @@ export const SISTEMA_LABELS: Record<Sistema, string> = {
  * local, con análisis gratis por delante— y el plan lo dio de baja después de
  * 45 contactos en frío, 5 análisis pedidos y cero clientes. Los 45 no se borran:
  * son el registro de qué se probó y cómo salió.
+ *
+ * Archivado no es muerto. Desde el 2026-09-10 tiene un paso más, "reactivación":
+ * a esos 45 se les vuelve a escribir una sola vez, con Sarvo y sin nombrar la
+ * web. Es la lista más barata que hay —ya saben quién es Gastón— y lo único que
+ * la vuelve peligrosa es mandarla antes de que exista el video.
  */
 export const SISTEMAS_ARCHIVADOS: Sistema[] = ["galu"];
 
@@ -543,9 +548,9 @@ export const SISTEMA_PITCH: Record<Sistema, string> = {
     galu: "Comercio o profesional local. Hay que educar antes de vender: el análisis va primero, pero cierra con precio y fecha.",
     vivomenu: "Local gastronómico con pedidos por WhatsApp. Se muestra el producto funcionando, no se explica.",
     agencias:
-        "Agencia de marketing del exterior que vende redes y pauta pero NO desarrollo web. No hay que educar a nadie ni mandar análisis: se ofrece capacidad de proveedor.",
+        "Agencia de marketing del exterior. Lista A: vende redes y pauta pero NO desarrollo web, y se le ofrece capacidad. Lista B: sí lo vende, pero lo terceriza con un freelance distinto cada vez, y se le ofrece continuidad y precio. Nunca análisis, en ninguna de las dos.",
     odontologia:
-        "Consultorio odontológico que publica WhatsApp y tarda en contestar. No se vende una web ni se manda análisis: se le muestra la hora que tardó en responderte y se pide permiso para mandar un video de 40 segundos.",
+        "Consultorio odontológico que publica WhatsApp. Se le escribe primero como paciente un sábado a la noche y la respuesta decide el ángulo: si tardó, la consulta que se pierde; si contestó rápido, lo que le cuesta sostener a alguien contestando y la agenda a mano. En los dos casos se pide permiso para mandar un video de 40 segundos, nunca un análisis.",
 };
 
 export type OrigenProspecto = "manual" | "sheets" | "scraper";

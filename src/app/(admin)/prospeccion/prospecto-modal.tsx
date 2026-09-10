@@ -1330,11 +1330,17 @@ export default function ProspectoModal({
                     {tab === "mensajes" && (
                         <div className="space-y-4">
                             <div className="flex gap-1.5 flex-wrap">
+                                {/* Los pasos son los del sistema del prospecto. Odontología
+                                    faltaba en esta lista: mostraba los pasos de Galu con las
+                                    etiquetas de odontología, o sea botones vacíos que generaban
+                                    el mensaje equivocado. */}
                                 {(esAgencia
                                     ? (Object.keys(PASO_AGENCIA_LABELS) as PasoMensajeAgencia[])
                                     : esVivoMenu
                                       ? (Object.keys(PASO_VIVOMENU_LABELS) as PasoMensajeVivoMenu[])
-                                      : (Object.keys(PASO_MENSAJE_LABELS) as PasoMensaje[])
+                                      : esOdonto
+                                        ? (Object.keys(PASO_ODONTOLOGIA_LABELS) as PasoMensajeOdontologia[])
+                                        : (Object.keys(PASO_MENSAJE_LABELS) as PasoMensaje[])
                                 ).map((p) => (
                                     <button
                                         key={p}

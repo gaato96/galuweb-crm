@@ -18,7 +18,7 @@ import {
 
 export const maxDuration = 30;
 
-const PASOS_GALU: PasoMensaje[] = ["m1", "m2", "m3", "fu1", "fu2", "fu3", "ruteo", "fu_revision1", "fu_revision2", "toque_vigencia"];
+const PASOS_GALU: PasoMensaje[] = ["m1", "m2", "m3", "fu1", "fu2", "fu3", "ruteo", "fu_revision1", "fu_revision2", "toque_vigencia", "reactivacion"];
 const PASOS_VIVOMENU: PasoMensajeVivoMenu[] = [
     "primer_contacto", "rama_empleado", "rama_dueno", "fu1", "fu2", "fu3", "interes_tibio", "compromiso_visita",
 ];
@@ -26,7 +26,7 @@ const PASOS_AGENCIAS: PasoMensajeAgencia[] = [
     "m1", "fu1", "fu2", "credenciales", "precios", "primer_trabajo", "ruteo", "toque_vigencia",
 ];
 const PASOS_ODONTOLOGIA: PasoMensajeOdontologia[] = [
-    "m1", "m1_sin_prueba", "fu1", "fu2", "fu3", "video", "precio", "ruteo",
+    "m1", "m1_gestion", "m1_sin_prueba", "fu1", "fu2", "fu3", "video", "precio", "ruteo",
 ];
 
 /** Reglas que la IA no puede romper, comunes a los tres sistemas. */
@@ -148,6 +148,9 @@ function reglasAgencias(paso: PasoMensajeAgencia, canal: CanalAgencia): string {
 16. La observación de por qué se les escribe a ELLOS va en negativo suave y como dato de su página, jamás
    como crítica: "vi que hacen X y no vi desarrollo web entre los servicios". No es un problema de ellos,
    es el motivo por el que les sirve un proveedor. Si suena a que les estás señalando una carencia, se cae.
+   SI LA FICHA DICE QUE SÍ OFRECEN DESARROLLO WEB (lista B), esa observación NO EXISTE y no se puede
+   escribir de ninguna forma: ellos hacen webs. El borrador ya viene con el ángulo correcto —que lo
+   ejecuta gente de afuera que cambia cada vez— y no hay que reemplazarlo por uno de carencia.
 17. El pedido final se contesta con una palabra y es sobre un hecho de su operación (si tercerizan cuando
    les desborda), no sobre si te dejan mandar algo. No pidas reunión, ni llamada, ni el mail del dueño.
 18. CANAL: ${canal === "email" ? "MAIL" : "mensaje directo"}.
@@ -245,10 +248,10 @@ ${
         ? `Servicios que ofrece (de su propia página): ${prospecto.servicios || "s/d"}
 ¿Ofrece desarrollo web?: ${
               prospecto.ofrece_desarrollo_web === false
-                  ? "NO — ese es el motivo por el que se le escribe. Va en el mensaje como dato de su página, nunca como crítica."
+                  ? "NO (lista A) — ese es el motivo por el que se le escribe. Va en el mensaje como dato de su página, nunca como crítica."
                   : prospecto.ofrece_desarrollo_web === true
-                    ? "SÍ — este prospecto no debería estar en la lista. No inventes un ángulo: escribí algo neutro."
-                    : "Sin verificar. NO afirmes que no ofrecen desarrollo web: no está confirmado."
+                    ? "SÍ (lista B) — lo venden pero casi seguro lo tercerizan, con un freelance distinto cada vez. PROHIBIDO decirles que no hacen webs o que les falta el servicio: lo tienen. Lo que se ofrece es continuidad y precio de proveedor, y la pregunta es con quién lo resuelven hoy."
+                    : "Sin verificar. NO afirmes que no ofrecen desarrollo web ni que sí: no está confirmado."
           }
 Tamaño del equipo: ${prospecto.tam_equipo ?? "s/d"}
 Canal elegido para este envío: ${CANAL_AGENCIA_LABELS[canalBody || canalSugerido(prospecto)]}

@@ -16,9 +16,25 @@
 //   · No se menciona Tucumán como carencia ni se pide disculpas por ser uno
 //     solo. Ser chico es la ventaja: no hay overhead y no les competís.
 //
-// La personalización sale de una sola observación, siempre la misma: que en
-// sus servicios no figura desarrollo web. Es verificable en diez segundos, es
-// cierta, y es exactamente el motivo por el que se les escribe.
+// La personalización sale de una sola observación verificable en diez segundos,
+// pero no es la misma para todas: depende del segmento.
+//
+// **Los dos segmentos, y por qué hay dos.** El plan cerró el filtro en "ofrece
+// desarrollo web = descartar", y para la lista A eso sigue igual. Pero que una
+// agencia liste desarrollo web entre sus servicios no significa que tenga a
+// alguien que lo haga: lo normal es venderlo y tercerizarlo, con un freelance
+// distinto cada vez. A esa agencia no se le ofrece un servicio que no tiene —se
+// le ofrece dejar de buscar proveedor cada vez que vende uno.
+//
+//   · **Lista A · no ofrece desarrollo web.** La observación es la ausencia:
+//     "vi que hacen redes y pauta y no vi desarrollo web entre los servicios".
+//     Le entran pedidos que hoy rechaza. Es la lista que valida el carril y se
+//     lleva los diez mensajes del día.
+//   · **Lista B · sí ofrece desarrollo web.** La observación es su equipo:
+//     venden web y no tienen quién la haga adentro. El pedido no cambia —sí o
+//     no— pero lo que se ofrece es continuidad y precio de proveedor, no
+//     capacidad que les falte. Nunca se les dice que "no hacen web": lo hacen,
+//     y decirles lo contrario quema el contacto en la primera línea.
 
 import type { Prospecto } from "./types";
 
@@ -37,7 +53,7 @@ export const SITIO = "galuweb.com";
  */
 export const TRABAJOS = [
     "e-commerce para una empresa del Gran Toronto",
-    "landing con ticketing por QR para un evento de 200 personas",
+    "landing con ticketing por QR para un evento de 1.000 personas",
     "web institucional en WordPress",
 ];
 
@@ -55,6 +71,29 @@ export const PRECIOS_PROVEEDOR: { item: string; precio: string }[] = [
     { item: "Solo diseño en Figma, sin desarrollo", precio: "USD 300 a 600" },
     { item: "Mantenimiento mensual por sitio", precio: "USD 80 a 150" },
 ];
+
+/**
+ * En qué lista cae la agencia. Lo decide el único filtro que importa, que es si
+ * vende desarrollo web o no.
+ *
+ * `sin_verificar` no es un tercer segmento: es que todavía nadie abrió su página
+ * de servicios. Ahí el mensaje va sin observación, porque afirmar cualquiera de
+ * las dos cosas sin haberlo mirado es la forma más rápida de que te contesten
+ * "sí hacemos webs, mirá nuestro portfolio".
+ */
+export type SegmentoAgencia = "sin_web" | "con_web" | "sin_verificar";
+
+export const SEGMENTO_AGENCIA_LABELS: Record<SegmentoAgencia, string> = {
+    sin_web: "Lista A — no ofrece desarrollo web",
+    con_web: "Lista B — ofrece desarrollo web, casi seguro tercerizado",
+    sin_verificar: "Sin verificar — falta abrir su página de servicios",
+};
+
+export function segmentoAgencia(p: Pick<Prospecto, "ofrece_desarrollo_web">): SegmentoAgencia {
+    if (p.ofrece_desarrollo_web === false) return "sin_web";
+    if (p.ofrece_desarrollo_web === true) return "con_web";
+    return "sin_verificar";
+}
 
 export type PasoMensajeAgencia =
     | "m1"            // presentación + oferta de capacidad + pregunta de sí o no
@@ -142,10 +181,22 @@ export function generarMensajeAgencia(
     // cuánto sale. Mandar el texto corto por mail obliga a un segundo intercambio
     // para decir lo que podría haber ido de una.
     if (paso === "m1" && canal === "email") {
+        const segmento = segmentoAgencia(p);
+
+        // La observación y el motivo cambian con el segmento, no el pedido.
+        // A la lista B jamás se le dice que no hace webs: las hace, y venderle
+        // capacidad que ya tiene es la forma más rápida de que archive el mail.
         const observacion =
-            p.ofrece_desarrollo_web === false
+            segmento === "sin_web"
                 ? `Les escribo porque vi que trabajan ${loQueHacen(p)} y no vi desarrollo web entre los servicios que ofrecen.`
-                : `Les escribo porque vi que trabajan ${loQueHacen(p)}.`;
+                : segmento === "con_web"
+                  ? `Les escribo justamente porque ofrecen desarrollo web. En agencias del tamaño de ${negocio} lo normal es venderlo y ejecutarlo con alguien de afuera, distinto cada vez.`
+                  : `Les escribo porque vi que trabajan ${loQueHacen(p)}.`;
+
+        const motivo =
+            segmento === "con_web"
+                ? "Tener a alguien fijo para eso cambia dos cosas: no hay que volver a explicar cómo trabajan en cada proyecto, y el plazo que le prometen al cliente lo pueden decir antes de conseguir quién lo haga."
+                : "Si les llegan pedidos de web que hoy no toman, o que mandan a un freelance distinto cada vez, tener a alguien fijo les ahorra la parte de salir a buscar y explicar todo de nuevo.";
 
         return [
             `Asunto: Desarrollo web tercerizado para ${negocio}`,
@@ -154,7 +205,7 @@ export function generarMensajeAgencia(
             "",
             observacion,
             "",
-            "Si les llegan pedidos de web que hoy no toman, o que mandan a un freelance distinto cada vez, tener a alguien fijo les ahorra la parte de salir a buscar y explicar todo de nuevo.",
+            motivo,
             "",
             "Qué entrego: sitios en WordPress, landings, e-commerce y diseño en Figma.",
             `Entre otras cosas hice ${TRABAJOS[0]} y ${TRABAJOS[1]}. ${LINEA_PORTFOLIO}`,
@@ -164,7 +215,9 @@ export function generarMensajeAgencia(
             "",
             "Entrego en una o dos semanas según el tamaño y tengo disponibilidad este mes.",
             "",
-            "¿Les sirve tener un proveedor fijo para esto? Con un sí o un no me alcanza.",
+            segmentoAgencia(p) === "con_web"
+                ? "¿Con quién lo están resolviendo hoy? Si ya tienen a alguien fijo me lo dicen y no insisto; si va cambiando, les dejo mis valores y quedo a mano para la próxima."
+                : "¿Les sirve tener un proveedor fijo para esto? Con un sí o un no me alcanza.",
             "",
             REMITENTE,
         ].join("\n");
@@ -176,26 +229,34 @@ export function generarMensajeAgencia(
         //
         // La observación va SIEMPRE en negativo suave ("no vi desarrollo web"),
         // nunca como reproche. Es un dato de su página, no una crítica.
+        const segmento = segmentoAgencia(p);
         const observacion =
-            p.ofrece_desarrollo_web === false
+            segmento === "sin_web"
                 ? `Les escribo puntual porque vi que hacen ${loQueHacen(p)} y no vi desarrollo web entre los servicios.`
-                : `Les escribo puntual porque vi que hacen ${loQueHacen(p)}.`;
+                : segmento === "con_web"
+                  ? "Les escribo justamente porque ofrecen desarrollo web."
+                  : `Les escribo puntual porque vi que hacen ${loQueHacen(p)}.`;
+
+        const motivo =
+            segmento === "con_web"
+                ? "Si eso hoy lo ejecuta alguien de afuera y va cambiando, tener a uno fijo les saca la parte de conseguirlo y explicar todo de nuevo cada vez."
+                : "Si les entran pedidos de web que hoy no toman o mandan afuera, capaz les sirve tener a alguien fijo.";
 
         return [
             `${saludo(p)} Soy ${REMITENTE}, diseñador y desarrollador web. Trabajo desde Argentina con agencias como proveedor: ustedes venden y gestionan al cliente, yo diseño y entrego el sitio. WordPress, landings y e-commerce; diseño en Figma.`,
             "",
-            `${observacion} Si les entran pedidos de web que hoy no toman o mandan afuera, capaz les sirve tener a alguien fijo.`,
+            `${observacion} ${motivo}`,
             "",
             "Tengo disponibilidad este mes y trabajo con precios de proveedor. Te paso referencias y valores?",
         ].join("\n");
     }
 
     if (paso === "fu1") {
-        return [
-            `Te reescribo por si se perdió entre otros mensajes.`,
-            "",
-            "Es un sí o un no de una palabra: les sirve tener un proveedor de web y diseño para lo que no llegan a tomar? Si hoy no, lo dejo y listo.",
-        ].join("\n");
+        const pregunta =
+            segmentoAgencia(p) === "con_web"
+                ? "Es un sí o un no de una palabra: les sirve tener un proveedor fijo de web y diseño, o ya lo tienen resuelto? Si está resuelto, lo dejo y listo."
+                : "Es un sí o un no de una palabra: les sirve tener un proveedor de web y diseño para lo que no llegan a tomar? Si hoy no, lo dejo y listo.";
+        return [`Te reescribo por si se perdió entre otros mensajes.`, "", pregunta].join("\n");
     }
 
     if (paso === "fu2") {

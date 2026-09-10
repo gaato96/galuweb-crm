@@ -16,6 +16,14 @@
 //     y se anota la hora exacta de la respuesta. Ese dato ES el mensaje, y por
 //     eso vive en el prospecto (prueba_enviada_at / prueba_respondida_at) y no
 //     en un papel.
+//   · **La prueba no tiene una sola lectura, tiene dos.** El plan escribió el
+//     guion suponiendo que el consultorio tarda, y ahí el ángulo es la consulta
+//     que se pierde. Pero cuando contesta en diez minutos un sábado a las 21:40
+//     el dato sigue siendo bueno: prueba que alguien está atado al celular el
+//     fin de semana, y ese alguien cobra. Descartar a los que contestan rápido
+//     tira a la basura justo a los consultorios que ya entendieron que atender
+//     rápido vale — que son los que pagan. Por eso hay dos ángulos (ver abajo)
+//     y una sola prueba que alimenta a los dos.
 //   · El primer pedido no es una reunión ni un presupuesto: es permiso para
 //     mandar un video de 40 segundos. Es lo más barato que puede decir que sí.
 //
@@ -51,7 +59,8 @@ export function vozDe(p: Pick<Prospecto, "pais">): Voz {
 }
 
 export type PasoMensajeOdontologia =
-    | "m1"        // la prueba de la hora + permiso para mandar el video
+    | "m1"        // ángulo demora: la prueba de la hora + permiso para el video
+    | "m1_gestion"    // ángulo gestión: contestaron rápido, y eso le cuesta a alguien
     | "m1_sin_prueba" // m1 cuando todavía no se corrió la prueba: usa el escaneo
     | "fu1"       // día 3
     | "fu2"       // día 7
@@ -61,7 +70,8 @@ export type PasoMensajeOdontologia =
     | "ruteo";    // contesta la recepcionista, no el profesional
 
 export const PASO_ODONTOLOGIA_LABELS: Record<PasoMensajeOdontologia, string> = {
-    m1: "Mensaje 1 — La prueba de la hora",
+    m1: "Mensaje 1 — La prueba de la hora (tardaron)",
+    m1_gestion: "Mensaje 1 — Contestaron rápido (gestión y ausentismo)",
     m1_sin_prueba: "Mensaje 1 — Sin prueba corrida (usa el escaneo)",
     fu1: "Follow-up 1 (3 días)",
     fu2: "Follow-up 2 (7 días)",
@@ -85,15 +95,36 @@ function fechaHora(iso: string): string {
     return `${DIAS[d.getDay()]} ${hh}:${mm}`;
 }
 
-/** Horas enteras entre el mensaje de prueba y la respuesta. null si falta el dato. */
-export function horasPrueba(p: Prospecto): number | null {
+/**
+ * Minutos entre el mensaje de prueba y la respuesta. null si falta el dato.
+ *
+ * La unidad importa: con horas redondeadas, un consultorio que contestó en ocho
+ * minutos daba "0 horas después", que no se puede escribir en ningún mensaje.
+ * Y ese caso dejó de ser un descarte —es el ángulo de gestión—, así que ahora
+ * hay que poder nombrarlo con precisión.
+ */
+export function minutosPrueba(p: Prospecto): number | null {
     if (!p.prueba_enviada_at) return null;
     const desde = new Date(p.prueba_enviada_at).getTime();
     const hasta = p.prueba_respondida_at
         ? new Date(p.prueba_respondida_at).getTime()
         : Date.now();
     if (Number.isNaN(desde) || Number.isNaN(hasta)) return null;
-    return Math.max(0, Math.round((hasta - desde) / 3_600_000));
+    return Math.max(0, Math.round((hasta - desde) / 60_000));
+}
+
+/** Horas enteras entre el mensaje de prueba y la respuesta. null si falta el dato. */
+export function horasPrueba(p: Prospecto): number | null {
+    const min = minutosPrueba(p);
+    return min == null ? null : Math.round(min / 60);
+}
+
+/** Cómo se dice la demora adentro del mensaje: minutos abajo de hora y media. */
+function textoDemora(min: number): string {
+    if (min < 90) return `${min} ${min === 1 ? "minuto" : "minutos"} después`;
+    const horas = Math.round(min / 60);
+    if (horas < 48) return `${horas} horas después`;
+    return `${Math.floor(horas / 24)} días después`;
 }
 
 /** ¿Se puede usar el mensaje 1 con la prueba, o hay que ir por el escaneo? */
@@ -120,10 +151,71 @@ export function frasePrueba(p: Prospecto, voz: Voz = vozDe(p)): string {
     }
 
     const vuelta = fechaHora(p.prueba_respondida_at);
-    const demora = horas != null ? ` ${horas} horas después.` : ".";
+    const min = minutosPrueba(p);
+    const demora = min != null ? ` ${textoDemora(min)}.` : ".";
     return voz === "rio"
         ? `Les escribí el ${salida} preguntando por un turno y me contestaron el ${vuelta}:${demora}`
         : `Les escribí el ${salida} preguntando por una cita y me respondieron el ${vuelta}:${demora}`;
+}
+
+// ─────────────────────────────────────────────────────────────
+// Los dos ángulos
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Qué le duele a este consultorio, que es lo que decide el mensaje 1.
+ *
+ *   · `demora`  — tardaron o no contestaron. Duele la consulta que se pierde.
+ *   · `gestion` — contestaron rápido, incluso fuera de horario. Ahí la consulta
+ *                 perdida NO es el dolor: el dolor es que alguien está atado al
+ *                 celular un sábado a la noche, que la agenda se lleva a mano y
+ *                 que el que no viene no avisa.
+ *
+ * El segundo ángulo existe porque el primero, solo, tira a la basura a los
+ * consultorios que más rápido pagan: el que ya contesta un sábado a las 22 es
+ * el que ya decidió que atender rápido vale plata. No hay que convencerlo de
+ * nada, hay que sacarle el costo de encima.
+ */
+export type AnguloOdontologia = "demora" | "gestion";
+
+export const ANGULO_LABELS: Record<AnguloOdontologia, string> = {
+    demora: "Demora — tardaron o no contestaron",
+    gestion: "Gestión — contestan rápido, y eso lo hace alguien",
+};
+
+/**
+ * Corte: hasta dos horas es "contestan rápido".
+ *
+ * No es un número fino, es el umbral abajo del cual el paciente no se fue a
+ * buscar otro consultorio. Arriba de eso la consulta ya se enfrió y el ángulo
+ * vuelve a ser la demora.
+ */
+export const MINUTOS_CONTESTA_RAPIDO = 120;
+
+/**
+ * Qué ángulo le toca, mirando primero la prueba y después el escaneo.
+ *
+ * Sin prueba corrida cae en `demora`, que es el default del plan — pero si el
+ * escaneo marcó señales de gestión (varios profesionales en un solo WhatsApp,
+ * avisos de ausentismo, sin reserva online) el dolor está ahí, aunque contesten
+ * en dos minutos.
+ */
+export function anguloSugerido(p: Prospecto): AnguloOdontologia {
+    const min = minutosPrueba(p);
+    if (!p.prueba_sin_respuesta && p.prueba_respondida_at && min != null) {
+        return min <= MINUTOS_CONTESTA_RAPIDO ? "gestion" : "demora";
+    }
+    if (p.prueba_enviada_at) return "demora";
+
+    const fallas = new Set(p.escaneo?.fallas ?? []);
+    const senialesDeGestion = ["varios_prof_un_canal", "aviso_ausentismo", "sin_reserva_online"] as const;
+    return senialesDeGestion.some((f) => fallas.has(f)) ? "gestion" : "demora";
+}
+
+/** El paso de apertura que le corresponde, para no elegirlo a ojo cada vez. */
+export function pasoAperturaSugerido(p: Prospecto): PasoMensajeOdontologia {
+    if (!tienePrueba(p)) return "m1_sin_prueba";
+    return anguloSugerido(p) === "gestion" ? "m1_gestion" : "m1";
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -149,11 +241,16 @@ function comoSeLlama(p: Prospecto): string {
 export function generarMensajeOdontologia(
     paso: PasoMensajeOdontologia,
     p: Prospecto,
-    voz: Voz = vozDe(p)
+    voz: Voz = vozDe(p),
+    angulo: AnguloOdontologia = anguloSugerido(p)
 ): string {
     const negocio = comoSeLlama(p);
     const rio = voz === "rio";
     const hola = saludo(p, voz);
+    // Los follow-ups no repiten el pitch, pero sí tienen que seguir el hilo del
+    // mensaje 1: mandarle "cuántas consultas entran de noche" a alguien que
+    // contesta de noche es contarle una película que ya vio.
+    const porGestion = angulo === "gestion";
 
     switch (paso) {
         // ── Mensaje 1 ────────────────────────────────────────
@@ -183,6 +280,43 @@ export function generarMensajeOdontologia(
                       `No es una crítica: pasa en todos lados, porque nadie puede estar pendiente del celular un sábado por la noche. Lo que desarrollé responde esas consultas y agenda la cita solo, sin que usted tenga que hacer nada.`,
                       "",
                       `¿Le mando un video de ${SEGUNDOS_VIDEO} segundos para que vea cómo responde?`,
+                  ].join("\n");
+        }
+
+        // ── Mensaje 1, ángulo gestión ────────────────────────
+        // Mismo pedido y misma estructura que el m1 de demora; cambia la lectura
+        // del dato. Acá la prueba dice que SÍ contestan, y eso se dice como
+        // elogio antes de nombrar lo que cuesta: que lo hace una persona.
+        //
+        // Nada de "perdés consultas": el que contesta un sábado a las 22 sabe
+        // que no las pierde, y decirle lo contrario tira el mensaje a la basura
+        // en la primera línea. Lo que no sabe es cuánto le cuesta sostenerlo.
+        case "m1_gestion": {
+            const prueba = frasePrueba(p, voz);
+            return rio
+                ? [
+                      hola,
+                      `Soy ${REMITENTE}, hago sistemas de atención automática para consultorios.`,
+                      "",
+                      prueba,
+                      "",
+                      "Te lo digo como elogio: contestan rápido hasta un fin de semana. Lo que pasa es que eso lo está haciendo una persona, y esa persona después tiene que pasar el turno a la agenda y acordarse de recordárselo al paciente.",
+                      "",
+                      "Lo que armé contesta igual de rápido a cualquier hora, deja el turno cargado solo y manda el recordatorio del día antes para que no falten.",
+                      "",
+                      `¿Te mando un video de ${SEGUNDOS_VIDEO} segundos para que veas cómo trabaja?`,
+                  ].join("\n")
+                : [
+                      hola,
+                      `Soy ${REMITENTE}, desarrollo sistemas de atención automática para consultorios.`,
+                      "",
+                      prueba,
+                      "",
+                      "Se lo digo como elogio: responden rápido incluso en fin de semana. Lo que pasa es que eso lo está haciendo una persona, y esa persona después tiene que pasar la cita a la agenda y acordarse de recordársela al paciente.",
+                      "",
+                      "Lo que desarrollé responde igual de rápido a cualquier hora, deja la cita agendada sola y envía el recordatorio del día anterior para que no falten.",
+                      "",
+                      `¿Le mando un video de ${SEGUNDOS_VIDEO} segundos para que vea cómo trabaja?`,
                   ].join("\n");
         }
 
@@ -222,27 +356,35 @@ export function generarMensajeOdontologia(
         // ── Follow-ups ───────────────────────────────────────
         // Ninguno repite el pitch. Cada uno agrega una sola cosa nueva y sigue
         // pidiendo lo mismo, que es lo más barato de conceder.
-        case "fu1":
+        case "fu1": {
+            const tema = porGestion
+                ? rio
+                    ? "por lo de los turnos y los recordatorios"
+                    : "por el tema de las citas y los recordatorios"
+                : rio
+                  ? "por lo de las consultas que entran fuera de horario"
+                  : "por las consultas que llegan fuera de horario";
             return rio
-                ? `${hola} Te escribí hace unos días por lo de las consultas que entran fuera de horario. ¿Te sirve que te mande el video? Son ${SEGUNDOS_VIDEO} segundos, no te robo más que eso.`
-                : `${hola} Le escribí hace unos días por las consultas que llegan fuera de horario. ¿Le mando el video? Son ${SEGUNDOS_VIDEO} segundos, nada más.`;
+                ? `${hola} Te escribí hace unos días ${tema}. ¿Te sirve que te mande el video? Son ${SEGUNDOS_VIDEO} segundos, no te robo más que eso.`
+                : `${hola} Le escribí hace unos días ${tema}. ¿Le mando el video? Son ${SEGUNDOS_VIDEO} segundos, nada más.`;
+        }
 
-        case "fu2":
+        // El único follow-up que trae algo nuevo. Cada ángulo tiene su dato: al
+        // que tarda le sorprende cuántas de esas consultas terminaban en turno;
+        // al que contesta rápido le sorprende cuántos pacientes avisan que no
+        // vienen cuando les llega el recordatorio, que es plata de la agenda.
+        case "fu2": {
+            const dato = porGestion
+                ? rio
+                    ? "El dato que más sorprende a los que lo probaron es cuántos pacientes que iban a faltar sin avisar avisan cuando les llega el recordatorio del día antes. Ese lugar se vuelve a vender."
+                    : "El dato que más sorprende a quienes lo probaron es cuántos pacientes que iban a faltar sin avisar avisan cuando les llega el recordatorio del día anterior. Ese espacio se vuelve a vender."
+                : rio
+                  ? "El dato que más sorprende a los que lo probaron no es la cantidad de consultas que entran de noche: es cuántas de esas terminaban en turno cuando alguien contestaba."
+                  : "El dato que más sorprende a quienes lo probaron no es cuántas consultas llegan de noche: es cuántas de esas terminaban en cita cuando alguien respondía.";
             return rio
-                ? [
-                      `${hola} Última cosa y te dejo tranquilo.`,
-                      "",
-                      "El dato que más sorprende a los que lo probaron no es la cantidad de consultas que entran de noche: es cuántas de esas terminaban en turno cuando alguien contestaba.",
-                      "",
-                      "¿Querés que te lo muestre?",
-                  ].join("\n")
-                : [
-                      `${hola} Una última cosa y lo dejo.`,
-                      "",
-                      "El dato que más sorprende a quienes lo probaron no es cuántas consultas llegan de noche: es cuántas de esas terminaban en cita cuando alguien respondía.",
-                      "",
-                      "¿Quiere que se lo muestre?",
-                  ].join("\n");
+                ? [`${hola} Última cosa y te dejo tranquilo.`, "", dato, "", "¿Querés que te lo muestre?"].join("\n")
+                : [`${hola} Una última cosa y lo dejo.`, "", dato, "", "¿Quiere que se lo muestre?"].join("\n");
+        }
 
         case "fu3":
             return rio

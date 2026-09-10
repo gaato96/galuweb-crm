@@ -394,16 +394,23 @@ export function calcularScoreAgencia(p: Prospecto): DesgloseScore {
     const escaneo = normalizarEscaneo(p.escaneo);
     const fallas = new Set(escaneo.fallas);
 
-    // 1. EL filtro. Es lo único que convierte a una agencia en prospecto o la
-    //    saca de la lista, así que pesa más que todo lo demás junto.
-    if (p.ofrece_desarrollo_web === true) {
-        return {
-            total: 0,
-            partes: [{ concepto: "Ya ofrece desarrollo web: no es prospecto", puntos: 0 }],
-        };
-    }
+    // 1. EL filtro, que ahora separa dos listas en vez de descartar una.
+    //
+    //    Hasta el 2026-09-10 esto devolvía 0 y sacaba de la lista a toda agencia
+    //    que ofreciera desarrollo web. El razonamiento era que no terceriza lo
+    //    que ya vende, y es falso: ofrecer un servicio no es tenerlo adentro.
+    //    Lo habitual en agencias de 3 a 20 personas es venderlo y ejecutarlo
+    //    con un freelance distinto cada vez, según el costo que consigan.
+    //
+    //    Lo que cambia entonces no es a quién se le escribe, sino qué se le
+    //    ofrece: a la lista A capacidad que no tiene, a la lista B continuidad
+    //    y precio. Y la lista B arranca abajo a propósito —12 contra 35— para
+    //    que nunca le gane un lugar de los diez del día a la lista A, que es la
+    //    que el plan puso a prueba.
     if (p.ofrece_desarrollo_web === false) {
         partes.push({ concepto: "No ofrece desarrollo web: le entran pedidos que rechaza", puntos: 35 });
+    } else if (p.ofrece_desarrollo_web === true) {
+        partes.push({ concepto: "Ofrece desarrollo web (lista B): lo vende, casi seguro lo terceriza", puntos: 12 });
     } else {
         partes.push({ concepto: "Sin verificar si ofrece desarrollo web", puntos: 0 });
     }
@@ -430,7 +437,13 @@ export function calcularScoreAgencia(p: Prospecto): DesgloseScore {
         partes.push({ concepto: "Sus clientes no tienen web: hay demanda adentro de su cartera", puntos: 10 });
     }
     if (fallas.has("equipo_sin_devs")) {
-        partes.push({ concepto: "El equipo que muestra no tiene devs", puntos: 8 });
+        // En la lista A es una señal más. En la B es la confirmación del
+        // supuesto entero: venden desarrollo y no hay quién lo haga adentro.
+        if (p.ofrece_desarrollo_web === true) {
+            partes.push({ concepto: "Vende desarrollo y no muestra ningún dev: lo terceriza seguro", puntos: 18 });
+        } else {
+            partes.push({ concepto: "El equipo que muestra no tiene devs", puntos: 8 });
+        }
     }
 
     // 4. Tamaño. Ventana estrecha y con castigo en los dos extremos: los dos
@@ -648,7 +661,9 @@ export function motivoFueraDeCola(p: Prospecto): string | null {
     // Agencias: los motivos son otros. Las reseñas de Maps no aplican (una
     // agencia se elige por portfolio) y el canal por defecto es el mail.
     if (p.sistema === "agencias") {
-        if (p.ofrece_desarrollo_web === true) return "ya ofrece desarrollo web";
+        // Ofrecer desarrollo web ya no saca de la cola: es la lista B, con su
+        // propio mensaje y su propio score. Lo único que la mantiene atrás es
+        // que arranca en 12 puntos contra los 35 de la lista A.
         // El LinkedIn de la empresa (/company/) no es un canal: no hay a quién
         // escribirle ahí. Es el que trae el escaneo casi siempre, porque es el que
         // va linkeado en el pie de la web, y contarlo como canal daba por
@@ -713,8 +728,9 @@ export function alertasDescarte(p: Prospecto): AlertaDescarte[] {
     if (p.sistema === "agencias") {
         if (p.ofrece_desarrollo_web === true) {
             alertas.push({
-                regla: "Ya ofrece desarrollo web",
-                detalle: "No es prospecto: no terceriza lo que ya vende. Descartar.",
+                regla: "Ofrece desarrollo web — lista B",
+                detalle:
+                    "No se descarta, pero cambia el mensaje: ofrecerle capacidad que ya tiene quema el contacto. El ángulo es que lo ejecuta gente de afuera que cambia cada vez. Va después de la lista A, no en lugar de ella.",
             });
         }
         if (p.ofrece_desarrollo_web == null) {
@@ -781,11 +797,31 @@ export function alertasDescarte(p: Prospecto): AlertaDescarte[] {
 // ─────────────────────────────────────────────────────────────
 // §5 — La escalera de mensajes
 // ─────────────────────────────────────────────────────────────
+/**
+ * Rubros donde el negocio se organiza por turnos, más allá de la salud.
+ *
+ * `detectarRubro` solo distingue odontología, gastronomía y agencias porque es
+ * lo que necesitan los sistemas activos. Para reactivar los 45 hace falta una
+ * distinción más: peluquerías, estética, gimnasios y talleres tienen agenda, y
+ * el beneficio que les mueve la aguja es el turno, no el pedido.
+ */
+const CLAVES_TURNOS = [
+    "peluquer", "barber", "estetic", "estétic", "spa", "masaj", "uñas", "unas", "manicur",
+    "depilac", "tatu", "gimnasio", "gym", "pilates", "yoga", "entrenad", "psicolog",
+    "kinesi", "veterinar", "taller", "mecanic", "mecánic", "lavader", "fotograf",
+];
+
+function rubroDeTurnos(p: Pick<Prospecto, "rubro" | "especialidad">): boolean {
+    const texto = `${p.rubro || ""} ${p.especialidad || ""}`.toLowerCase();
+    return CLAVES_TURNOS.some((k) => texto.includes(k));
+}
+
 
 export type PasoMensaje =
     | "m1" | "m2" | "m3" | "fu1" | "fu2" | "fu3" | "ruteo"
     | "fu_revision1" | "fu_revision2"
-    | "toque_vigencia";
+    | "toque_vigencia"
+    | "reactivacion";
 
 export const PASO_MENSAJE_LABELS: Record<PasoMensaje, string> = {
     m1: "Mensaje 1 — Permiso",
@@ -799,6 +835,7 @@ export const PASO_MENSAJE_LABELS: Record<PasoMensaje, string> = {
     fu_revision1: "Follow-up análisis 1 (3-4 días)",
     fu_revision2: "Follow-up análisis 2 (7-10 días)",
     toque_vigencia: "Toque de vigencia (cada 21 días)",
+    reactivacion: "Reactivación — el asistente de WhatsApp (los 45)",
 };
 
 /**
@@ -840,6 +877,50 @@ export function generarMensaje(paso: PasoMensaje, p: Prospecto): string {
             "[QUÉ TERMINASTE ESTE MES — una línea, concreta]",
             "",
             "Si te entra algo, avisame y te paso plazo el mismo día.",
+        ].join("\n");
+    }
+
+    // ── Reactivación de los 45 ───────────────────────────────────────────
+    //
+    // El sistema "galu" está archivado, pero los 45 contactos no son basura:
+    // son 45 personas que ya saben quién es Gastón y a las que nunca se les
+    // ofreció algo que sirviera. Lo que se les ofrecía era una web, que es
+    // exactamente lo que ninguno compró.
+    //
+    // Tres reglas para que esto no sea "te escribo de nuevo a ver si ahora sí":
+    //
+    //   1. **No se menciona la web ni el análisis.** Ese intento terminó, y
+    //      recordarlo pone al otro a decir que no de nuevo. Producto nuevo,
+    //      conversación nueva.
+    //   2. **Cero técnico.** No se dice agente, IA, bot, automatización ni
+    //      WhatsApp Business API. Se dice qué pasa: contesta, agenda, recuerda.
+    //   3. **NO SE MANDA ANTES DE QUE EXISTA EL VIDEO.** El pedido es permiso
+    //      para mandarlo, así que si dicen que sí y no hay video, se quema el
+    //      contacto por segunda vez y esa sí es la última. El video de 40
+    //      segundos es la condición de salida de la Etapa 2 del plan.
+    //
+    // El beneficio cambia con el rubro porque un restaurante no tiene turnos y
+    // un consultorio no tiene pedidos. Lo que no cambia es el pedido final.
+    if (paso === "reactivacion") {
+        const nombre = p.contacto_nombre.trim().split(" ")[0];
+        const hola = nombre ? `Hola ${nombre}, ¿cómo andás?` : "Hola, ¿cómo va?";
+        const rubroProsp = detectarRubro(p);
+        const conTurnos = rubroProsp === "odontologia" || rubroDeTurnos(p);
+
+        const queHace = conTurnos
+            ? "Contesta las consultas de siempre (precios, horarios, si hay lugar), deja el turno agendado solo y el día antes le manda el recordatorio al cliente para que no falte."
+            : rubroProsp === "gastronomia"
+              ? "Contesta las consultas de siempre (precios, horarios, si hacen envío), toma el pedido y lo deja anotado, sin que nadie tenga que estar mirando el celular."
+              : "Contesta las consultas de siempre (precios, horarios, disponibilidad) y deja los datos del que preguntó anotados, sin que nadie tenga que estar mirando el celular.";
+
+        return [
+            `${hola} Soy Gastón, de Galu. Te escribo por algo nuevo, no por lo de la otra vez.`,
+            "",
+            "Armé un asistente que atiende el WhatsApp del negocio las 24 horas, todos los días.",
+            "",
+            queHace,
+            "",
+            "¿Te mando un video de 40 segundos para que veas cómo contesta?",
         ].join("\n");
     }
 
