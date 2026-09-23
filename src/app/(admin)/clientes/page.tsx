@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useSearchParams, useRouter } from "next/navigation";
 import { Plus, MessageCircle, ArrowRight, X, GripVertical, Search, ShieldCheck, ChevronDown, ChevronUp, Eye, Trash2, LayoutGrid, List, Filter, Pencil } from "lucide-react";
 import { cn, getInitials } from "@/lib/utils";
-import { clientesStore, proyectosStore, tareasStore } from "@/lib/store";
+import { clientesStore } from "@/lib/store";
 import type { Cliente, EtapaCliente, TipoProyecto } from "@/lib/types";
 import { ETAPA_LABELS, ETAPA_COLORS, FASES_PIPELINE } from "@/lib/types";
-import { PROJECT_TEMPLATES } from "@/lib/templates";
-import { slugify } from "@/lib/utils";
 import { toast } from "sonner";
 import {
     DndContext,
@@ -145,111 +143,6 @@ function NuevoClienteModal({
                         className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-medium hover:opacity-90 transition-opacity"
                     >
                         Guardar
-                    </button>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-// --- Nuevo Proyecto Modal ---
-function NuevoProyectoModal({ open, onClose, cliente }: { open: boolean; onClose: () => void; cliente: Cliente | null }) {
-    const [tipo, setTipo] = useState<TipoProyecto>("landing");
-    const [nombre, setNombre] = useState("");
-
-    useEffect(() => {
-        if (cliente) setNombre(`${cliente.negocio} - Web`);
-    }, [cliente]);
-
-    if (!open || !cliente) return null;
-
-    const handleCreate = async () => {
-        if (!nombre.trim()) { toast.error("Nombre de proyecto requerido"); return; }
-        try {
-            const proyecto = await proyectosStore.create({
-                cliente_id: cliente.id,
-                nombre,
-                descripcion: "",
-                es_interno: false,
-                accesos: [],
-                tipo_proyecto: tipo,
-                figma_url: "",
-                calendly_url: "https://calendly.com/agencia/reunion",
-                slug_portal: slugify(nombre + "-" + Date.now().toString(36)),
-                estado: "activo",
-            });
-            // Auto-create tasks from template
-            const template = PROJECT_TEMPLATES[tipo];
-            await tareasStore.createBulk(
-                template.map((t) => ({
-                    proyecto_id: proyecto.id,
-                    titulo: t.titulo,
-                    descripcion: "",
-                    prioridad: t.prioridad,
-                    estado: "pendiente" as const,
-                    categoria: t.categoria,
-                }))
-            );
-            toast.success(`Proyecto "${nombre}" creado con ${template.length} tareas`);
-            onClose();
-        } catch (error) {
-            toast.error("Error al crear el proyecto");
-            console.error(error);
-        }
-    };
-
-    const TIPOS = [
-        { value: "landing" as const, label: "Landing Page", desc: "Página única de conversión" },
-        { value: "institucional" as const, label: "Web Institucional", desc: "Sitio web completo multisección" },
-        { value: "ecommerce" as const, label: "E-Commerce", desc: "Tienda online con pagos" },
-    ];
-
-    return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-            <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in">
-                <div className="flex items-center justify-between mb-5">
-                    <h3 className="text-lg font-bold text-foreground">Nuevo Proyecto para {cliente.nombre}</h3>
-                    <button onClick={onClose} className="p-1 rounded-lg hover:bg-secondary"><X className="w-5 h-5 text-muted-foreground" /></button>
-                </div>
-                <div className="space-y-4">
-                    <div>
-                        <label className="text-xs text-muted-foreground mb-1 block">Nombre del Proyecto</label>
-                        <input value={nombre} onChange={(e) => setNombre(e.target.value)} className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
-                    </div>
-                    <div>
-                        <label className="text-xs text-muted-foreground mb-2 block">Tipo de Proyecto</label>
-                        <div className="grid grid-cols-3 gap-3">
-                            {TIPOS.map((t) => (
-                                <button
-                                    key={t.value}
-                                    onClick={() => setTipo(t.value)}
-                                    className={cn(
-                                        "p-3 rounded-xl border text-left transition-all",
-                                        tipo === t.value
-                                            ? "border-primary bg-primary/10 shadow-lg shadow-primary/10"
-                                            : "border-border bg-secondary hover:border-primary/30"
-                                    )}
-                                >
-                                    <p className="text-sm font-medium text-foreground">{t.label}</p>
-                                    <p className="text-[11px] text-muted-foreground mt-0.5">{t.desc}</p>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
-                    <div className="p-3 rounded-lg bg-secondary/50 border border-border">
-                        <p className="text-xs text-muted-foreground mb-1">Tareas que se crearán automáticamente:</p>
-                        <p className="text-sm font-medium text-primary">{PROJECT_TEMPLATES[tipo].length} tareas</p>
-                        <div className="mt-2 space-y-1 max-h-[120px] overflow-y-auto">
-                            {PROJECT_TEMPLATES[tipo].map((t, i) => (
-                                <p key={i} className="text-xs text-muted-foreground">• {t.titulo}</p>
-                            ))}
-                        </div>
-                    </div>
-                </div>
-                <div className="flex justify-end gap-3 mt-6">
-                    <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-secondary">Cancelar</button>
-                    <button onClick={handleCreate} className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-medium hover:opacity-90">
-                        Crear Proyecto
                     </button>
                 </div>
             </div>
@@ -1285,11 +1178,11 @@ function DroppableEtapaColumn({ etapa, children, count, isExpanded, onToggleExpa
 // --- Main Content ---
 function ClientesContent() {
     const searchParams = useSearchParams();
+    const router = useRouter();
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [mounted, setMounted] = useState(false);
     const [showNew, setShowNew] = useState(searchParams.get("new") === "true");
     const [showDetail, setShowDetail] = useState(false);
-    const [showProject, setShowProject] = useState(false);
     const [selected, setSelected] = useState<Cliente | null>(null);
     const [search, setSearch] = useState("");
     const [viewMode, setViewMode] = useState<"pipeline" | "table">("pipeline");
@@ -1368,11 +1261,9 @@ function ClientesContent() {
         try {
             if (next === "cliente_actual") {
                 await clientesStore.update(cliente.id, { etapa: next });
-                await reload();
                 setShowDetail(false);
-                const updated = await clientesStore.getById(cliente.id);
-                setSelected(updated);
-                setShowProject(true);
+                toast.success(`${cliente.nombre} ahora es cliente — cargá su proyecto`);
+                router.push(`/proyectos?new=true&cliente=${cliente.id}`);
                 return;
             }
 
@@ -1667,11 +1558,7 @@ function ClientesContent() {
                 onUpdate={handleUpdate}
                 onAdvance={handleAdvance}
             />
-            <NuevoProyectoModal
-                open={showProject}
-                onClose={() => { setShowProject(false); setSelected(null); reload(); }}
-                cliente={selected}
-            />
+
         </div>
     );
 }

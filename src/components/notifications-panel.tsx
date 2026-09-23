@@ -1,13 +1,15 @@
 "use client";
 
 import { useEffect, useState, useRef } from "react";
-import { Bell, X, CheckCircle2, Clock, AlertTriangle, DollarSign, CheckSquare, CheckCheck } from "lucide-react";
+import { Bell, X, CheckCircle2, Clock, AlertTriangle, DollarSign, CheckSquare, CheckCheck, CalendarClock, UserCheck } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { cn, formatCurrency, formatDate, daysFromNow } from "@/lib/utils";
-import { finanzasStore, tareasStore } from "@/lib/store";
-import type { Finanza, Tarea } from "@/lib/types";
+import { finanzasStore, tareasStore, proyectosStore, archivosProyectoStore } from "@/lib/store";
+import type { ArchivoProyecto, Finanza, Proyecto, Tarea } from "@/lib/types";
+import { aISO, diasEntre } from "@/lib/proyecto-gestion";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type NotifType = "cobro_vencido" | "cobro_proximo" | "tarea_vencida" | "cobro_hoy";
+type NotifType = "cobro_vencido" | "cobro_proximo" | "tarea_vencida" | "cobro_hoy" | "entrega" | "cliente";
 
 interface Notification {
     id: string;
@@ -16,6 +18,7 @@ interface Notification {
     body: string;
     date: string;
     urgency: "high" | "medium" | "low";
+    href?: string;
 }
 
 const STORAGE_KEY = "crm_notifs_read_v2";
@@ -36,7 +39,7 @@ function saveReadIds(ids: Set<string>) {
 }
 
 // ── Generate notifications from CRM data ──────────────────────────────────────
-function generateNotifications(finanzas: Finanza[], tareas: Tarea[]): Notification[] {
+function generateNotifications(finanzas: Finanza[], tareas: Tarea[], proyectos: Proyecto[] = [], archivosCliente: ArchivoProyecto[] = []): Notification[] {
     const notifs: Notification[] = [];
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -93,6 +96,53 @@ function generateNotifications(finanzas: Finanza[], tareas: Tarea[]): Notificati
             }
         });
 
+    // Entregas de proyectos: vencidas o en los próximos 5 días
+    proyectos
+        .filter((p) => p.estado === "activo" && p.fecha_entrega)
+        .forEach((p) => {
+            const days = diasEntre(aISO(new Date()), p.fecha_entrega!);
+            if (days > 5) return;
+            notifs.push({
+                id: `entrega_${p.id}_${p.fecha_entrega}`,
+                type: "entrega",
+                title: days < 0 ? "Entrega vencida" : days === 0 ? "Entrega hoy" : `Entrega en ${days} día${days === 1 ? "" : "s"}`,
+                body: p.nombre,
+                date: p.fecha_entrega!,
+                urgency: days <= 1 ? "high" : "medium",
+                href: `/proyectos/${p.id}`,
+            });
+        });
+
+    // Actividad del cliente en el portal
+    proyectos
+        .filter((p) => p.brief?.estado === "completado" && p.brief.completado_at && !(p.documentos || []).some((d) => d.id === "doc_contexto"))
+        .forEach((p) => {
+            notifs.push({
+                id: `brief_${p.id}_${p.brief!.completado_at}`,
+                type: "cliente",
+                title: "El cliente completó el brief",
+                body: `${p.nombre} — generá el CONTEXTO.md`,
+                date: p.brief!.completado_at!,
+                urgency: "low",
+                href: `/proyectos/${p.id}`,
+            });
+        });
+    const porProyecto = new Map<string, ArchivoProyecto[]>();
+    archivosCliente.forEach((a) => porProyecto.set(a.proyecto_id, [...(porProyecto.get(a.proyecto_id) || []), a]));
+    porProyecto.forEach((lista, proyectoId) => {
+        const p = proyectos.find((x) => x.id === proyectoId);
+        if (!p) return;
+        notifs.push({
+            id: `archivos_${proyectoId}_${lista[0].created_at}`,
+            type: "cliente",
+            title: `El cliente subió ${lista.length} archivo${lista.length === 1 ? "" : "s"}`,
+            body: p.nombre,
+            date: lista[0].created_at,
+            urgency: "low",
+            href: `/proyectos/${proyectoId}`,
+        });
+    });
+
     // Sort: high urgency first, then by date
     return notifs.sort((a, b) => {
         const urgencyOrder = { high: 0, medium: 1, low: 2 };
@@ -109,11 +159,14 @@ function NotifIcon({ type }: { type: NotifType }) {
     if (type === "cobro_vencido" || type === "cobro_hoy") return <AlertTriangle className={cn(base, "text-rose-400")} />;
     if (type === "cobro_proximo") return <DollarSign className={cn(base, "text-amber-400")} />;
     if (type === "tarea_vencida") return <CheckSquare className={cn(base, "text-orange-400")} />;
+    if (type === "entrega") return <CalendarClock className={cn(base, "text-amber-400")} />;
+    if (type === "cliente") return <UserCheck className={cn(base, "text-cyan-400")} />;
     return <Clock className={cn(base, "text-blue-400")} />;
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────────
 export default function NotificationsPanel() {
+    const router = useRouter();
     const [open, setOpen] = useState(false);
     const [notifs, setNotifs] = useState<Notification[]>([]);
     const [readIds, setReadIds] = useState<Set<string>>(new Set());
@@ -123,11 +176,13 @@ export default function NotificationsPanel() {
     // Load CRM data and generate notifications
     const loadNotifs = async () => {
         try {
-            const [finanzas, tareas] = await Promise.all([
+            const [finanzas, tareas, proyectos, archivos] = await Promise.all([
                 finanzasStore.getAll(),
                 tareasStore.getAll(),
+                proyectosStore.getAll().catch(() => []),
+                archivosProyectoStore.getRecientesDeClientes(7).catch(() => []),
             ]);
-            setNotifs(generateNotifications(finanzas, tareas));
+            setNotifs(generateNotifications(finanzas, tareas, proyectos, archivos));
         } catch {/* ignore */}
     };
 
@@ -245,8 +300,10 @@ export default function NotificationsPanel() {
                                     return (
                                         <div
                                             key={n.id}
+                                            onClick={() => { if (n.href) { markAsRead(n.id); setOpen(false); router.push(n.href); } }}
                                             className={cn(
-                                                "flex items-start gap-3 p-3 rounded-xl transition-all group cursor-default",
+                                                "flex items-start gap-3 p-3 rounded-xl transition-all group",
+                                                n.href ? "cursor-pointer" : "cursor-default",
                                                 isRead
                                                     ? "opacity-50 hover:opacity-70"
                                                     : n.urgency === "high"
@@ -279,7 +336,7 @@ export default function NotificationsPanel() {
                                             </div>
                                             {!isRead && (
                                                 <button
-                                                    onClick={() => markAsRead(n.id)}
+                                                    onClick={(e) => { e.stopPropagation(); markAsRead(n.id); }}
                                                     className="opacity-0 group-hover:opacity-100 p-1 rounded-md hover:bg-secondary text-muted-foreground hover:text-foreground transition-all shrink-0"
                                                     title="Marcar como leída"
                                                 >

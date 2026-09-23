@@ -5,7 +5,7 @@ import { supabase } from "./supabase";
 import {
     Cliente, Proyecto, Tarea, Cotizacion, Finanza, Brief, Recurso,
     EtapaCliente, Infraestructura, TicketSoporte, LogProyecto, Idea,
-    ScraperBusqueda, ProspectoScraped, Prospecto
+    ScraperBusqueda, ProspectoScraped, Prospecto, ArchivoProyecto, SolicitudProyecto
 } from "./types";
 import { ESCANEO_VACIO, listaVacia, type Sistema, type ListaProspeccion } from "./types";
 import {
@@ -26,6 +26,12 @@ export const clientesStore = {
     },
     getById: async (id: string): Promise<Cliente | null> => {
         const { data, error } = await supabase.from("clientes").select("*").eq("id", id).single();
+        if (error) return null;
+        return data;
+    },
+    /** Solo lo que puede ver el propio cliente en su portal (sin notas ni investigación). */
+    getPublico: async (id: string): Promise<Pick<Cliente, "id" | "nombre" | "negocio"> | null> => {
+        const { data, error } = await supabase.from("clientes").select("id, nombre, negocio").eq("id", id).maybeSingle();
         if (error) return null;
         return data;
     },
@@ -71,6 +77,24 @@ export const proyectosStore = {
         const { data, error } = await supabase.from("proyectos").select("*").eq("slug_portal", slug).single();
         if (error) return null;
         return data;
+    },
+    /**
+     * Lo que ve el cliente en el portal. Columnas explícitas para que nunca
+     * viajen al navegador del cliente los accesos, las notas internas ni la wiki.
+     */
+    getPortal: async (slug: string): Promise<Proyecto | null> => {
+        const { data, error } = await supabase
+            .from("proyectos")
+            .select("id, created_at, cliente_id, nombre, tipo_proyecto, figma_url, calendly_url, slug_portal, contrato_url, estado, descripcion, fecha_inicio, fecha_entrega, es_interno, fases, logo_url, figma_aprobado, figma_comentarios, links, brief")
+            .eq("slug_portal", slug)
+            .maybeSingle();
+        if (error) throw error;
+        return data as Proyecto | null;
+    },
+    /** Update sin devolver la fila: lo usa el portal, que no debe recibir columnas privadas. */
+    updateSinRetorno: async (id: string, data: Partial<Proyecto>): Promise<void> => {
+        const { error } = await supabase.from("proyectos").update(data).eq("id", id);
+        if (error) throw error;
     },
     create: async (data: Omit<Proyecto, "id" | "created_at">): Promise<Proyecto> => {
         const { data: created, error } = await supabase.from("proyectos").insert(data).select().single();
@@ -227,6 +251,16 @@ export const finanzasStore = {
         const { data: updated, error } = await supabase.from("finanzas").update(data).eq("id", id).select().single();
         if (error) throw error;
         return updated;
+    },
+    getByProyecto: async (proyectoId: string): Promise<Finanza[]> => {
+        const { data, error } = await supabase.from("finanzas").select("*").eq("proyecto_id", proyectoId).order("fecha_cobro", { ascending: true });
+        if (error) throw error;
+        return data || [];
+    },
+    createBulk: async (items: Omit<Finanza, "id" | "created_at">[]): Promise<Finanza[]> => {
+        const { data, error } = await supabase.from("finanzas").insert(items).select();
+        if (error) throw error;
+        return data || [];
     },
     marcarCobrado: async (id: string, cobrado: boolean = true): Promise<Finanza> => {
         const today = hoyISO();
@@ -422,6 +456,67 @@ export const storageStore = {
     uploadCotizacion: (file: File) => subirArchivo(file, "cotizaciones", "cotizacion_"),
     uploadContrato: (file: File) => subirArchivo(file, "contratos", "contrato_"),
     uploadLogo: (file: File) => subirArchivo(file, "logos", "logo_"),
+    uploadArchivoProyecto: (file: File, proyectoId: string) => subirArchivo(file, `proyectos/${proyectoId}`),
+};
+
+// --- Archivos de proyecto (agencia y cliente) ---
+export const archivosProyectoStore = {
+    getByProyecto: async (proyectoId: string, soloVisibles = false): Promise<ArchivoProyecto[]> => {
+        let q = supabase.from("proyecto_archivos").select("*").eq("proyecto_id", proyectoId);
+        if (soloVisibles) q = q.eq("visible_cliente", true);
+        const { data, error } = await q.order("created_at", { ascending: false });
+        if (error) throw error;
+        return data || [];
+    },
+    /** Los que subieron los clientes desde el portal en los últimos días (para avisos). */
+    getRecientesDeClientes: async (dias = 7): Promise<ArchivoProyecto[]> => {
+        const desde = new Date(Date.now() - dias * 86_400_000).toISOString();
+        const { data, error } = await supabase
+            .from("proyecto_archivos").select("*")
+            .eq("subido_por", "cliente").gte("created_at", desde)
+            .order("created_at", { ascending: false });
+        if (error) throw error;
+        return data || [];
+    },
+    create: async (data: Omit<ArchivoProyecto, "id" | "created_at">): Promise<ArchivoProyecto> => {
+        const { data: created, error } = await supabase.from("proyecto_archivos").insert(data).select().single();
+        if (error) throw error;
+        return created;
+    },
+    update: async (id: string, data: Partial<ArchivoProyecto>): Promise<ArchivoProyecto> => {
+        const { data: updated, error } = await supabase.from("proyecto_archivos").update(data).eq("id", id).select().single();
+        if (error) throw error;
+        return updated;
+    },
+    delete: async (id: string): Promise<void> => {
+        const { error } = await supabase.from("proyecto_archivos").delete().eq("id", id);
+        if (error) throw error;
+    },
+};
+
+// --- Solicitudes al cliente ---
+export const solicitudesStore = {
+    getByProyecto: async (proyectoId: string): Promise<SolicitudProyecto[]> => {
+        const { data, error } = await supabase
+            .from("proyecto_solicitudes").select("*")
+            .eq("proyecto_id", proyectoId).order("created_at", { ascending: false });
+        if (error) throw error;
+        return data || [];
+    },
+    create: async (data: Omit<SolicitudProyecto, "id" | "created_at">): Promise<SolicitudProyecto> => {
+        const { data: created, error } = await supabase.from("proyecto_solicitudes").insert(data).select().single();
+        if (error) throw error;
+        return created;
+    },
+    update: async (id: string, data: Partial<SolicitudProyecto>): Promise<SolicitudProyecto> => {
+        const { data: updated, error } = await supabase.from("proyecto_solicitudes").update(data).eq("id", id).select().single();
+        if (error) throw error;
+        return updated;
+    },
+    delete: async (id: string): Promise<void> => {
+        const { error } = await supabase.from("proyecto_solicitudes").delete().eq("id", id);
+        if (error) throw error;
+    },
 };
 
 // --- Logs de Proyecto (Changelog / Seguimiento) ---

@@ -42,65 +42,245 @@ export type EstadoTicket = "abierto" | "en_progreso" | "resuelto";
 export interface FaseProyecto {
     nombre: string;
     completada: boolean;
+    /** Plazo interno de la fase (YYYY-MM-DD). */
+    fecha_limite?: string | null;
+    fecha_completada?: string | null;
+}
+
+export interface TareaPlantilla {
+    titulo: string;
+    categoria: CategoriaTarea;
+    prioridad: Prioridad;
+    descripcion?: string;
 }
 
 export interface FaseConfig {
     nombre: string;
     descripcion: string;
-    tareas: { titulo: string; categoria: CategoriaTarea; prioridad: Prioridad; descripcion?: string }[];
+    /** Peso relativo de la fase para repartir el plazo total del proyecto. */
+    dias: number;
+    tareas: TareaPlantilla[];
 }
+
+const t = (titulo: string, categoria: CategoriaTarea, prioridad: Prioridad = "media", descripcion?: string): TareaPlantilla =>
+    ({ titulo, categoria, prioridad, ...(descripcion ? { descripcion } : {}) });
 
 export const FASES_POR_TIPO: Record<TipoProyecto, FaseConfig[]> = {
     landing: [
-        { nombre: "Investigación", descripcion: "Entender el negocio, competidores y objetivo de la Landing.", tareas: [{ titulo: "Reunión de Kickoff / Briefing", categoria: "otro", prioridad: "alta" }, { titulo: "Análisis de competidores y mercado", categoria: "seo", prioridad: "media" }] },
-        { nombre: "Diseño", descripcion: "Bocetos, wireframes y diseño de alta fidelidad.", tareas: [{ titulo: "Crear Wireframes", categoria: "diseno", prioridad: "alta" }, { titulo: "Diseño UI en Figma", categoria: "diseno", prioridad: "alta" }, { titulo: "Definir Copywriting", categoria: "contenido", prioridad: "alta" }] },
-        { nombre: "Desarrollo", descripcion: "Maquetación e implementación técnica.", tareas: [{ titulo: "Maquetación Responsive", categoria: "dev", prioridad: "alta" }, { titulo: "Integraciones (Mailchimp/Forms)", categoria: "dev", prioridad: "media" }] },
-        { nombre: "Revisión del Cliente", descripcion: "Feedback y ajustes sobre el sitio funcional.", tareas: [{ titulo: "Presentar versión inicial", categoria: "otro", prioridad: "media" }, { titulo: "Aplicar correcciones de cliente", categoria: "dev", prioridad: "media" }] },
-        { nombre: "Lanzamiento", descripcion: "Puesta en marcha en dominio oficial.", tareas: [{ titulo: "Configuración de Dominio/DNS", categoria: "dev", prioridad: "alta" }, { titulo: "Configurar Analytics / Píxeles", categoria: "seo", prioridad: "media" }] },
-        { nombre: "Post-entrega", descripcion: "Soporte, recolección de feedback y cierre.", tareas: [{ titulo: "Enviar tutorial de uso", categoria: "otro", prioridad: "media" }] }
+        { nombre: "Investigación", dias: 3, descripcion: "Entender el negocio, el objetivo de la landing y a quién le habla.", tareas: [
+            t("Enviar el brief al cliente desde el portal", "otro", "alta", "Generar el brief, revisarlo y compartir el link del portal."),
+            t("Reunión de kickoff", "otro", "alta"),
+            t("Definir objetivo y llamado a la acción principal", "contenido", "alta"),
+            t("Analizar 3 competidores o referentes", "seo", "media"),
+            t("Pedir logo, fotos y textos al cliente", "otro", "alta", "Crear una solicitud en el portal para que los suba."),
+        ] },
+        { nombre: "Diseño", dias: 5, descripcion: "Estructura, copy y diseño de alta fidelidad.", tareas: [
+            t("Armar estructura de secciones (wireframe)", "diseno", "alta"),
+            t("Redactar copy de cada sección", "contenido", "alta"),
+            t("Definir paleta y tipografías", "diseno", "media"),
+            t("Diseño UI desktop en Figma", "diseno", "alta"),
+            t("Diseño UI mobile en Figma", "diseno", "alta"),
+            t("Enviar diseño para aprobación en el portal", "otro", "alta"),
+        ] },
+        { nombre: "Desarrollo", dias: 6, descripcion: "Maquetación e implementación técnica.", tareas: [
+            t("Setup del proyecto y repositorio", "dev", "alta"),
+            t("Maquetar secciones responsive", "dev", "alta"),
+            t("Formulario / botón de WhatsApp funcionando", "dev", "alta"),
+            t("Optimizar imágenes (WebP, lazy load)", "dev", "media"),
+            t("Meta tags, favicon y Open Graph", "seo", "media"),
+        ] },
+        { nombre: "Revisión del Cliente", dias: 3, descripcion: "Feedback y ajustes sobre el sitio funcional.", tareas: [
+            t("Compartir versión de prueba con el cliente", "otro", "alta"),
+            t("Aplicar correcciones pedidas", "dev", "alta"),
+            t("Testing en celular, tablet y desktop", "dev", "media"),
+        ] },
+        { nombre: "Lanzamiento", dias: 2, descripcion: "Puesta en marcha en el dominio oficial.", tareas: [
+            t("Configurar dominio y DNS", "dev", "alta"),
+            t("Certificado SSL activo", "dev", "alta"),
+            t("Instalar Analytics / Píxel de Meta", "seo", "media"),
+            t("Probar formularios en producción", "dev", "alta"),
+        ] },
+        { nombre: "Post-entrega", dias: 2, descripcion: "Soporte, feedback y cierre.", tareas: [
+            t("Enviar accesos y tutorial de uso", "otro", "media"),
+            t("Cobrar saldo final", "otro", "alta"),
+            t("Pedir testimonio / reseña", "marketing", "baja"),
+        ] },
     ],
     institucional: [
-        { nombre: "Investigación", descripcion: "Análisis en profundidad del modelo de negocio.", tareas: [{ titulo: "Reunión de Briefing", categoria: "otro", prioridad: "alta" }, { titulo: "Análisis de Competencia", categoria: "seo", prioridad: "alta" }] },
-        { nombre: "Arquitectura", descripcion: "Definición de mapa de sitio y flujos.", tareas: [{ titulo: "Crear Sitemap", categoria: "seo", prioridad: "alta" }, { titulo: "Estructurar contenidos base", categoria: "contenido", prioridad: "media" }] },
-        { nombre: "Diseño", descripcion: "Identidad visual y diseño UI.", tareas: [{ titulo: "Diseño UI de Home", categoria: "diseno", prioridad: "alta" }, { titulo: "Diseño UI de páginas internas", categoria: "diseno", prioridad: "alta" }] },
-        { nombre: "Desarrollo", descripcion: "Implementación en CMS o código.", tareas: [{ titulo: "Desarrollo de Home", categoria: "dev", prioridad: "alta" }, { titulo: "Desarrollo de páginas internas", categoria: "dev", prioridad: "alta" }, { titulo: "Configuración de Blog / CMS", categoria: "dev", prioridad: "media" }] },
-        { nombre: "SEO On-page", descripcion: "Optimización de motores de búsqueda.", tareas: [{ titulo: "Optimización Meta Tags y H1", categoria: "seo", prioridad: "alta" }, { titulo: "Optimización de imágenes (WebP, Alt)", categoria: "seo", prioridad: "media" }] },
-        { nombre: "Revisión", descripcion: "QA interno y feedback del cliente.", tareas: [{ titulo: "Testing Multi-Device", categoria: "dev", prioridad: "alta" }, { titulo: "Revisión de textos y links", categoria: "contenido", prioridad: "media" }] },
-        { nombre: "Lanzamiento", descripcion: "Puesta en producción oficial.", tareas: [{ titulo: "Migración a dominio final", categoria: "dev", prioridad: "alta" }, { titulo: "Indexación en Google Search Console", categoria: "seo", prioridad: "alta" }] },
-        { nombre: "Post-entrega", descripcion: "Mantenimiento y soporte inicial.", tareas: [{ titulo: "Entrega de accesos", categoria: "otro", prioridad: "alta" }, { titulo: "Envío de video tutoriales", categoria: "otro", prioridad: "media" }] }
+        { nombre: "Investigación", dias: 4, descripcion: "Análisis en profundidad del modelo de negocio.", tareas: [
+            t("Enviar el brief al cliente desde el portal", "otro", "alta"),
+            t("Reunión de kickoff", "otro", "alta"),
+            t("Análisis de competencia", "seo", "media"),
+            t("Investigación de palabras clave", "seo", "media"),
+            t("Pedir logo, manual de marca y fotos", "otro", "alta"),
+        ] },
+        { nombre: "Arquitectura", dias: 3, descripcion: "Mapa de sitio y contenidos.", tareas: [
+            t("Definir sitemap", "seo", "alta"),
+            t("Wireframes de Home y páginas internas", "diseno", "alta"),
+            t("Inventario de contenidos por página", "contenido", "media"),
+        ] },
+        { nombre: "Diseño", dias: 7, descripcion: "Identidad visual y diseño UI.", tareas: [
+            t("Moodboard y estilo visual", "diseno", "media"),
+            t("Diseño UI de Home", "diseno", "alta"),
+            t("Diseño UI de páginas internas", "diseno", "alta"),
+            t("Versión mobile", "diseno", "alta"),
+            t("Enviar diseño para aprobación en el portal", "otro", "alta"),
+        ] },
+        { nombre: "Desarrollo", dias: 10, descripcion: "Implementación en CMS o código.", tareas: [
+            t("Setup del proyecto, hosting de staging", "dev", "alta"),
+            t("Desarrollo de Home", "dev", "alta"),
+            t("Desarrollo de páginas internas", "dev", "alta"),
+            t("Blog / CMS configurado", "dev", "media"),
+            t("Formularios de contacto", "dev", "alta"),
+            t("Carga de contenidos finales", "contenido", "media"),
+        ] },
+        { nombre: "SEO On-page", dias: 3, descripcion: "Optimización para buscadores.", tareas: [
+            t("Meta títulos y descripciones", "seo", "alta"),
+            t("Jerarquía de encabezados (H1-H3)", "seo", "media"),
+            t("Imágenes optimizadas con alt", "seo", "media"),
+            t("Sitemap.xml y robots.txt", "seo", "media"),
+        ] },
+        { nombre: "Revisión", dias: 4, descripcion: "QA interno y feedback del cliente.", tareas: [
+            t("Testing multi-dispositivo y navegadores", "dev", "alta"),
+            t("Revisión de textos y links rotos", "contenido", "media"),
+            t("Ronda de correcciones del cliente", "dev", "alta"),
+        ] },
+        { nombre: "Lanzamiento", dias: 2, descripcion: "Puesta en producción oficial.", tareas: [
+            t("Migración a dominio final + SSL", "dev", "alta"),
+            t("Google Search Console e indexación", "seo", "alta"),
+            t("Analytics y píxeles", "seo", "media"),
+        ] },
+        { nombre: "Post-entrega", dias: 3, descripcion: "Mantenimiento y soporte inicial.", tareas: [
+            t("Entrega de accesos y video tutorial", "otro", "alta"),
+            t("Cobrar saldo final", "otro", "alta"),
+            t("Ofrecer plan de mantenimiento", "marketing", "media"),
+        ] },
     ],
     ecommerce: [
-        { nombre: "Investigación", descripcion: "Estudio de productos, logística y pagos.", tareas: [{ titulo: "Reunión levantamiento requerimientos", categoria: "otro", prioridad: "alta" }] },
-        { nombre: "Diseño", descripcion: "UI orientada a conversión de ventas.", tareas: [{ titulo: "Diseño Home y Categorías", categoria: "diseno", prioridad: "alta" }, { titulo: "Diseño Ficha de Producto y Checkout", categoria: "diseno", prioridad: "alta" }] },
-        { nombre: "Catálogo de Productos", descripcion: "Carga de categorías, variables y stock.", tareas: [{ titulo: "Importación de catálogo base", categoria: "dev", prioridad: "alta" }, { titulo: "Optimización imágenes productos", categoria: "diseno", prioridad: "media" }] },
-        { nombre: "Pasarela de Pago", descripcion: "Integración de MercadoPago, Stripe, envíos.", tareas: [{ titulo: "Integrar pasarelas de pago", categoria: "dev", prioridad: "alta" }, { titulo: "Configurar métodos y zonas de envío", categoria: "dev", prioridad: "alta" }] },
-        { nombre: "Desarrollo", descripcion: "Construcción completa de la tienda.", tareas: [{ titulo: "Desarrollo completo de la tienda", categoria: "dev", prioridad: "alta" }, { titulo: "Configuración de emails transaccionales", categoria: "dev", prioridad: "media" }] },
-        { nombre: "Testing", descripcion: "Prueba de embudo de ventas y fallos.", tareas: [{ titulo: "Pruebas de compras reales", categoria: "dev", prioridad: "alta" }, { titulo: "Pruebas en móvil/tablet", categoria: "dev", prioridad: "alta" }] },
-        { nombre: "Lanzamiento", descripcion: "Publicación y apertura de tienda.", tareas: [{ titulo: "Apertura oficial / DNS", categoria: "dev", prioridad: "alta" }, { titulo: "Configurar Google Analytics 4 Ecommerce", categoria: "seo", prioridad: "media" }] },
-        { nombre: "Post-entrega", descripcion: "Capacitación en gestión de inventario.", tareas: [{ titulo: "Capacitación de gestión de tienda", categoria: "otro", prioridad: "alta" }] }
+        { nombre: "Investigación", dias: 4, descripcion: "Productos, logística y medios de pago.", tareas: [
+            t("Enviar el brief al cliente desde el portal", "otro", "alta"),
+            t("Reunión de relevamiento", "otro", "alta"),
+            t("Definir plataforma (Tiendanube, Woo, Shopify, custom)", "dev", "alta"),
+            t("Relevar medios de pago y envíos", "otro", "alta"),
+            t("Pedir catálogo (planilla + fotos)", "otro", "alta"),
+        ] },
+        { nombre: "Diseño", dias: 7, descripcion: "UI orientada a conversión.", tareas: [
+            t("Diseño de Home y categorías", "diseno", "alta"),
+            t("Diseño de ficha de producto", "diseno", "alta"),
+            t("Diseño de carrito y checkout", "diseno", "alta"),
+            t("Enviar diseño para aprobación en el portal", "otro", "alta"),
+        ] },
+        { nombre: "Catálogo de Productos", dias: 5, descripcion: "Categorías, variantes y stock.", tareas: [
+            t("Estructura de categorías y variantes", "dev", "alta"),
+            t("Importación del catálogo", "dev", "alta"),
+            t("Optimización de fotos de productos", "diseno", "media"),
+        ] },
+        { nombre: "Pasarela de Pago", dias: 3, descripcion: "Cobros y envíos.", tareas: [
+            t("Integrar Mercado Pago / Stripe", "dev", "alta"),
+            t("Configurar zonas y costos de envío", "dev", "alta"),
+            t("Emails transaccionales", "dev", "media"),
+        ] },
+        { nombre: "Desarrollo", dias: 8, descripcion: "Construcción completa de la tienda.", tareas: [
+            t("Maquetación de la tienda", "dev", "alta"),
+            t("Páginas legales (términos, devoluciones)", "contenido", "media"),
+            t("Integración con WhatsApp / redes", "dev", "media"),
+        ] },
+        { nombre: "Testing", dias: 3, descripcion: "Pruebas del embudo de compra.", tareas: [
+            t("Compra de prueba completa", "dev", "alta"),
+            t("Pruebas en celular", "dev", "alta"),
+            t("Revisión de stock y precios con el cliente", "otro", "media"),
+        ] },
+        { nombre: "Lanzamiento", dias: 2, descripcion: "Apertura de la tienda.", tareas: [
+            t("Dominio, DNS y SSL", "dev", "alta"),
+            t("GA4 e-commerce y píxel", "seo", "media"),
+        ] },
+        { nombre: "Post-entrega", dias: 3, descripcion: "Capacitación y cierre.", tareas: [
+            t("Capacitación de gestión de la tienda", "otro", "alta"),
+            t("Cobrar saldo final", "otro", "alta"),
+        ] },
     ],
     webapp: [
-        { nombre: "Investigación", descripcion: "Levantamiento de módulos y lógica de negocio.", tareas: [{ titulo: "Especificación de Requerimientos", categoria: "otro", prioridad: "alta" }, { titulo: "Definir casos de uso principales", categoria: "otro", prioridad: "alta" }] },
-        { nombre: "Arquitectura del Sistema", descripcion: "Base de datos y estructura de servidor.", tareas: [{ titulo: "Diseño esquema Base de Datos", categoria: "dev", prioridad: "alta" }, { titulo: "Definir Stack y Repositorio", categoria: "dev", prioridad: "alta" }] },
-        { nombre: "UX/UI", descripcion: "Flujos de usuario y diseño funcional.", tareas: [{ titulo: "Crear Wireframes Módulos Core", categoria: "diseno", prioridad: "alta" }, { titulo: "Diseño de Sistema de Componentes (Design System)", categoria: "diseno", prioridad: "media" }] },
-        { nombre: "Autenticación", descripcion: "Sistemas de Login y Control de Sesión.", tareas: [{ titulo: "Setup Supabase/Auth", categoria: "dev", prioridad: "alta" }, { titulo: "Protección de Rutas Principales", categoria: "dev", prioridad: "alta" }] },
-        { nombre: "Módulos Core", descripcion: "Desarrollo de las funcionalidades transaccionales.", tareas: [{ titulo: "Desarrollo CRUD principal", categoria: "dev", prioridad: "alta" }, { titulo: "Integración frontend con APIs/Base de datos", categoria: "dev", prioridad: "alta" }] },
-        { nombre: "Testing QA", descripcion: "Validación de lógica de negocio y seguridad.", tareas: [{ titulo: "Pruebas de Regresión manuales", categoria: "dev", prioridad: "alta" }, { titulo: "Validación de Roles de Seguridad (RLS)", categoria: "dev", prioridad: "alta" }] },
-        { nombre: "Deploy", descripcion: "Despliegue a infraestructura (Ej: Vercel, VPS).", tareas: [{ titulo: "Configuración de CI/CD", categoria: "dev", prioridad: "alta" }, { titulo: "Ajuste de variables de entorno", categoria: "dev", prioridad: "alta" }] },
-        { nombre: "Documentación", descripcion: "Manuales técnicos o de usuario final.", tareas: [{ titulo: "Redactar uso de módulos", categoria: "contenido", prioridad: "media" }] },
-        { nombre: "Iteración", descripcion: "Soporte y nuevas versiones post-feedback.", tareas: [{ titulo: "Recolectar feedback primera semana", categoria: "otro", prioridad: "media" }] }
+        { nombre: "Investigación", dias: 5, descripcion: "Módulos y lógica de negocio.", tareas: [
+            t("Enviar el brief al cliente desde el portal", "otro", "alta"),
+            t("Especificación de requerimientos", "otro", "alta"),
+            t("Casos de uso y roles", "otro", "alta"),
+            t("Priorizar alcance del MVP", "otro", "alta"),
+        ] },
+        { nombre: "Arquitectura del Sistema", dias: 4, descripcion: "Base de datos y estructura.", tareas: [
+            t("Esquema de base de datos", "dev", "alta"),
+            t("Definir stack y repositorio", "dev", "alta"),
+            t("Generar archivos .md de contexto para desarrollo", "dev", "media"),
+        ] },
+        { nombre: "UX/UI", dias: 6, descripcion: "Flujos de usuario y diseño funcional.", tareas: [
+            t("Wireframes de módulos core", "diseno", "alta"),
+            t("Sistema de componentes", "diseno", "media"),
+            t("Enviar diseño para aprobación en el portal", "otro", "alta"),
+        ] },
+        { nombre: "Autenticación", dias: 3, descripcion: "Login y control de sesión.", tareas: [
+            t("Setup de Auth", "dev", "alta"),
+            t("Protección de rutas y roles", "dev", "alta"),
+        ] },
+        { nombre: "Módulos Core", dias: 12, descripcion: "Funcionalidades principales.", tareas: [
+            t("CRUD principal", "dev", "alta"),
+            t("Integración frontend con la base de datos", "dev", "alta"),
+            t("Validaciones y manejo de errores", "dev", "media"),
+        ] },
+        { nombre: "Testing QA", dias: 4, descripcion: "Validación de lógica y seguridad.", tareas: [
+            t("Pruebas manuales de regresión", "dev", "alta"),
+            t("Validar permisos / RLS", "dev", "alta"),
+        ] },
+        { nombre: "Deploy", dias: 2, descripcion: "Despliegue a producción.", tareas: [
+            t("Variables de entorno y CI/CD", "dev", "alta"),
+            t("Deploy a producción", "dev", "alta"),
+        ] },
+        { nombre: "Documentación", dias: 2, descripcion: "Manuales técnicos o de usuario.", tareas: [
+            t("Manual de uso", "contenido", "media"),
+            t("Cobrar saldo final", "otro", "alta"),
+        ] },
+        { nombre: "Iteración", dias: 5, descripcion: "Soporte y mejoras post-feedback.", tareas: [
+            t("Recolectar feedback de la primera semana", "otro", "media"),
+        ] },
     ],
     saas: [
-        { nombre: "Investigación", descripcion: "Estudio de Target, MVP y Funcionalidades.", tareas: [{ titulo: "Definir core del MVP", categoria: "otro", prioridad: "alta" }, { titulo: "Investigación de competidores SaaS", categoria: "otro", prioridad: "media" }] },
-        { nombre: "Arquitectura del Sistema", descripcion: "DB Multi-tenant o escalable.", tareas: [{ titulo: "Diseño DB Multi-Tenant", categoria: "dev", prioridad: "alta" }, { titulo: "Definir endpoints principales", categoria: "dev", prioridad: "alta" }] },
-        { nombre: "UX/UI", descripcion: "Diseño base de la plataforma y dashboard.", tareas: [{ titulo: "Diseño Sidebar/Navegación Típica SaaS", categoria: "diseno", prioridad: "alta" }, { titulo: "Sistema de Notificaciones", categoria: "diseno", prioridad: "media" }] },
-        { nombre: "Autenticación & Roles", descripcion: "Registro, login y permisos.", tareas: [{ titulo: "Registro de Org/Workspaces", categoria: "dev", prioridad: "alta" }, { titulo: "Invitación de usuarios a workspaces", categoria: "dev", prioridad: "media" }] },
-        { nombre: "Módulos Core", descripcion: "Desarrollo del feature que da valor al SaaS.", tareas: [{ titulo: "Desarrollo principal MVP", categoria: "dev", prioridad: "alta" }, { titulo: "Gestión de estado global (Zustand/Context)", categoria: "dev", prioridad: "media" }] },
-        { nombre: "Facturación/Membresías", descripcion: "Integración de pagos recurrentes (Stripe).", tareas: [{ titulo: "Integración Stripe Checkout", categoria: "dev", prioridad: "alta" }, { titulo: "Webhooks para cancelación/reactivación", categoria: "dev", prioridad: "alta" }] },
-        { nombre: "Testing QA", descripcion: "Pruebas integrales exhaustivas.", tareas: [{ titulo: "Testing ciclo completo de pago", categoria: "dev", prioridad: "alta" }, { titulo: "Pruebas de Límites de Membresía", categoria: "dev", prioridad: "alta" }] },
-        { nombre: "Deploy Producción", descripcion: "Despliegue robusto.", tareas: [{ titulo: "Deploy final a producción", categoria: "dev", prioridad: "alta" }, { titulo: "Configurar logs de errores (Sentry)", categoria: "dev", prioridad: "media" }] },
-        { nombre: "Onboarding", descripcion: "Flujos iniciales de clientes nuevos.", tareas: [{ titulo: "Crear steps iniciales de setup", categoria: "diseno", prioridad: "media" }, { titulo: "Correos transaccionales de bienvenida", categoria: "contenido", prioridad: "media" }] },
-        { nombre: "Iteración Continua", descripcion: "Monitoreo y roadmap.", tareas: [{ titulo: "Lanzar a redes / Product Hunt", categoria: "marketing", prioridad: "media" }] }
+        { nombre: "Investigación", dias: 5, descripcion: "Target, MVP y funcionalidades.", tareas: [
+            t("Definir core del MVP", "otro", "alta"),
+            t("Investigación de competidores", "otro", "media"),
+        ] },
+        { nombre: "Arquitectura del Sistema", dias: 4, descripcion: "DB multi-tenant o escalable.", tareas: [
+            t("Diseño DB multi-tenant", "dev", "alta"),
+            t("Definir endpoints principales", "dev", "alta"),
+        ] },
+        { nombre: "UX/UI", dias: 6, descripcion: "Diseño base de la plataforma.", tareas: [
+            t("Navegación y dashboard", "diseno", "alta"),
+            t("Sistema de notificaciones", "diseno", "media"),
+        ] },
+        { nombre: "Autenticación & Roles", dias: 3, descripcion: "Registro, login y permisos.", tareas: [
+            t("Registro de organizaciones", "dev", "alta"),
+            t("Invitación de usuarios", "dev", "media"),
+        ] },
+        { nombre: "Módulos Core", dias: 12, descripcion: "El feature que da valor.", tareas: [
+            t("Desarrollo principal del MVP", "dev", "alta"),
+            t("Gestión de estado global", "dev", "media"),
+        ] },
+        { nombre: "Facturación/Membresías", dias: 4, descripcion: "Pagos recurrentes.", tareas: [
+            t("Checkout de suscripción", "dev", "alta"),
+            t("Webhooks de cancelación/reactivación", "dev", "alta"),
+        ] },
+        { nombre: "Testing QA", dias: 4, descripcion: "Pruebas integrales.", tareas: [
+            t("Ciclo completo de pago", "dev", "alta"),
+            t("Límites de membresía", "dev", "alta"),
+        ] },
+        { nombre: "Deploy Producción", dias: 2, descripcion: "Despliegue robusto.", tareas: [
+            t("Deploy final", "dev", "alta"),
+            t("Logs de errores (Sentry)", "dev", "media"),
+        ] },
+        { nombre: "Onboarding", dias: 3, descripcion: "Flujos iniciales de clientes nuevos.", tareas: [
+            t("Pasos iniciales de setup", "diseno", "media"),
+            t("Emails de bienvenida", "contenido", "media"),
+        ] },
+        { nombre: "Iteración Continua", dias: 5, descripcion: "Monitoreo y roadmap.", tareas: [
+            t("Lanzamiento en redes / Product Hunt", "marketing", "media"),
+        ] },
     ],
 };
 
@@ -216,6 +396,90 @@ export interface Proyecto {
     // Logo y documentos
     logo_url?: string;
     documentos?: DocumentoProyecto[];
+    // Gestión: plazos, dinero, material compartido y brief
+    fecha_inicio?: string | null;
+    monto_total?: number;
+    cotizacion_id?: string | null;
+    links?: LinkProyecto[];
+    brief?: BriefProyecto | null;
+}
+
+export interface LinkProyecto {
+    id: string;
+    titulo: string;
+    url: string;
+    visible_cliente: boolean;
+}
+
+export type CategoriaArchivo = "cotizacion" | "contrato" | "logo" | "imagen" | "documento" | "otro";
+
+export const CATEGORIA_ARCHIVO_LABELS: Record<CategoriaArchivo, string> = {
+    cotizacion: "Cotización",
+    contrato: "Contrato",
+    logo: "Logo",
+    imagen: "Imagen",
+    documento: "Documento",
+    otro: "Otro",
+};
+
+export interface ArchivoProyecto {
+    id: string;
+    created_at: string;
+    proyecto_id: string;
+    nombre: string;
+    url: string;
+    categoria: CategoriaArchivo;
+    subido_por: "agencia" | "cliente";
+    visible_cliente: boolean;
+    solicitud_id: string | null;
+    mime: string;
+    tamano: number | null;
+}
+
+export type EstadoSolicitud = "pendiente" | "entregada" | "aprobada";
+
+export interface SolicitudProyecto {
+    id: string;
+    created_at: string;
+    proyecto_id: string;
+    titulo: string;
+    descripcion: string;
+    estado: EstadoSolicitud;
+    respuesta_cliente: string;
+    fecha_limite: string | null;
+    entregada_at: string | null;
+}
+
+// --- Brief del proyecto (lo responde el cliente desde el portal) ---
+export type TipoPreguntaBrief = "texto" | "parrafo" | "opcion" | "multiple" | "archivo";
+
+export interface BriefPregunta {
+    id: string;
+    pregunta: string;
+    tipo: TipoPreguntaBrief;
+    ayuda?: string;
+    opciones?: string[];
+    requerida?: boolean;
+    /** texto/parrafo/opcion → string; multiple/archivo → string[] (en archivo, URLs). */
+    respuesta?: string | string[];
+}
+
+export interface BriefSeccion {
+    id: string;
+    titulo: string;
+    descripcion?: string;
+    preguntas: BriefPregunta[];
+}
+
+export type EstadoBrief = "borrador" | "enviado" | "completado";
+
+export interface BriefProyecto {
+    estado: EstadoBrief;
+    intro?: string;
+    secciones: BriefSeccion[];
+    generado_con_ia?: boolean;
+    actualizado_at: string;
+    completado_at?: string | null;
 }
 
 export interface Tarea {
@@ -249,6 +513,8 @@ export interface Tarea {
     archivada?: boolean;
     fecha_completada?: string | null;
     fecha_archivada?: string | null;
+    /** Fase del roadmap del proyecto a la que pertenece. */
+    fase?: string | null;
 }
 
 export interface CotizacionItem {
