@@ -20,7 +20,8 @@ import BriefForm from "./brief-form";
 
 type Tab = "inicio" | "brief" | "archivos" | "ayuda";
 
-const WHATSAPP_AGENCIA = (process.env.NEXT_PUBLIC_AGENCIA_WHATSAPP || "").replace(/\D/g, "");
+// Celular de Galu (+54 381 597-6357). WhatsApp exige el 9 después del 54 en celulares argentinos.
+const WHATSAPP_AGENCIA = "5493815976357";
 const esImagen = (a: { mime?: string; url: string }) => (a.mime || "").startsWith("image/") || /\.(png|jpe?g|webp|gif|svg)(\?|$)/i.test(a.url);
 
 function GaluLogo({ className }: { className?: string }) {
@@ -442,12 +443,10 @@ export default function PortalClient({ slug }: { slug: string }) {
                 {tab === "ayuda" && (
                     <Seccion titulo="¿Necesitás algo?" icono={MessageCircle}>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {WHATSAPP_AGENCIA && (
-                                <a href={`https://wa.me/${WHATSAPP_AGENCIA}?text=${encodeURIComponent(`Hola! Te escribo por el proyecto "${proyecto.nombre}".`)}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-4 p-4 rounded-2xl border border-white/10 bg-white/[0.02] hover:border-emerald-400/40 transition">
-                                    <div className="w-11 h-11 rounded-xl bg-emerald-500/15 flex items-center justify-center"><MessageCircle className="w-5 h-5 text-emerald-400" /></div>
-                                    <div><p className="text-sm font-bold text-foreground">WhatsApp</p><p className="text-xs text-muted-foreground">Escribinos directo</p></div>
-                                </a>
-                            )}
+                            <a href={`https://wa.me/${WHATSAPP_AGENCIA}?text=${encodeURIComponent(`Hola! Te escribo por el proyecto "${proyecto.nombre}".`)}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-4 p-4 rounded-2xl border border-white/10 bg-white/[0.02] hover:border-emerald-400/40 transition">
+                                <div className="w-11 h-11 rounded-xl bg-emerald-500/15 flex items-center justify-center"><MessageCircle className="w-5 h-5 text-emerald-400" /></div>
+                                <div><p className="text-sm font-bold text-foreground">WhatsApp</p><p className="text-xs text-muted-foreground">Escribinos directo</p></div>
+                            </a>
                             {proyecto.calendly_url && (
                                 <a href={proyecto.calendly_url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-4 p-4 rounded-2xl border border-white/10 bg-white/[0.02] hover:border-blue-400/40 transition">
                                     <div className="w-11 h-11 rounded-xl bg-blue-500/15 flex items-center justify-center"><Calendar className="w-5 h-5 text-blue-400" /></div>
