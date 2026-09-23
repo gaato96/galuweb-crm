@@ -196,7 +196,7 @@ export interface Proyecto {
     contrato_url?: string;
     estado: EstadoProyecto;
     descripcion: string;
-    fecha_entrega?: string;
+    fecha_entrega?: string | null;
     es_interno: boolean;
     tipo_propio?: TipoProyectoPropio;
     stack_tecnologico?: string;

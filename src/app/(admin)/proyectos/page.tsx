@@ -109,6 +109,7 @@ function NuevoProyectoModal({
                 tipo_proyecto: form.tipo_proyecto as TipoProyecto,
                 tipo_propio: form.tipo_propio as any,
                 cliente_id: form.cliente_id || null,
+                fecha_entrega: form.fecha_entrega.trim() || null,
                 slug_portal: slug,
                 estado: "activo",
                 fases: defaultFases,
