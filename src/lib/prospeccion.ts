@@ -1216,9 +1216,9 @@ export function diasDesde(fecha: string, hoy: Date = new Date()): number {
  * `en-CA` porque su formato de fecha corto ya es YYYY-MM-DD, que es lo que
  * espera Postgres y lo que compara el resto del código.
  */
-export function hoyISO(): string {
-    return new Date().toLocaleDateString("en-CA");
-}
+// Vive en utils.ts, junto al resto del formateo de fechas. Se re-exporta acá
+// para no tocar los imports de todo el módulo de prospección.
+export { hoyISO } from "./utils";
 
 // ─────────────────────────────────────────────────────────────
 // §6 — Resumen para pasar el prospecto a análisis

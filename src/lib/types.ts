@@ -305,6 +305,25 @@ export interface EspecificacionesWebApp {
     notas_tecnicas: string;
 }
 
+// --- Briefing de Cotización (lo que se relevó del cliente, la entrada de la IA) ---
+export interface BriefingCotizacion {
+    notas_reunion: string;      // Lo que se habló, en crudo
+    situacion_actual: string;   // Cómo resuelve esto hoy y qué le duele
+    requerimientos: string;     // Funcionalidades o módulos que pidió
+    publico: string;            // A quién le vende / quién lo va a usar
+    presupuesto: string;        // Total objetivo en USD, o el rango que manejamos
+    forma_pago: string;         // Un pago, dos, tres cuotas…
+    plazo: string;              // Urgencia o fecha que necesita
+    condiciones: string;        // Descuentos, referidos, mantenimiento, lo que quede fuera
+}
+
+/** Un tramo del plan de pago, que el PDF dibuja como tarjeta. */
+export interface PlanPagoItem {
+    cuando: string;   // "Pago 1 · Al aceptar"
+    monto: number;
+    detalle: string;  // "Arranque del proyecto"
+}
+
 // --- Secciones del PDF de Cotización (texto libre por sección) ---
 export interface SeccionesPDF {
     descripcion: string;         // 01. Descripción del proyecto / sistema
@@ -534,6 +553,10 @@ export interface Cotizacion {
     tipo_cotizacion?: TipoCotizacion;
     especificaciones_webapp?: EspecificacionesWebApp | null;
     secciones_pdf?: SeccionesPDF | null;
+    briefing?: BriefingCotizacion | null;
+    plan_pago?: PlanPagoItem[] | null;
+    fecha_emision?: string | null;   // ISO (YYYY-MM-DD). Si falta, el PDF usa created_at.
+    validez_dias?: number | null;
     cliente?: Cliente;
 }
 

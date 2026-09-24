@@ -6,7 +6,7 @@
  */
 
 import React from "react";
-import type { Cotizacion, Cliente, SeccionesPDF, CotizacionItem } from "@/lib/types";
+import type { Cotizacion, Cliente, SeccionesPDF, CotizacionItem, PlanPagoItem } from "@/lib/types";
 
 interface Props {
     cotizacion: Cotizacion;
@@ -51,6 +51,17 @@ function Section({ num, title, children }: { num: string; title: string; childre
     );
 }
 
+function DatoCabecera({ etiqueta, valor }: { etiqueta: string; valor: string }) {
+    return (
+        <p style={{ margin: "0 0 6px", fontSize: 12, color: "#9CA3AF" }}>
+            <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: 0.9, textTransform: "uppercase" as const, color: ACCENT, marginRight: 6 }}>
+                {etiqueta}
+            </span>
+            {valor}
+        </p>
+    );
+}
+
 function InvestmentTable({ items, total }: { items: CotizacionItem[]; total: number }) {
     return (
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13, marginTop: 8 }}>
@@ -65,26 +76,62 @@ function InvestmentTable({ items, total }: { items: CotizacionItem[]; total: num
                 </tr>
             </thead>
             <tbody>
-                {items.map((item, i) => (
-                    <tr key={i} style={{ background: i % 2 === 0 ? WHITE : BG_LIGHT }}>
-                        <td style={{ padding: "12px 16px", color: TEXT, borderBottom: `1px solid ${BORDER}` }}>
-                            {item.descripcion}
-                        </td>
-                        <td style={{ padding: "12px 16px", color: TEXT, fontWeight: 600, textAlign: "right", borderBottom: `1px solid ${BORDER}`, whiteSpace: "nowrap" }}>
-                            {formatUSD(item.precio)}
-                        </td>
-                    </tr>
-                ))}
+                {items.map((item, i) => {
+                    // Un ítem negativo es un descuento: se muestra apagado para que
+                    // el precio de lista de arriba siga leyéndose como el valor real.
+                    const esDescuento = item.precio < 0;
+                    return (
+                        <tr key={i} style={{ background: i % 2 === 0 ? WHITE : BG_LIGHT }}>
+                            <td style={{ padding: "12px 16px", color: esDescuento ? TEXT_MUTED : TEXT, fontStyle: esDescuento ? "italic" : "normal", borderBottom: `1px solid ${BORDER}` }}>
+                                {item.descripcion}
+                            </td>
+                            <td style={{ padding: "12px 16px", color: esDescuento ? TEXT_MUTED : TEXT, fontStyle: esDescuento ? "italic" : "normal", fontWeight: 600, textAlign: "right", borderBottom: `1px solid ${BORDER}`, whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
+                                {formatUSD(item.precio)}
+                            </td>
+                        </tr>
+                    );
+                })}
                 <tr>
                     <td style={{ padding: "16px", color: BG_DARK, fontWeight: 700, fontSize: 14 }}>
                         TOTAL INVERSIÓN
                     </td>
-                    <td style={{ padding: "16px", color: BG_DARK, fontWeight: 800, fontSize: 18, textAlign: "right", whiteSpace: "nowrap" }}>
+                    <td style={{ padding: "16px", color: BG_DARK, fontWeight: 800, fontSize: 18, textAlign: "right", whiteSpace: "nowrap", fontVariantNumeric: "tabular-nums" }}>
                         {formatUSD(total)}
                     </td>
                 </tr>
             </tbody>
         </table>
+    );
+}
+
+/**
+ * Plan de pago: los tramos como tarjetas, arriba del texto de Términos.
+ * Es el único lugar del documento donde el ojo frena, y es justo donde el
+ * cliente decide, así que va en datos y no enterrado en un párrafo.
+ */
+function PlanPago({ tramos }: { tramos: PlanPagoItem[] }) {
+    if (tramos.length === 0) return null;
+    return (
+        <div style={{ display: "flex", gap: 12, margin: "4px 0 20px", pageBreakInside: "avoid" }} className="avoid-break">
+            {tramos.map((t, i) => (
+                <div key={i} style={{
+                    flex: 1,
+                    background: BG_LIGHT,
+                    border: `1px solid ${BORDER}`,
+                    borderTop: `3px solid ${ACCENT}`,
+                    borderRadius: "0 0 6px 6px",
+                    padding: "14px 16px",
+                }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.8, textTransform: "uppercase" as const, color: TEXT_MUTED }}>
+                        {t.cuando}
+                    </div>
+                    <div style={{ fontSize: 20, fontWeight: 800, color: BG_DARK, margin: "4px 0 2px", fontVariantNumeric: "tabular-nums" }}>
+                        {formatUSD(t.monto)}
+                    </div>
+                    <div style={{ fontSize: 11, lineHeight: 1.45, color: TEXT_MUTED }}>{t.detalle}</div>
+                </div>
+            ))}
+        </div>
     );
 }
 
@@ -119,7 +166,13 @@ function TextBody({ text }: { text: string }) {
 export const CotizacionPDFTemplate = React.forwardRef<HTMLDivElement, Props>(
     function CotizacionPDFTemplate({ cotizacion, cliente, secciones }, ref) {
         const isWebApp = cotizacion.tipo_cotizacion === "webapp";
-        const fecha = new Date().toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" });
+        // La fecha impresa es la que se eligió al cotizar; si no hay, la de creación.
+        const fechaBase = cotizacion.fecha_emision
+            ? new Date(`${cotizacion.fecha_emision}T12:00:00`)
+            : new Date(cotizacion.created_at || Date.now());
+        const fecha = fechaBase.toLocaleDateString("es-AR", { day: "2-digit", month: "long", year: "numeric" });
+        const validez = cotizacion.validez_dias ?? 15;
+        const planPago = cotizacion.plan_pago || [];
 
         const SECTIONS = isWebApp
             ? [
@@ -174,7 +227,7 @@ export const CotizacionPDFTemplate = React.forwardRef<HTMLDivElement, Props>(
                     color: WHITE,
                     pageBreakInside: "avoid"
                 }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 32 }}>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 32, flex: "1 1 320px", minWidth: 0 }}>
                         {/* Logo (White for dark backgrounds) */}
                         <img
                             src="/icon-512x512.png"
@@ -192,14 +245,13 @@ export const CotizacionPDFTemplate = React.forwardRef<HTMLDivElement, Props>(
                         </div>
                     </div>
 
-                    <div style={{ textAlign: "right" as const, alignSelf: "flex-end" }}>
-                        {cliente.tel && (
-                            <p style={{ margin: "0 0 6px", fontSize: 12, color: "#9CA3AF" }}>📱 {cliente.tel}</p>
-                        )}
-                        {cliente.email && (
-                            <p style={{ margin: "0 0 6px", fontSize: 12, color: "#9CA3AF" }}>✉ {cliente.email}</p>
-                        )}
-                        <p style={{ margin: 0, fontSize: 12, color: "#9CA3AF" }}>📅 Emisión: {fecha}</p>
+                    {/* Etiquetas y no emoji: al imprimir a PDF los emoji salen como
+                        manchas grises, porque el render no tiene fuente de color. */}
+                    <div style={{ textAlign: "right" as const, alignSelf: "flex-end", flex: "0 0 auto", whiteSpace: "nowrap" }}>
+                        {cliente.tel && <DatoCabecera etiqueta="Tel" valor={cliente.tel} />}
+                        {cliente.email && <DatoCabecera etiqueta="Email" valor={cliente.email} />}
+                        <DatoCabecera etiqueta="Emisión" valor={fecha} />
+                        <DatoCabecera etiqueta="Validez" valor={`${validez} días`} />
                     </div>
                 </div>
 
@@ -215,9 +267,11 @@ export const CotizacionPDFTemplate = React.forwardRef<HTMLDivElement, Props>(
                             );
                         }
                         const text = secciones[key as keyof SeccionesPDF] || "";
-                        if (!text && key !== "conclusion" && key !== "arquitectura") return null; // hide if empty
+                        const conPlan = key === "terminos" && planPago.length > 0;
+                        if (!text && !conPlan && key !== "conclusion" && key !== "arquitectura") return null; // hide if empty
                         return (
                             <Section key={key} num={num} title={title}>
+                                {conPlan && <PlanPago tramos={planPago} />}
                                 <TextBody text={text} />
                             </Section>
                         );

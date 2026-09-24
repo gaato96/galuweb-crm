@@ -4,15 +4,19 @@ import { useEffect, useState, Suspense, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import {
     Plus, Trash2, X, FileText, Sparkles, Upload, Link as LinkIcon,
-    Code2, Globe, Download, ChevronDown, ChevronUp, AlignLeft, Archive
+    Code2, Globe, Download, ChevronDown, ChevronUp, AlignLeft, Archive, Pencil
 } from "lucide-react";
-import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { cn, formatCurrency, formatDate, hoyISO } from "@/lib/utils";
 import { cotizacionesStore, clientesStore, storageStore } from "@/lib/store";
 import { CotizacionPDFTemplate } from "@/components/cotizacion-pdf-template";
 import type {
     Cotizacion, CotizacionItem, EstadoCotizacion, Cliente,
-    EspecificacionesWebApp, TipoCotizacion, SeccionesPDF
+    EspecificacionesWebApp, TipoCotizacion, SeccionesPDF,
+    BriefingCotizacion, PlanPagoItem
 } from "@/lib/types";
+import {
+    CAMPOS_BRIEFING, briefingVacio, faltantesDelBriefing, totalDeItems,
+} from "@/lib/cotizacion-ia";
 import { toast } from "sonner";
 import ReactDOM from "react-dom/client";
 
@@ -163,13 +167,14 @@ async function generatePDF(
 
 // ── Secciones Form ─────────────────────────────────────────────────────────────
 function SeccionesForm({
-    tipo, secciones, onChange,
+    tipo, secciones, onChange, abiertoPorDefecto = false,
 }: {
     tipo: TipoCotizacion;
     secciones: SeccionesPDF;
     onChange: (s: SeccionesPDF) => void;
+    abiertoPorDefecto?: boolean;
 }) {
-    const [open, setOpen] = useState(false);
+    const [open, setOpen] = useState(abiertoPorDefecto);
 
     const FIELDS_WEB = [
         { key: "descripcion", label: "01. Descripción del Proyecto" },
@@ -270,12 +275,7 @@ function CotizacionesContent() {
     const [clientes, setClientes] = useState<Cliente[]>([]);
     const [mounted, setMounted] = useState(false);
     const [showNew, setShowNew] = useState(false);
-    const [showAI, setShowAI] = useState(false);
-    const [promptView, setPromptView] = useState<Cotizacion | null>(null);
     const [filterEstado, setFilterEstado] = useState<string>("todas");
-    const [transcript, setTranscript] = useState("");
-    const [aiClienteId, setAiClienteId] = useState("");
-    const [generatedPrompt, setGeneratedPrompt] = useState("");
 
     // Form state
     const [tipoCotizacion, setTipoCotizacion] = useState<TipoCotizacion>("web");
@@ -287,6 +287,15 @@ function CotizacionesContent() {
     const [webappSpecs, setWebappSpecs] = useState<EspecificacionesWebApp>(DEFAULT_WEBAPP_SPECS);
     const [moduloInput, setModuloInput] = useState("");
     const [secciones, setSecciones] = useState<SeccionesPDF>(SECCIONES_WEB_DEFAULT);
+    // Cotización con IA
+    const [briefing, setBriefing] = useState<BriefingCotizacion>(briefingVacio());
+    const [planPago, setPlanPago] = useState<PlanPagoItem[]>([]);
+    const [fechaEmision, setFechaEmision] = useState(hoyISO());
+    const [validezDias, setValidezDias] = useState(15);
+    const [generando, setGenerando] = useState(false);
+    const [resumenInterno, setResumenInterno] = useState("");
+    const [generado, setGenerado] = useState(false);
+    const [editId, setEditId] = useState<string | null>(null);
 
     const reload = async () => {
         try {
@@ -307,12 +316,21 @@ function CotizacionesContent() {
         else updated[i][field] = value as string;
         setItems(updated);
     };
-    const total = items.reduce((sum, item) => sum + item.precio, 0);
+    const total = totalDeItems(items);
 
     const handleTipoChange = (t: TipoCotizacion) => {
         setTipoCotizacion(t);
         setSecciones(t === "webapp" ? SECCIONES_WEBAPP_DEFAULT : SECCIONES_WEB_DEFAULT);
     };
+
+    const addTramo = () => setPlanPago([...planPago, { cuando: "", monto: 0, detalle: "" }]);
+    const removeTramo = (i: number) => setPlanPago(planPago.filter((_, idx) => idx !== i));
+    const updateTramo = (i: number, campo: keyof PlanPagoItem, valor: string) => {
+        const copia = [...planPago];
+        copia[i] = { ...copia[i], [campo]: campo === "monto" ? Number(valor) : valor };
+        setPlanPago(copia);
+    };
+    const totalPlan = planPago.reduce((s, t) => s + (Number(t.monto) || 0), 0);
 
     const addModulo = () => {
         const m = moduloInput.trim();
@@ -350,23 +368,52 @@ function CotizacionesContent() {
             toast.error("Detallá al menos un ítem del servicio o adjuntá el PDF de la cotización");
             return;
         }
+        const datos = {
+            cliente_id: clienteId,
+            total,
+            items: itemsValidos,
+            pdf_url: pdfUrl,
+            notas,
+            tipo_cotizacion: tipoCotizacion,
+            especificaciones_webapp: tipoCotizacion === "webapp" ? webappSpecs : null,
+            secciones_pdf: secciones,
+            briefing,
+            plan_pago: planPago.filter((t) => t.cuando.trim()),
+            fecha_emision: fechaEmision,
+            validez_dias: validezDias,
+        };
         try {
-            await cotizacionesStore.create({
-                cliente_id: clienteId,
-                total,
-                items: itemsValidos,
-                estado: "borrador",
-                pdf_url: pdfUrl,
-                notas,
-                tipo_cotizacion: tipoCotizacion,
-                especificaciones_webapp: tipoCotizacion === "webapp" ? webappSpecs : null,
-                secciones_pdf: secciones,
-            });
+            if (editId) {
+                await cotizacionesStore.update(editId, datos);
+            } else {
+                await cotizacionesStore.create({ ...datos, estado: "borrador" });
+            }
             setShowNew(false);
             resetForm();
             await reload();
-            toast.success("Cotización creada");
+            toast.success(editId ? "Cotización actualizada" : "Cotización creada");
         } catch { toast.error("Error al guardar cotización"); }
+    };
+
+    /** Carga una cotización existente en el formulario para editarla. */
+    const editarCotizacion = (q: Cotizacion) => {
+        const tipo = (q.tipo_cotizacion || "web") as TipoCotizacion;
+        setEditId(q.id);
+        setTipoCotizacion(tipo);
+        setClienteId(q.cliente_id);
+        setItems(q.items.length ? q.items : [{ descripcion: "", precio: 0 }]);
+        setNotas(q.notas || "");
+        setPdfUrl(q.pdf_url || "");
+        setWebappSpecs(q.especificaciones_webapp || DEFAULT_WEBAPP_SPECS);
+        setSecciones(q.secciones_pdf || (tipo === "webapp" ? SECCIONES_WEBAPP_DEFAULT : SECCIONES_WEB_DEFAULT));
+        setBriefing(q.briefing || briefingVacio());
+        setPlanPago(q.plan_pago || []);
+        setFechaEmision(q.fecha_emision || q.created_at.slice(0, 10));
+        setValidezDias(q.validez_dias ?? 15);
+        setResumenInterno("");
+        setGenerado(Boolean(q.secciones_pdf));
+        setShowNew(true);
+        window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
     const resetForm = () => {
@@ -378,48 +425,59 @@ function CotizacionesContent() {
         setWebappSpecs(DEFAULT_WEBAPP_SPECS);
         setModuloInput("");
         setSecciones(SECCIONES_WEB_DEFAULT);
+        setBriefing(briefingVacio());
+        setPlanPago([]);
+        setFechaEmision(hoyISO());
+        setValidezDias(15);
+        setResumenInterno("");
+        setGenerado(false);
+        setEditId(null);
     };
 
-    const handleAIGenerate = async () => {
-        if (!aiClienteId) { toast.error("Selecciona un cliente"); return; }
-        if (!transcript.trim()) { toast.error("Pega una transcripción o notas"); return; }
+    /**
+     * Manda el relevamiento a la IA y vuelca lo que devuelve en el formulario.
+     * Todo queda editable: esto es un borrador con ventaja, no una entrega.
+     */
+    const handleGenerar = async () => {
+        if (!clienteId) { toast.error("Elegí el cliente antes de generar"); return; }
+        const faltan = faltantesDelBriefing(briefing);
+        if (faltan.length > 0) {
+            toast.error(`Falta completar: ${faltan.join(", ")}`);
+            return;
+        }
+        const c = clientes.find((x) => x.id === clienteId);
 
-        const c = clientes.find(x => x.id === aiClienteId);
-        if (!c) return;
+        setGenerando(true);
+        toast.loading("Redactando la cotización…", { id: "gen" });
+        try {
+            const res = await fetch("/api/gemini/generar-cotizacion", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    briefing,
+                    tipo: tipoCotizacion,
+                    cliente: c?.nombre,
+                    negocio: c?.negocio,
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "No se pudo generar la cotización");
 
-        const isWebApp = tipoCotizacion === "webapp";
-
-        const basePrompt = isWebApp
-            ? `Actúa como un experto en ventas de software B2B. Redacta una propuesta técnico-comercial para un Software a Medida / Web App.`
-            : `Actúa como un experto en ventas para una agencia de diseño web. Redacta una propuesta de servicios (Cotización de Página Web).`;
-
-        const p = `${basePrompt}
-
---- INFORMACIÓN DEL CLIENTE ---
-Nombre: ${c.nombre}
-Negocio: ${c.negocio}
-Notas del cliente: ${c.notas_seguimiento?.map(n => n.texto).join(" | ") || "Ninguna."}
-
---- REQUERIMIENTOS SOLICITADOS ---
-${transcript}
-
---- INSTRUCCIONES ---
-1. Propone una lista de ÍTEMS de servicio/desarrollo y sugiere un PRECIO EN USD realista y justificado para cada uno.
-2. Basándote en esos ítems, estructurá la propuesta en las siguientes secciones para pegar en el PDF:
-
-${isWebApp ? `01. Descripción del Sistema (Problema del negocio y valor).
-02. Módulos y Funcionalidades (Detalle).
-03. Arquitectura y Tecnología.
-04. Plan de Desarrollo (Fases).
-05. Términos y Modelo de Pago.
-06. Próximos Pasos.` : `01. Descripción del Proyecto (Resumen ejecutivo del problema y la solución).
-02. Alcance y Funcionalidades.
-03. Cronograma de Trabajo.
-04. Términos y Modalidad de Pago.
-05. Conclusión (Cierre persuasivo).
-06. Próximos Pasos.`}`;
-
-        setGeneratedPrompt(p);
+            const g = data.cotizacion as {
+                items: CotizacionItem[]; plan_pago: PlanPagoItem[];
+                secciones: SeccionesPDF; resumen_interno: string;
+            };
+            setItems(g.items.length ? g.items : [{ descripcion: "", precio: 0 }]);
+            setPlanPago(g.plan_pago || []);
+            setSecciones({ ...(tipoCotizacion === "webapp" ? SECCIONES_WEBAPP_DEFAULT : SECCIONES_WEB_DEFAULT), ...g.secciones });
+            setResumenInterno(g.resumen_interno || "");
+            setGenerado(true);
+            toast.success("Cotización redactada. Revisala antes de mandarla.", { id: "gen" });
+        } catch (e) {
+            toast.error((e as Error).message, { id: "gen", duration: 8000 });
+        } finally {
+            setGenerando(false);
+        }
     };
 
     const updateEstado = async (id: string, estado: EstadoCotizacion) => {
@@ -443,104 +501,6 @@ ${isWebApp ? `01. Descripción del Sistema (Problema del negocio y valor).
         return <div className="space-y-3 animate-pulse">{[...Array(3)].map((_, i) => <div key={i} className="h-24 rounded-xl skeleton" />)}</div>;
     }
 
-    // ── Prompt View ───────────────────────────────────────────────────────────
-    if (promptView) {
-        const c = clientes.find((cliente) => cliente.id === promptView.cliente_id);
-        if (!c) return null;
-
-        const notasCliente = c.notas_seguimiento?.map(n => n.texto).join("\n") || "Sin notas previas.";
-        const info = c.info_investigacion
-            ? `Qué hace: ${c.info_investigacion.que_hace}\nPuntos débiles: ${c.info_investigacion.puntos_debiles}\nSoluciones: ${c.info_investigacion.soluciones}`
-            : "Sin información de investigación.";
-        const itemsText = promptView.items.map(i => `- ${i.descripcion}: ${formatCurrency(i.precio)}`).join("\n");
-        const isWebApp = promptView.tipo_cotizacion === "webapp";
-        const specs = promptView.especificaciones_webapp;
-
-        const webPrompt = `Actúa como un experto en redacción persuasiva y ventas para una agencia de diseño web.
-Redacta el copywriting completo para una propuesta de servicios (Cotización de Página Web) basándote en la siguiente información.
-
---- INFORMACIÓN DEL CLIENTE ---
-Nombre: ${c.nombre}
-Negocio: ${c.negocio}
-Notas de reuniones:
-${notasCliente}
-
-Información de investigación:
-${info}
-
-Notas de esta cotización:
-${promptView.notas || 'Ninguna'}
-
---- COTIZACIÓN ---
-Ítems del servicio:
-${itemsText}
-Total: ${formatCurrency(promptView.total)}
-
---- ESTRUCTURA REQUERIDA ---
-Estructura la propuesta en 6 secciones con tono persuasivo, profesional y claro para pegar en Figma:
-
-01. Descripción del Proyecto (Resumen ejecutivo del problema y la solución).
-02. Alcance y Funcionalidades (Descripción detallada de los ítems y su impacto).
-03. Cronograma de Trabajo (Estimación de tiempos lógicos).
-04. Términos y Modalidad de Pago.
-05. Conclusión (Cierre persuasivo y llamado a la confianza).
-06. Próximos Pasos (CTA claro).`;
-
-        const webAppPrompt = `Actúa como un experto en ventas de software B2B y consultoría tecnológica.
-Redacta una propuesta técnico-comercial completa para un desarrollo de Software a Medida / Web App.
-
---- INFORMACIÓN DEL CLIENTE ---
-Nombre: ${c.nombre}
-Negocio: ${c.negocio}
-Notas de reuniones:
-${notasCliente}
-
---- ESPECIFICACIONES DEL SISTEMA ---
-Módulos requeridos: ${specs?.modulos?.join(", ") || "Por definir"}
-Cantidad de usuarios: ${specs?.cantidad_usuarios || "Por definir"}
-Roles y permisos: ${specs?.roles || "Por definir"}
-Integraciones: ${specs?.integraciones || "Ninguna especificada"}
-Plataforma objetivo: ${specs?.plataforma || "Web"}
-Modelo de negocio: ${specs?.modelo_negocio || "Por definir"}
-Notas técnicas adicionales: ${specs?.notas_tecnicas || "Ninguna"}
-
---- COTIZACIÓN ---
-Ítems del desarrollo:
-${itemsText}
-Total de inversión: ${formatCurrency(promptView.total)}
-
---- ESTRUCTURA REQUERIDA ---
-Estructura la propuesta técnico-comercial en las siguientes secciones:
-
-01. Descripción del Sistema (Problema del negocio y valor de la solución tecnológica).
-02. Módulos y Funcionalidades (Detalle de cada módulo cotizado y su alcance).
-03. Plan de Desarrollo (Fases y cronograma estimado).
-04. Términos y Modelo de Pago (Hitos, entregables, soporte post-entrega).
-05. Próximos Pasos (CTA claro).`;
-
-        const promptText = isWebApp ? webAppPrompt : webPrompt;
-
-        return (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-                <div className="w-full max-w-3xl flex flex-col max-h-[90vh] rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in">
-                    <div className="flex items-center justify-between mb-3">
-                        <h3 className="text-xl font-bold text-foreground flex items-center gap-2">
-                            {isWebApp ? <><Code2 className="w-5 h-5 text-violet-400" /> Prompt — Web App</> : <><Sparkles className="w-5 h-5 text-violet-400" /> Prompt — Página Web</>}
-                        </h3>
-                        <button onClick={() => setPromptView(null)} className="p-1 rounded-lg hover:bg-secondary"><X className="w-5 h-5 text-muted-foreground" /></button>
-                    </div>
-                    <textarea readOnly className="flex-1 w-full p-4 rounded-xl bg-secondary/50 border border-primary/20 text-sm font-mono text-foreground" value={promptText} />
-                    <div className="flex justify-end gap-3 mt-4">
-                        <button onClick={() => setPromptView(null)} className="px-5 py-2.5 bg-secondary text-foreground text-sm font-medium rounded-xl">Cerrar</button>
-                        <button onClick={() => { navigator.clipboard.writeText(promptText); toast.success("Prompt copiado"); }} className="px-5 py-2.5 bg-violet-600 text-white font-bold text-sm rounded-xl hover:bg-violet-500">
-                            Copiar Prompt
-                        </button>
-                    </div>
-                </div>
-            </div>
-        );
-    }
-
     // ── Main View ───────────────────────────────────────────────────────────
     return (
         <div className="space-y-5 animate-fade-in">
@@ -549,65 +509,16 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                     <h2 className="text-2xl font-bold text-foreground">Cotizaciones</h2>
                     <p className="text-sm text-muted-foreground">{cotizaciones.length} cotizaciones</p>
                 </div>
-                <div className="flex gap-2">
-                    <button onClick={() => setShowAI(true)} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground hover:border-primary/30">
-                        <Sparkles className="w-4 h-4 text-amber-400" /> Generar con IA
-                    </button>
-                    <button onClick={() => { resetForm(); setShowNew(true); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90">
-                        <Plus className="w-4 h-4" /> Nueva
-                    </button>
-                </div>
+                <button onClick={() => { resetForm(); setShowNew(true); }} className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90">
+                    <Plus className="w-4 h-4" /> Nueva cotización
+                </button>
             </div>
-
-            {/* AI Modal */}
-            {showAI && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-                    <div className="w-full max-w-lg rounded-2xl border border-border bg-card p-6 shadow-2xl animate-fade-in space-y-4">
-                        <div className="flex items-center justify-between">
-                            <h3 className="text-lg font-bold text-foreground flex items-center gap-2"><Sparkles className="w-5 h-5 text-amber-400" /> Generar con IA</h3>
-                            <button onClick={() => setShowAI(false)} className="p-1 rounded-lg hover:bg-secondary"><X className="w-5 h-5 text-muted-foreground" /></button>
-                        </div>
-                        <div className="grid grid-cols-2 gap-2">
-                            <button onClick={() => setTipoCotizacion("web")} className={cn("flex items-center justify-center gap-2 p-3 rounded-xl border text-sm font-medium", tipoCotizacion === "web" ? "border-primary bg-primary/10 text-primary" : "border-border bg-secondary text-muted-foreground")}>
-                                <Globe className="w-4 h-4" /> Página Web
-                            </button>
-                            <button onClick={() => setTipoCotizacion("webapp")} className={cn("flex items-center justify-center gap-2 p-3 rounded-xl border text-sm font-medium", tipoCotizacion === "webapp" ? "border-violet-500 bg-violet-500/10 text-violet-400" : "border-border bg-secondary text-muted-foreground")}>
-                                <Code2 className="w-4 h-4" /> Web App
-                            </button>
-                        </div>
-                        <select value={aiClienteId} onChange={(e) => setAiClienteId(e.target.value)} className="w-full h-10 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none">
-                            <option value="">Seleccionar cliente...</option>
-                            {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre} — {c.negocio}</option>)}
-                        </select>
-                        <textarea value={transcript} onChange={(e) => setTranscript(e.target.value)} rows={4} placeholder="Notas de la reunión o requerimientos del cliente..." className="w-full px-3 py-2 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none resize-none" />
-
-                        {generatedPrompt ? (
-                            <div className="space-y-3 pt-3 border-t border-border">
-                                <label className="text-xs font-semibold text-primary">Prompt Generado</label>
-                                <textarea readOnly value={generatedPrompt} className="w-full h-48 px-3 py-2 rounded-lg bg-secondary border border-border text-xs font-mono text-foreground focus:outline-none resize-none" />
-                                <div className="flex justify-end gap-2">
-                                    <button onClick={() => { navigator.clipboard.writeText(generatedPrompt); toast.success("Prompt copiado"); }} className="px-4 py-2 rounded-lg text-sm bg-violet-600 text-white font-bold hover:bg-violet-500 flex items-center gap-2">
-                                        Copiar Prompt
-                                    </button>
-                                </div>
-                            </div>
-                        ) : (
-                            <div className="flex justify-end gap-2">
-                                <button onClick={() => setShowAI(false)} className="px-4 py-2 rounded-lg text-sm text-muted-foreground hover:bg-secondary">Cancelar</button>
-                                <button onClick={handleAIGenerate} className="px-4 py-2 rounded-lg text-sm bg-primary text-primary-foreground font-medium flex items-center gap-2">
-                                    <Sparkles className="w-4 h-4" /> Armar Prompt Cotización
-                                </button>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            )}
 
             {/* New Quote Form */}
             {showNew && (
                 <div className="rounded-xl border border-primary/30 bg-card p-5 space-y-5 animate-fade-in">
                     <div className="flex items-center justify-between">
-                        <h3 className="text-base font-semibold text-foreground">Nueva Cotización</h3>
+                        <h3 className="text-base font-semibold text-foreground">{editId ? "Editar cotización" : "Nueva cotización"}</h3>
                         <button onClick={() => { setShowNew(false); resetForm(); }} className="p-1 rounded-lg hover:bg-secondary"><X className="w-4 h-4 text-muted-foreground" /></button>
                     </div>
 
@@ -625,6 +536,69 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                         <option value="">Seleccionar cliente...</option>
                         {clientes.map((c) => <option key={c.id} value={c.id}>{c.nombre} — {c.negocio}</option>)}
                     </select>
+
+                    {/* Fecha y validez: salen impresas en el PDF */}
+                    <div className="grid grid-cols-2 gap-3">
+                        <div>
+                            <label className="text-xs font-medium text-muted-foreground">Fecha de emisión</label>
+                            <input type="date" value={fechaEmision} onChange={(e) => setFechaEmision(e.target.value)} className="w-full mt-1 h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                        </div>
+                        <div>
+                            <label className="text-xs font-medium text-muted-foreground">Validez (días)</label>
+                            <input type="number" min={1} value={validezDias} onChange={(e) => setValidezDias(Number(e.target.value) || 15)} className="w-full mt-1 h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                        </div>
+                    </div>
+
+                    {/* Relevamiento: lo que sabés del proyecto. De acá sale todo lo demás. */}
+                    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 space-y-3">
+                        <div>
+                            <h4 className="text-sm font-semibold text-amber-400 flex items-center gap-2">
+                                <Sparkles className="w-4 h-4" /> Relevamiento del proyecto
+                            </h4>
+                            <p className="text-[11px] text-muted-foreground mt-1">
+                                Contá lo que sabés, como lo tengas. Con esto la IA escribe la cotización entera y después la editás.
+                            </p>
+                        </div>
+
+                        {CAMPOS_BRIEFING.map((campo) => (
+                            <div key={campo.key} className="space-y-1">
+                                <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                                    {campo.label}
+                                    {campo.clave && <span className="text-[9px] font-bold uppercase tracking-wide text-amber-400">obligatorio</span>}
+                                </label>
+                                <textarea
+                                    value={briefing[campo.key]}
+                                    onChange={(e) => setBriefing({ ...briefing, [campo.key]: e.target.value })}
+                                    rows={campo.filas}
+                                    placeholder={campo.placeholder}
+                                    className="w-full px-3 py-2 rounded-lg bg-background border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-amber-500/40 resize-y"
+                                />
+                            </div>
+                        ))}
+
+                        <button
+                            onClick={handleGenerar}
+                            disabled={generando}
+                            className="w-full flex items-center justify-center gap-2 h-10 rounded-lg bg-amber-500 text-black text-sm font-bold hover:bg-amber-400 disabled:opacity-50 transition-colors"
+                        >
+                            {generando
+                                ? <><span className="w-4 h-4 border-2 border-black/30 border-t-black rounded-full animate-spin" /> Redactando…</>
+                                : <><Sparkles className="w-4 h-4" /> {generado ? "Volver a generar" : "Generar cotización con IA"}</>}
+                        </button>
+                        {generado && (
+                            <p className="text-[11px] text-muted-foreground text-center">
+                                Volver a generar reemplaza los ítems y los textos. Lo que edites a mano se pierde.
+                            </p>
+                        )}
+                    </div>
+
+                    {/* Lo que la IA anotó para vos, no para el cliente */}
+                    {resumenInterno && (
+                        <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-3">
+                            <p className="text-[10px] font-bold uppercase tracking-wide text-sky-400 mb-1">Nota interna</p>
+                            <p className="text-xs text-muted-foreground leading-relaxed">{resumenInterno}</p>
+                        </div>
+                    )}
 
                     {/* WebApp Specs */}
                     {tipoCotizacion === "webapp" && (
@@ -701,26 +675,31 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                         <span className="text-lg font-bold text-primary">{formatCurrency(total)}</span>
                     </div>
 
-                    <div className="flex items-center justify-between mt-2 pt-2 border-t border-border/50">
-                        <label className="text-xs font-semibold text-muted-foreground uppercase flex items-center gap-2">
-                            <Sparkles className="w-3.5 h-3.5 text-violet-400" />
-                            Redacción Inteligente
-                        </label>
-                        <button type="button" onClick={() => {
-                            if (!clienteId) { toast.error("Selecciona un cliente"); return; }
-                            setPromptView({
-                                id: "draft", created_at: new Date().toISOString(), cliente_id: clienteId,
-                                total, items, estado: "borrador", pdf_url: "", notas, tipo_cotizacion: tipoCotizacion,
-                                especificaciones_webapp: tipoCotizacion === "webapp" ? webappSpecs : null,
-                                secciones_pdf: secciones
-                            });
-                        }} className="px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-medium hover:bg-violet-500/20">
-                            Armar Prompt de esta cotización
-                        </button>
+                    {/* Plan de pago: el PDF lo dibuja como tarjetas en Términos */}
+                    <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-muted-foreground uppercase">Plan de pago</label>
+                            {planPago.length > 0 && (
+                                <span className={cn("text-[11px] font-medium", totalPlan === total ? "text-emerald-400" : "text-amber-400")}>
+                                    {totalPlan === total
+                                        ? "Suma el total"
+                                        : `Los tramos suman ${formatCurrency(totalPlan)} y el total es ${formatCurrency(total)}`}
+                                </span>
+                            )}
+                        </div>
+                        {planPago.map((tramo, i) => (
+                            <div key={i} className="grid grid-cols-[1fr_110px_1fr_40px] gap-2">
+                                <input value={tramo.cuando} onChange={(e) => updateTramo(i, "cuando", e.target.value)} placeholder="Pago 1 · Al aceptar" className="h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                                <input type="number" value={tramo.monto || ""} onChange={(e) => updateTramo(i, "monto", e.target.value)} placeholder="0" className="h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                                <input value={tramo.detalle} onChange={(e) => updateTramo(i, "detalle", e.target.value)} placeholder="Arranque del proyecto" className="h-9 px-3 rounded-lg bg-secondary border border-border text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary/50" />
+                                <button onClick={() => removeTramo(i)} className="h-9 flex items-center justify-center rounded-lg hover:bg-destructive/20"><Trash2 className="w-3.5 h-3.5 text-destructive" /></button>
+                            </div>
+                        ))}
+                        <button onClick={addTramo} className="text-xs text-primary hover:underline">+ Agregar tramo de pago</button>
                     </div>
 
                     {/* Secciones PDF */}
-                    <SeccionesForm tipo={tipoCotizacion} secciones={secciones} onChange={setSecciones} />
+                    <SeccionesForm tipo={tipoCotizacion} secciones={secciones} onChange={setSecciones} abiertoPorDefecto={generado} />
 
                     {/* PDF Upload */}
                     <div className="flex flex-col gap-3 p-3 rounded-lg border border-border bg-secondary/30">
@@ -846,9 +825,8 @@ Estructura la propuesta técnico-comercial en las siguientes secciones:
                                     )}
                                     {/* PDF Download */}
                                     <PDFButton cotizacion={q} cliente={cliente} />
-                                    {/* AI Prompt */}
-                                    <button onClick={() => setPromptView(q)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-semibold hover:bg-violet-500/20">
-                                        <Sparkles className="w-4 h-4" /> Armar Prompt
+                                    <button onClick={() => editarCotizacion(q)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-violet-500/10 border border-violet-500/20 text-violet-400 text-xs font-semibold hover:bg-violet-500/20">
+                                        <Pencil className="w-3.5 h-3.5" /> Editar
                                     </button>
                                     <button onClick={() => deleteCotizacion(q.id)} className="p-1.5 rounded-lg bg-secondary/50 hover:bg-destructive/20" title="Eliminar">
                                         <Trash2 className="w-4 h-4 text-destructive" />

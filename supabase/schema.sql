@@ -192,6 +192,11 @@ ALTER TABLE tareas ADD COLUMN IF NOT EXISTS publicado BOOLEAN DEFAULT false;
 ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS tipo_cotizacion TEXT DEFAULT 'web';
 ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS especificaciones_webapp JSONB DEFAULT NULL;
 ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS secciones_pdf JSONB DEFAULT NULL;
+-- Generación con IA: el relevamiento que la alimenta y lo que sale de ella.
+ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS briefing JSONB DEFAULT NULL;
+ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS plan_pago JSONB DEFAULT NULL;
+ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS fecha_emision DATE;
+ALTER TABLE cotizaciones ADD COLUMN IF NOT EXISTS validez_dias INTEGER NOT NULL DEFAULT 15;
 -- El estado 'archivada' se usa en la app pero faltaba en el enum.
 ALTER TYPE estado_cotizacion ADD VALUE IF NOT EXISTS 'archivada';
 

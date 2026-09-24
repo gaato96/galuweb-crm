@@ -32,6 +32,17 @@ export function getInitials(name: string): string {
         .slice(0, 2);
 }
 
+/**
+ * La fecha de hoy como YYYY-MM-DD, en la zona horaria de quien usa la app.
+ *
+ * `en-CA` porque su formato de fecha corto ya es YYYY-MM-DD, que es lo que
+ * espera Postgres y lo que compara el resto del código. Con toISOString() la
+ * fecha se corre un día para atrás en Argentina después de las 21hs.
+ */
+export function hoyISO(): string {
+    return new Date().toLocaleDateString("en-CA");
+}
+
 export function formatDate(date: string | Date): string {
     return new Intl.DateTimeFormat("es-AR", {
         day: "numeric",
