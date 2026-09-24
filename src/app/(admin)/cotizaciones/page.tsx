@@ -4,7 +4,7 @@ import { useEffect, useState, Suspense, useRef, useCallback } from "react";
 import { useSearchParams } from "next/navigation";
 import {
     Plus, Trash2, X, FileText, Sparkles, Upload, Link as LinkIcon,
-    Code2, Globe, Download, ChevronDown, ChevronUp, AlignLeft, Archive, Pencil
+    Code2, Globe, Download, ChevronDown, ChevronUp, AlignLeft, Archive, Pencil, Calculator
 } from "lucide-react";
 import { cn, formatCurrency, formatDate, hoyISO } from "@/lib/utils";
 import { cotizacionesStore, clientesStore, storageStore } from "@/lib/store";
@@ -15,7 +15,8 @@ import type {
     BriefingCotizacion, PlanPagoItem
 } from "@/lib/types";
 import {
-    CAMPOS_BRIEFING, briefingVacio, faltantesDelBriefing, totalDeItems,
+    CAMPOS_BRIEFING, briefingVacio, faltantesDelBriefing, faltantesParaEstimar,
+    totalDeItems, anclasDePrecio, type EstimacionPrecio,
 } from "@/lib/cotizacion-ia";
 import { toast } from "sonner";
 import ReactDOM from "react-dom/client";
@@ -293,6 +294,8 @@ function CotizacionesContent() {
     const [fechaEmision, setFechaEmision] = useState(hoyISO());
     const [validezDias, setValidezDias] = useState(15);
     const [generando, setGenerando] = useState(false);
+    const [estimando, setEstimando] = useState(false);
+    const [estimacion, setEstimacion] = useState<EstimacionPrecio | null>(null);
     const [resumenInterno, setResumenInterno] = useState("");
     const [generado, setGenerado] = useState(false);
     const [editId, setEditId] = useState<string | null>(null);
@@ -411,6 +414,7 @@ function CotizacionesContent() {
         setFechaEmision(q.fecha_emision || q.created_at.slice(0, 10));
         setValidezDias(q.validez_dias ?? 15);
         setResumenInterno("");
+        setEstimacion(null);
         setGenerado(Boolean(q.secciones_pdf));
         setShowNew(true);
         window.scrollTo({ top: 0, behavior: "smooth" });
@@ -432,6 +436,40 @@ function CotizacionesContent() {
         setResumenInterno("");
         setGenerado(false);
         setEditId(null);
+        setEstimacion(null);
+    };
+
+    /**
+     * Pide una referencia de precio. No toca el campo: el número final lo
+     * escribe quien cotiza, mirando la sugerencia al lado.
+     */
+    const handleEstimar = async () => {
+        const faltan = faltantesParaEstimar(briefing);
+        if (faltan.length > 0) { toast.error(`Falta completar: ${faltan.join(", ")}`); return; }
+        const c = clientes.find((x) => x.id === clienteId);
+
+        setEstimando(true);
+        toast.loading("Estimando el precio…", { id: "est" });
+        try {
+            const res = await fetch("/api/gemini/estimar-precio", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    briefing,
+                    tipo: tipoCotizacion,
+                    negocio: c?.negocio,
+                    historial: anclasDePrecio(cotizaciones, tipoCotizacion),
+                }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.error || "No se pudo estimar el precio");
+            setEstimacion(data.estimacion as EstimacionPrecio);
+            toast.success("Precio estimado. Decidís vos.", { id: "est" });
+        } catch (e) {
+            toast.error((e as Error).message, { id: "est", duration: 8000 });
+        } finally {
+            setEstimando(false);
+        }
     };
 
     /**
@@ -562,10 +600,64 @@ function CotizacionesContent() {
 
                         {CAMPOS_BRIEFING.map((campo) => (
                             <div key={campo.key} className="space-y-1">
-                                <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                                    {campo.label}
-                                    {campo.clave && <span className="text-[9px] font-bold uppercase tracking-wide text-amber-400">obligatorio</span>}
-                                </label>
+                                <div className="flex items-center justify-between gap-2">
+                                    <label className="text-xs font-semibold text-foreground flex items-center gap-1.5">
+                                        {campo.label}
+                                        {campo.clave && <span className="text-[9px] font-bold uppercase tracking-wide text-amber-400">obligatorio</span>}
+                                    </label>
+                                    {campo.key === "presupuesto" && (
+                                        <button
+                                            type="button"
+                                            onClick={handleEstimar}
+                                            disabled={estimando}
+                                            className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-sky-500/10 border border-sky-500/20 text-sky-400 text-[11px] font-semibold hover:bg-sky-500/20 disabled:opacity-50 transition-colors"
+                                        >
+                                            {estimando
+                                                ? <span className="w-3 h-3 border-2 border-sky-400/30 border-t-sky-400 rounded-full animate-spin" />
+                                                : <Calculator className="w-3 h-3" />}
+                                            {estimando ? "Estimando…" : "¿Cuánto cobrar?"}
+                                        </button>
+                                    )}
+                                </div>
+
+                                {campo.key === "presupuesto" && estimacion && (
+                                    <div className="rounded-lg border border-sky-500/20 bg-sky-500/5 p-3 space-y-2.5">
+                                        <div className="flex items-end justify-between gap-3 flex-wrap">
+                                            <div>
+                                                <p className="text-[10px] font-bold uppercase tracking-wide text-sky-400">Sugerencia</p>
+                                                <p className="text-2xl font-black text-foreground leading-tight tabular-nums">
+                                                    {formatCurrency(estimacion.sugerido)}
+                                                </p>
+                                                <p className="text-[11px] text-muted-foreground tabular-nums">
+                                                    Rango {formatCurrency(estimacion.minimo)} — {formatCurrency(estimacion.maximo)}
+                                                </p>
+                                            </div>
+                                            <button
+                                                type="button"
+                                                onClick={() => setBriefing({ ...briefing, presupuesto: String(estimacion.sugerido) })}
+                                                className="px-3 py-1.5 rounded-lg bg-sky-500/20 border border-sky-500/30 text-sky-300 text-[11px] font-semibold hover:bg-sky-500/30"
+                                            >
+                                                Usar {formatCurrency(estimacion.sugerido)}
+                                            </button>
+                                        </div>
+                                        {estimacion.razonamiento && (
+                                            <p className="text-[11px] text-muted-foreground leading-relaxed">{estimacion.razonamiento}</p>
+                                        )}
+                                        {estimacion.factores.length > 0 && (
+                                            <ul className="space-y-1">
+                                                {estimacion.factores.map((f, i) => (
+                                                    <li key={i} className="text-[11px] text-muted-foreground flex gap-1.5">
+                                                        <span className="text-sky-400">·</span>{f}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                        <p className="text-[10px] text-muted-foreground/70 italic">
+                                            Es una referencia. El precio que vale es el que escribas abajo.
+                                        </p>
+                                    </div>
+                                )}
+
                                 <textarea
                                     value={briefing[campo.key]}
                                     onChange={(e) => setBriefing({ ...briefing, [campo.key]: e.target.value })}

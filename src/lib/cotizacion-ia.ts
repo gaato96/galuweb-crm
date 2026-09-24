@@ -105,6 +105,18 @@ export function faltantesDelBriefing(b: BriefingCotizacion): string[] {
     return CAMPOS_BRIEFING.filter((c) => c.clave && !b[c.key]?.trim()).map((c) => c.label);
 }
 
+/**
+ * Para estimar alcanza con saber qué hay que hacer: el precio es justamente
+ * lo que falta. La forma de pago tampoco hace falta todavía.
+ */
+export function faltantesParaEstimar(b: BriefingCotizacion): string[] {
+    const faltan: string[] = [];
+    if (!b.notas_reunion?.trim() && !b.requerimientos?.trim()) {
+        faltan.push("Qué se habló en la reunión o qué pidió puntualmente");
+    }
+    return faltan;
+}
+
 // ── Vuelta a tierra de lo que responde la IA ─────────────────────────────────
 
 export interface CotizacionGenerada {
@@ -165,4 +177,65 @@ export function normalizarCotizacionIA(raw: unknown, tipo: TipoCotizacion): Coti
 /** Lo que va a decir el PDF. Se calcula acá para no depender de que la IA sume bien. */
 export function totalDeItems(items: CotizacionItem[]): number {
     return items.reduce((s, i) => s + (Number(i.precio) || 0), 0);
+}
+
+// ── Estimación de precio ─────────────────────────────────────────────────────
+
+/**
+ * Lo que la IA sugiere cobrar. Es una referencia para decidir, nunca el precio:
+ * el número que manda es siempre el que se escribe en el briefing.
+ */
+export interface EstimacionPrecio {
+    minimo: number;
+    sugerido: number;
+    maximo: number;
+    razonamiento: string;
+    factores: string[];
+}
+
+/** Una cotización pasada, reducida a lo que sirve como ancla de precio. */
+export interface AnclaPrecio {
+    tipo: TipoCotizacion;
+    total: number;
+    detalle: string;
+}
+
+export function normalizarEstimacion(raw: unknown): EstimacionPrecio | null {
+    const r = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+    const sugerido = numero(r.sugerido);
+    if (sugerido <= 0) return null;
+    const minimo = numero(r.minimo) || Math.round(sugerido * 0.8);
+    const maximo = numero(r.maximo) || Math.round(sugerido * 1.25);
+    return {
+        minimo: Math.min(minimo, sugerido),
+        sugerido,
+        maximo: Math.max(maximo, sugerido),
+        razonamiento: texto(r.razonamiento),
+        factores: (Array.isArray(r.factores) ? r.factores : []).map(texto).filter(Boolean).slice(0, 5),
+    };
+}
+
+/**
+ * Las cotizaciones ya cerradas son el mejor dato de precio que tenemos: son
+ * los números que este estudio cobra de verdad, no un promedio de internet.
+ * Se mandan las más recientes del mismo tipo primero.
+ */
+export function anclasDePrecio(
+    cotizaciones: { tipo_cotizacion?: TipoCotizacion; total: number; items: CotizacionItem[]; estado: string }[],
+    tipo: TipoCotizacion,
+    limite = 6,
+): AnclaPrecio[] {
+    return cotizaciones
+        .filter((c) => c.total > 0 && c.estado !== "rechazada")
+        .sort((a, b) => {
+            const mismoA = (a.tipo_cotizacion || "web") === tipo ? 0 : 1;
+            const mismoB = (b.tipo_cotizacion || "web") === tipo ? 0 : 1;
+            return mismoA - mismoB;
+        })
+        .slice(0, limite)
+        .map((c) => ({
+            tipo: (c.tipo_cotizacion || "web") as TipoCotizacion,
+            total: c.total,
+            detalle: c.items.filter((i) => i.precio > 0).map((i) => i.descripcion).slice(0, 4).join("; "),
+        }));
 }
