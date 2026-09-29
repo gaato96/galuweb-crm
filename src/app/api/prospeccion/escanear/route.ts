@@ -24,6 +24,7 @@ import type { Prospecto, FallaVerificable } from "@/lib/types";
 import { telefonoAWhatsapp, normalizar, normalizarEscaneo } from "@/lib/prospeccion";
 import { detectarRubro, type RubroProspeccion } from "@/lib/dolores-rubro";
 import { extraerPlaceId } from "@/lib/places-url";
+import { extraerMails, paginasDeContacto } from "@/lib/contacto-web";
 import {
     senialesDeMaps, senialDeSerp, senialesDeWeb, clasificarConChequeo,
     fusionarEscaneo, pendientesManuales, terminoDeRubro, terminoDeNombre,
@@ -733,25 +734,28 @@ async function escanearAgencia(p: Prospecto): Promise<EscaneoAutomatico> {
         campos.servicios = servicios.slice(0, 5).join(", ");
     }
 
-    // El canal de contacto se busca en la home y, si ahí no hay nada, en la página
-    // de contacto. Muchas agencias dejan la home como vidriera y ponen el mail una
-    // sola vez, en /contacto. Sin esto quedaban como "sin canal de contacto"
-    // agencias que sí tienen por dónde entrar.
+    // El mail es EL canal en agencias del exterior, así que se busca siempre que
+    // falte, aunque el prospecto ya traiga teléfono del scraper. Antes solo se
+    // miraba /contacto cuando faltaban todos los canales, y como Places casi
+    // siempre trae teléfono, en la práctica nunca se miraba y el mail se buscaba
+    // a mano, web por web.
+    let mails = p.email.trim() ? [] : extraerMails(html, base);
     let htmlContacto = "";
-    const faltaCanal = !p.email.trim() && !p.instagram_url.trim() && !p.telefono.trim();
-    if (faltaCanal) {
-        for (const ruta of ["/contacto", "/contact", "/contactanos", "/contacto-2"]) {
+    const faltaMail = !p.email.trim() && mails.length === 0;
+    const faltaOtroCanal = !p.instagram_url.trim() && !p.telefono.trim();
+    if (faltaMail || faltaOtroCanal) {
+        for (const url of paginasDeContacto(html, base)) {
             try {
-                const res = await fetch(new URL(ruta, base).toString(), {
+                const res = await fetch(url, {
                     headers: { "User-Agent": UA },
                     redirect: "follow",
                     signal: AbortSignal.timeout(6000),
                 });
-                if (res.ok) {
-                    htmlContacto = (await res.text()).slice(0, 80_000);
-                    if (/@|instagram\.com|wa\.me/i.test(htmlContacto)) break;
-                    htmlContacto = "";
-                }
+                if (!res.ok) continue;
+                const pagina = (await res.text()).slice(0, 120_000);
+                htmlContacto += " " + pagina;
+                if (!p.email.trim()) mails = extraerMails(html + " " + htmlContacto, base);
+                if (mails.length > 0 || (!faltaMail && /instagram\.com|wa\.me/i.test(pagina))) break;
             } catch {
                 /* Que no exista /contacto es lo más común: no es un error. */
             }
@@ -759,16 +763,19 @@ async function escanearAgencia(p: Prospecto): Promise<EscaneoAutomatico> {
     }
     const htmlContacto_ = html + " " + htmlContacto;
 
-    // Los mails de assets, de tracking y los de ejemplo no le contestan a nadie.
     if (!p.email.trim()) {
-        const mails = Array.from(
-            new Set((htmlContacto_.match(/[\w.+-]+@[\w-]+\.[\w.-]{2,}/g) || []).map((m) => m.toLowerCase()))
-        ).filter(
-            (m) =>
-                !/\.(png|jpg|jpeg|svg|gif|webp|js|css)$/.test(m) &&
-                !/sentry|wixpress|example\.|sentry\.io|godaddy|\.png|@2x/.test(m)
-        );
-        if (mails[0]) campos.email = mails[0];
+        if (mails[0]) {
+            campos.email = mails[0];
+            if (mails.length > 1) {
+                pendientes.push(
+                    `Se cargó ${mails[0]} como mail. En la web también aparecen: ${mails.slice(1, 4).join(", ")}. Si alguno es de alguien que decide (dueño, director), cambialo.`
+                );
+            }
+        } else {
+            pendientes.push(
+                `No se encontró ningún mail en ${base} ni en su página de contacto (puede estar detrás de un formulario o armado con JavaScript). Queda para buscar a mano o por LinkedIn.`
+            );
+        }
     }
 
     if (!p.instagram_url.trim()) {
