@@ -179,3 +179,16 @@ export function paginasDeContacto(html: string, base: string, max = 4): string[]
         .filter((u) => u.replace(/\/$/, "") !== home)
         .slice(0, max);
 }
+
+/**
+ * Mails que ya rebotaron, sacados de las notas del prospecto ("Rebotó x@y").
+ * Sin esto, el próximo escaneo encuentra en la web el mismo mail muerto y lo
+ * vuelve a cargar, y el siguiente envío rebota igual.
+ */
+export function mailsRebotados(notas: string): Set<string> {
+    return new Set(
+        Array.from((notas || "").matchAll(/rebot[oó]\s+([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,24})/gi)).map((m) =>
+            m[1].toLowerCase()
+        )
+    );
+}

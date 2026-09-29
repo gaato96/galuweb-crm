@@ -24,7 +24,7 @@ import type { Prospecto, FallaVerificable } from "@/lib/types";
 import { telefonoAWhatsapp, normalizar, normalizarEscaneo } from "@/lib/prospeccion";
 import { detectarRubro, type RubroProspeccion } from "@/lib/dolores-rubro";
 import { extraerPlaceId } from "@/lib/places-url";
-import { extraerMails, paginasDeContacto } from "@/lib/contacto-web";
+import { extraerMails, paginasDeContacto, mailsRebotados } from "@/lib/contacto-web";
 import {
     senialesDeMaps, senialDeSerp, senialesDeWeb, clasificarConChequeo,
     fusionarEscaneo, pendientesManuales, terminoDeRubro, terminoDeNombre,
@@ -739,7 +739,9 @@ async function escanearAgencia(p: Prospecto): Promise<EscaneoAutomatico> {
     // miraba /contacto cuando faltaban todos los canales, y como Places casi
     // siempre trae teléfono, en la práctica nunca se miraba y el mail se buscaba
     // a mano, web por web.
-    let mails = p.email.trim() ? [] : extraerMails(html, base);
+    const muertos = mailsRebotados(p.notas);
+    const vivos = (ms: string[]) => ms.filter((m) => !muertos.has(m));
+    let mails = p.email.trim() ? [] : vivos(extraerMails(html, base));
     let htmlContacto = "";
     const faltaMail = !p.email.trim() && mails.length === 0;
     const faltaOtroCanal = !p.instagram_url.trim() && !p.telefono.trim();
@@ -754,7 +756,7 @@ async function escanearAgencia(p: Prospecto): Promise<EscaneoAutomatico> {
                 if (!res.ok) continue;
                 const pagina = (await res.text()).slice(0, 120_000);
                 htmlContacto += " " + pagina;
-                if (!p.email.trim()) mails = extraerMails(html + " " + htmlContacto, base);
+                if (!p.email.trim()) mails = vivos(extraerMails(html + " " + htmlContacto, base));
                 if (mails.length > 0 || (!faltaMail && /instagram\.com|wa\.me/i.test(pagina))) break;
             } catch {
                 /* Que no exista /contacto es lo más común: no es un error. */
