@@ -42,8 +42,8 @@ const PASOS_ODONTOLOGIA: PasoMensajeOdontologia[] = [
 const REGLA_1_RIO = `1. Español rioplatense, voseo, tono de persona real escribiendo desde el celular. Nada de "estimado" ni corporativo.`;
 const REGLA_1_NEUTRO = `1. Español neutro latinoamericano, tono de persona real escribiendo desde el celular. PROHIBIDO el voseo ("vos", "podés", "tenés", "che") y prohibido el "estimado" corporativo.`;
 
-function reglaDeVoz(prospecto: { pais?: string }): string {
-    return vozDe({ pais: prospecto.pais || "" }) === "rio" ? REGLA_1_RIO : REGLA_1_NEUTRO;
+function reglaDeVoz(prospecto: { pais?: string; telefono_wa?: string }): string {
+    return vozDe({ pais: prospecto.pais || "", telefono_wa: prospecto.telefono_wa || "" }) === "rio" ? REGLA_1_RIO : REGLA_1_NEUTRO;
 }
 
 const REGLAS_COMUNES = `${REGLA_1_RIO}

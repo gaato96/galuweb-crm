@@ -51,11 +51,14 @@ export type Voz = "rio" | "neutro";
  * hablarle a alguien y escribir en neutro suena a call center. En Guadalajara
  * pasa exactamente lo contrario.
  */
-export function vozDe(p: Pick<Prospecto, "pais">): Voz {
+export function vozDe(p: Pick<Prospecto, "pais"> & Partial<Pick<Prospecto, "telefono_wa">>): Voz {
     const pais = (p.pais || "").trim().toLowerCase();
-    if (!pais) return "neutro";
-    if (pais.startsWith("arg") || pais.startsWith("uru")) return "rio";
-    return "neutro";
+    if (pais) return pais.startsWith("arg") || pais.startsWith("uru") ? "rio" : "neutro";
+    // Sin país cargado decide el teléfono. Los 264 consultorios de Tucumán se
+    // importaron sin país, y por eso salían en neutro: justo lo que en Tucumán
+    // suena a call center.
+    const wa = (p.telefono_wa || "").replace(/\D/g, "");
+    return wa.startsWith("54") || wa.startsWith("598") ? "rio" : "neutro";
 }
 
 export type PasoMensajeOdontologia =
@@ -87,12 +90,38 @@ export const PASO_ODONTOLOGIA_LABELS: Record<PasoMensajeOdontologia, string> = {
 
 const DIAS = ["domingo", "lunes", "martes", "miércoles", "jueves", "viernes", "sábado"];
 
-function fechaHora(iso: string): string {
+/**
+ * La hora se escribe en la zona del consultorio, no en la de donde corre el
+ * código. En el navegador daba igual, pero el mensaje también lo arma el
+ * servidor (Vercel, en UTC), y ahí "sábado 21:40" salía "domingo 00:40": una
+ * hora que el consultorio no tiene en su WhatsApp y que desarma el mensaje.
+ */
+function zonaDe(p: Partial<Pick<Prospecto, "pais" | "telefono_wa">>): string | undefined {
+    const pais = (p.pais || "").trim().toLowerCase();
+    const wa = (p.telefono_wa || "").replace(/\D/g, "");
+    if (pais.startsWith("arg") || (!pais && wa.startsWith("54"))) return "America/Argentina/Buenos_Aires";
+    if (pais.startsWith("uru") || (!pais && wa.startsWith("598"))) return "America/Montevideo";
+    if ((pais.startsWith("m") && pais.includes("xico")) || (!pais && wa.startsWith("52"))) return "America/Mexico_City";
+    return undefined;
+}
+
+function fechaHora(iso: string, p: Partial<Pick<Prospecto, "pais" | "telefono_wa">> = {}): string {
     const d = new Date(iso);
     if (Number.isNaN(d.getTime())) return "";
-    const hh = String(d.getHours()).padStart(2, "0");
-    const mm = String(d.getMinutes()).padStart(2, "0");
-    return `${DIAS[d.getDay()]} ${hh}:${mm}`;
+    const partes = new Intl.DateTimeFormat("es-AR", {
+        timeZone: zonaDe(p),
+        weekday: "long",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+    }).formatToParts(d);
+    const de = (t: string) => partes.find((x) => x.type === t)?.value ?? "";
+    const dia = DIAS.find((x) => normalizarDia(x) === normalizarDia(de("weekday"))) ?? de("weekday");
+    return `${dia} ${de("hour")}:${de("minute")}`;
+}
+
+function normalizarDia(s: string): string {
+    return s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
 }
 
 /**
@@ -140,7 +169,7 @@ export function tienePrueba(p: Prospecto): boolean {
  */
 export function frasePrueba(p: Prospecto, voz: Voz = vozDe(p)): string {
     if (!p.prueba_enviada_at) return "";
-    const salida = fechaHora(p.prueba_enviada_at);
+    const salida = fechaHora(p.prueba_enviada_at, p);
     const horas = horasPrueba(p);
 
     if (p.prueba_sin_respuesta || !p.prueba_respondida_at) {
@@ -150,7 +179,7 @@ export function frasePrueba(p: Prospecto, voz: Voz = vozDe(p)): string {
             : `Les escribí el ${salida} preguntando por una cita y no recibí respuesta.${cuanto}`;
     }
 
-    const vuelta = fechaHora(p.prueba_respondida_at);
+    const vuelta = fechaHora(p.prueba_respondida_at, p);
     const min = minutosPrueba(p);
     const demora = min != null ? ` ${textoDemora(min)}.` : ".";
     return voz === "rio"
@@ -454,4 +483,71 @@ export function generarMensajeOdontologia(
                 ? `Gracias por contestar. ¿Con quién puedo hablar del tema de los turnos? No es para venderte nada a vos: es una decisión del profesional y prefiero no hacerte perder tiempo.`
                 : `Gracias por responder. ¿Con quién puedo hablar sobre el tema de las citas? No es para venderle nada a usted: es una decisión del profesional y prefiero no hacerle perder el tiempo.`;
     }
+}
+
+// ─────────────────────────────────────────────────────────────
+// La prueba desde el celular
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Lo que escribe el "paciente". Tiene que preguntar por un turno (o una cita),
+ * porque es lo que después cita frasePrueba(): "les escribí preguntando por un
+ * turno". Y pregunta el precio porque es lo que pregunta un paciente de verdad,
+ * lo que obliga a que conteste una persona y no un mensaje de bienvenida.
+ *
+ * Hay varias versiones porque veinte consultorios de la misma ciudad reciben el
+ * mismo sábado el mismo texto, y algunos comparten recepcionista o se conocen.
+ * Cuál le toca a cada uno sale del id: siempre la misma para el mismo consultorio.
+ */
+const CONSULTAS: Record<Voz, string[]> = {
+    rio: [
+        "Hola, buenas noches! Quería saber cuánto sale una limpieza y si tienen turno para esta semana",
+        "Hola, cómo están? Consulta: cuánto está la limpieza dental? Necesitaría un turno",
+        "Buenas noches! Me pasarían el precio de una limpieza? Y si hay turnos disponibles",
+        "Hola! Quería pedir un turno para una limpieza, cuánto sale?",
+        "Hola, buenas. Cuánto cuesta una limpieza? Quería sacar turno para los próximos días",
+    ],
+    neutro: [
+        "Hola, buenas noches. ¿Cuál es el precio de una limpieza dental? ¿Tienen cita disponible esta semana?",
+        "Hola, quisiera saber el costo de una limpieza y si tienen citas disponibles",
+        "Buenas noches, ¿me podrían dar el precio de una limpieza? Quisiera agendar una cita",
+        "Hola, ¿qué tal? Quisiera una cita para limpieza dental, ¿cuánto cuesta?",
+        "Hola, buenas. ¿Cuánto cuesta una limpieza? Me gustaría agendar una cita para los próximos días",
+    ],
+};
+
+export function consultaDePrueba(p: Pick<Prospecto, "id" | "pais" | "telefono_wa">): string {
+    const opciones = CONSULTAS[vozDe(p)];
+    let h = 0;
+    for (const c of p.id || "") h = (h * 31 + c.charCodeAt(0)) >>> 0;
+    return opciones[h % opciones.length];
+}
+
+/**
+ * Qué WhatsApp abrir. Importa, y mucho: la prueba sale del chip de "paciente",
+ * que está en WhatsApp Business, y el mensaje 1 sale del número de Gastón, que
+ * está en el WhatsApp común. Mandar la prueba desde el número propio arruina
+ * las dos cosas a la vez.
+ */
+export type AppWhatsapp = "business" | "personal";
+
+const PAQUETE: Record<AppWhatsapp, string> = {
+    business: "com.whatsapp.w4b",
+    personal: "com.whatsapp",
+};
+
+/**
+ * Link que abre esa app en particular con el mensaje escrito.
+ *
+ * wa.me no sirve para esto: con las dos apps instaladas, Android pregunta con
+ * cuál abrir cada vez (o abre siempre la que se eligió por defecto, que para la
+ * mitad de los mensajes es la equivocada). Un intent con el paquete va directo.
+ * Fuera de Android (la compu) se cae a wa.me, que es lo único que existe ahí.
+ */
+export function linkWhatsapp(numero: string, texto: string, app: AppWhatsapp, esAndroid: boolean): string {
+    const wa = numero.replace(/\D/g, "");
+    const waMe = `https://wa.me/${wa}${texto ? `?text=${encodeURIComponent(texto)}` : ""}`;
+    if (!esAndroid) return waMe;
+    const query = `phone=${wa}${texto ? `&text=${encodeURIComponent(texto)}` : ""}`;
+    return `intent://send?${query}#Intent;scheme=whatsapp;package=${PAQUETE[app]};S.browser_fallback_url=${encodeURIComponent(waMe)};end`;
 }

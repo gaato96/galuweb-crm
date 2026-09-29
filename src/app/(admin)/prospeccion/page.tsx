@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
     ClipboardList, Plus, Upload, Download, RefreshCw, Search, Target,
     Table2, Columns3, BarChart3, Loader2, ExternalLink, Instagram, Phone,
@@ -716,6 +717,24 @@ export default function ProspeccionPage() {
                         </p>
                     </div>
                 </div>
+            )}
+
+            {/* Odontología: la prueba de la hora tiene su propia pantalla, pensada
+                para el celular, porque es ahí donde está el chip de paciente. */}
+            {sistemaActivo === "odontologia" && (
+                <Link
+                    href="/prospeccion/prueba-hora"
+                    className="rounded-2xl border border-sky-500/25 bg-sky-500/[0.06] p-4 flex items-center gap-3 hover:border-sky-400/50 transition-colors"
+                >
+                    <Stethoscope className="w-4 h-4 text-sky-300 shrink-0" />
+                    <div className="flex-1">
+                        <p className="text-xs sm:text-sm text-sky-100 font-bold">Prueba de la hora desde el celular</p>
+                        <p className="text-[11px] text-sky-200/70">
+                            Un toque por consultorio: abre WhatsApp Business con la consulta, guarda la hora y arma el mensaje 1.
+                        </p>
+                    </div>
+                    <span className="text-sky-300 text-sm font-bold">→</span>
+                </Link>
             )}
 
             {/* KPIs */}
