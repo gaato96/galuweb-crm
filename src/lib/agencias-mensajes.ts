@@ -128,11 +128,44 @@ function loQueHacen(p: Prospecto): string {
     const items = s
         .split(/[,;·|/]+/)
         .map((x) => x.trim().toLowerCase())
-        .filter(Boolean);
+        .filter(Boolean)
+        .map((x) => NOMBRES_PROPIOS[x] ?? x);
     if (items.length === 0) return "redes y campañas";
     if (items.length === 1) return items[0];
     return `${items[0]} y ${items[1]}`;
 }
+
+/**
+ * El nombre como lo diría una persona. El de Google Maps viene con el SEO
+ * pegado ("Holográfico, agencia de publicidad y diseño digital | Guadalajara"),
+ * y así, repetido en el asunto y en el cuerpo, es lo primero que delata que el
+ * mail salió de una planilla.
+ */
+export function nombreCorto(negocio: string): string {
+    const completo = negocio.trim();
+    const corte = completo.split(/\s[|–—-]\s|[|;,:]/)[0].trim();
+    const nombre = corte.length >= 2 ? corte : completo;
+    // "AGENCIA CLIKK" en mitad de una oración se lee a los gritos. Las siglas
+    // cortas (MKT, BTL, ADS) quedan como están.
+    if (nombre !== nombre.toUpperCase() || !/[A-ZÁÉÍÓÚÑ]{4}/.test(nombre)) return nombre;
+    return nombre
+        .split(" ")
+        .map((w) => (w.length <= 3 ? w : w.charAt(0) + w.slice(1).toLowerCase()))
+        .join(" ");
+}
+
+/** Cómo se escriben los servicios que tienen nombre propio o son siglas. */
+const NOMBRES_PROPIOS: Record<string, string> = {
+    "seo": "SEO",
+    "sem": "SEM",
+    "btl": "BTL",
+    "meta ads": "Meta Ads",
+    "google ads": "Google Ads",
+    "tiktok ads": "TikTok Ads",
+    // El escaneo compara sin tildes, así que devuelve el servicio sin tilde.
+    "fotografia": "fotografía",
+    "diseno grafico": "diseño gráfico",
+};
 
 function saludo(p: Prospecto): string {
     const nombre = p.contacto_nombre.trim();
@@ -149,7 +182,7 @@ export function generarMensajeAgencia(
     p: Prospecto,
     canal: CanalAgencia = canalSugerido(p)
 ): string {
-    const negocio = p.negocio || "la agencia";
+    const negocio = nombreCorto(p.negocio) || "la agencia";
 
     /* El toque de vigencia va antes de la rama de canal porque no cambia con el
      * canal: es el mismo texto corto por mail o por DM.

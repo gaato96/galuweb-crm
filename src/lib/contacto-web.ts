@@ -34,12 +34,16 @@ function descifrarCloudflare(hex: string): string {
 
 function decodificar(html: string): string {
     return html
+        // HTML metido dentro de un string de JS: "\nhola@agencia.com" se leía
+        // como "nhola@agencia.com", un mail que rebota.
+        .replace(/\\x([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+        .replace(/\\u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+        .replace(/\\[nrt]/g, " ")
         .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
         .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
         .replace(/&commat;/gi, "@")
         .replace(/&period;/gi, ".")
         .replace(/&amp;/gi, "&")
-        .replace(/\\u0040/gi, "@")
         .replace(/%40/g, "@");
 }
 
