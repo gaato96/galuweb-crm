@@ -1556,13 +1556,26 @@ export function clasificarWebDesdeUrl(url: string): ClasificacionWeb {
     return "web_debil"; // hay que abrirla para confirmar si es "buena"
 }
 
-/** Normaliza un teléfono argentino a formato wa.me. Devuelve "" si no es usable. */
+/**
+ * Normaliza un teléfono a formato wa.me. Devuelve "" si no es usable.
+ *
+ * Sin código de país se asume Argentina. Con código de otro país (+52, +57…)
+ * se respeta: antes todo pasaba por la regla argentina, y "+52 33 1523 4822"
+ * de una agencia de Guadalajara quedaba como 5495233234822, un número que no
+ * existe — o directamente vacío, y la agencia figuraba sin WhatsApp.
+ */
 export function telefonoAWhatsapp(raw: string): string {
     if (!raw) return "";
     let d = raw.replace(/\D/g, "");
     if (!d) return "";
 
+    const internacional = /^\s*(\+|00)/.test(raw);
     if (d.startsWith("00")) d = d.slice(2);
+    if (internacional && !d.startsWith("54")) {
+        // México: el "1" después del 52 era de los celulares y WhatsApp ya no lo usa.
+        if (d.startsWith("521") && d.length === 13) d = "52" + d.slice(3);
+        return d.length >= 10 && d.length <= 15 ? d : "";
+    }
     if (d.startsWith("549")) return d.length >= 12 ? d : "";
     if (d.startsWith("54")) d = d.slice(2);
     if (d.startsWith("0")) d = d.slice(1);          // 0 de larga distancia

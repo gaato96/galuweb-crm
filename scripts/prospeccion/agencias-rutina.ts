@@ -7,11 +7,13 @@
 // pone todo lo demás, para que la rutina haga lo mismo todos los días y no
 // dependa de cómo se interprete un prompt:
 //
+//   escanear           Escanea las agencias nuevas (listado recién importado).
 //   plan               Qué toca hoy: seguimientos vencidos, agencias nuevas y
 //                      todo lo que está en curso (para cruzar respuestas).
 //   aplicar <archivo>  Guarda en el CRM lo que se hizo (JSON, ver Accion).
 //
 // Uso:
+//   npx jiti scripts/prospeccion/agencias-rutina.ts escanear --max 40
 //   npx jiti scripts/prospeccion/agencias-rutina.ts plan --nuevas 10
 //   npx jiti scripts/prospeccion/agencias-rutina.ts aplicar acciones.json
 //
@@ -23,6 +25,7 @@ import fs from "fs";
 import path from "path";
 import { generarMensajeAgencia, nombreCorto } from "../../src/lib/agencias-mensajes";
 import { proximaAccion } from "../../src/lib/prospeccion";
+import { escanearAgencia } from "../../src/lib/escaneo-agencia";
 import type { Prospecto } from "../../src/lib/types";
 
 const RAIZ = path.resolve(__dirname, "../..");
@@ -151,6 +154,45 @@ async function plan(nuevas: number) {
 }
 
 /**
+ * Escanea las agencias que nunca se escanearon: las de un listado recién
+ * importado. Es lo que hace que cargar una ciudad nueva no requiera avisarle a
+ * nadie: al día siguiente la rutina las escanea, les encuentra el mail, las
+ * clasifica en lista A o B, y las que quedan listas entran en la tanda.
+ *
+ * Mismo código que el botón de escanear del CRM (src/lib/escaneo-agencia.ts),
+ * y como ese botón, nunca pisa lo cargado a mano.
+ */
+async function escanear(max: number) {
+    const pendientes = await sb<Prospecto[]>(
+        `prospectos?sistema=eq.agencias&estado=in.(${SIN_CONTACTAR.join(",")})&escaneado_at=is.null&sitio_web_url=neq.&select=*&limit=${max}`
+    );
+    let conMail = 0, listaA = 0, listaB = 0, errores = 0;
+    // De a cuatro: son GETs a sitios distintos, no hay cuota que cuidar, pero
+    // tampoco hace falta abrir cuarenta conexiones de golpe.
+    for (let i = 0; i < pendientes.length; i += 4) {
+        await Promise.all(
+            pendientes.slice(i, i + 4).map(async (p) => {
+                try {
+                    const r = await escanearAgencia(p);
+                    const cambios = { ...r.campos, escaneo: r.escaneo, escaneado_at: new Date().toISOString() };
+                    await sb(`prospectos?id=eq.${p.id}`, {
+                        method: "PATCH",
+                        headers: { Prefer: "return=minimal" },
+                        body: JSON.stringify(cambios),
+                    });
+                    if (r.campos.email) conMail++;
+                    if (r.campos.ofrece_desarrollo_web === false) listaA++;
+                    if (r.campos.ofrece_desarrollo_web === true) listaB++;
+                } catch {
+                    errores++;
+                }
+            })
+        );
+    }
+    console.log(JSON.stringify({ escaneadas: pendientes.length, con_mail_nuevo: conMail, lista_a: listaA, lista_b: listaB, errores }));
+}
+
+/**
  * Lo que la rutina hizo, una línea por prospecto.
  *
  *   enviado    salió el mensaje 1 (texto = asunto + cuerpo)
@@ -214,10 +256,11 @@ const opcion = (n: string, def: string) => {
 };
 
 (async () => {
-    if (cmd === "plan") await plan(Number(opcion("nuevas", "10")));
+    if (cmd === "escanear") await escanear(Number(opcion("max", "40")));
+    else if (cmd === "plan") await plan(Number(opcion("nuevas", "10")));
     else if (cmd === "aplicar" && args[0]) await aplicar(args[0]);
     else {
-        console.error("Uso: plan [--nuevas N] | aplicar <acciones.json>");
+        console.error("Uso: escanear [--max N] | plan [--nuevas N] | aplicar <acciones.json>");
         process.exit(1);
     }
 })().catch((e) => {

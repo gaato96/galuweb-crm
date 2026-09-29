@@ -30,6 +30,7 @@ import { toast } from "sonner";
 import { cn, hoyISO } from "@/lib/utils";
 import { prospectosStore, mensajeError } from "@/lib/store";
 import type { Prospecto } from "@/lib/types";
+import { Tarjeta, Boton, Vacio } from "@/components/prospeccion/celular";
 import {
     consultaDePrueba, linkWhatsapp, frasePrueba, tienePrueba, vozDe, anguloSugerido, ANGULO_LABELS,
     pasoAperturaSugerido, generarMensajeOdontologia, minutosPrueba, type AppWhatsapp,
@@ -345,63 +346,3 @@ export default function PruebaHoraPage() {
     );
 }
 
-function Tarjeta({ p, children }: { p: Prospecto; children: React.ReactNode }) {
-    return (
-        <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
-            <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                    {/* line-clamp y no truncate: el nombre de Google puede ser una línea
-                        de SEO entera, y un texto que no corta ensancha todo el layout
-                        en el celular. */}
-                    <p className="text-sm font-bold text-foreground line-clamp-2 [overflow-wrap:anywhere]">{p.negocio}</p>
-                    <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
-                        {[p.ciudad, p.telefono_wa ? `+${p.telefono_wa}` : ""].filter(Boolean).join(" · ")}
-                    </p>
-                </div>
-                {p.score > 0 && (
-                    <span className="shrink-0 px-2 py-0.5 rounded-full bg-secondary text-[10px] font-bold tabular-nums text-muted-foreground">
-                        {p.score}
-                    </span>
-                )}
-            </div>
-            {children}
-        </div>
-    );
-}
-
-function Boton({
-    onClick, tono, icon: Icon, children,
-}: {
-    onClick: () => void;
-    tono: "business" | "personal" | "ok" | "alerta" | "neutro";
-    icon?: React.ComponentType<{ className?: string }>;
-    children: React.ReactNode;
-}) {
-    const tonos = {
-        business: "bg-emerald-600 text-white border-emerald-500",
-        personal: "bg-primary text-primary-foreground border-primary",
-        ok: "bg-emerald-500/15 text-emerald-300 border-emerald-500/40",
-        alerta: "bg-amber-500/15 text-amber-300 border-amber-500/40",
-        neutro: "bg-card text-muted-foreground border-border",
-    };
-    return (
-        <button
-            onClick={onClick}
-            className={cn(
-                "w-full min-h-[44px] px-3 py-2.5 rounded-xl text-sm font-bold border flex items-center justify-center gap-2 active:scale-[0.98] transition-transform",
-                tonos[tono]
-            )}
-        >
-            {Icon && <Icon className="w-4 h-4" />}
-            {children}
-        </button>
-    );
-}
-
-function Vacio({ texto }: { texto: string }) {
-    return (
-        <div className="rounded-2xl border border-dashed border-border bg-card/40 py-12 px-6 text-center">
-            <p className="text-xs text-muted-foreground">{texto}</p>
-        </div>
-    );
-}

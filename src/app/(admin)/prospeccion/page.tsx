@@ -719,6 +719,24 @@ export default function ProspeccionPage() {
                 </div>
             )}
 
+            {/* Agencias: las que tienen mail las escribe la rutina diaria (scripts/
+                prospeccion/agencias-rutina.ts). Las que no, van a mano desde acá. */}
+            {sistemaActivo === "agencias" && (
+                <Link
+                    href="/prospeccion/agencias-manual"
+                    className="rounded-2xl border border-emerald-500/25 bg-emerald-500/[0.04] p-4 flex items-center gap-3 hover:border-emerald-400/50 transition-colors"
+                >
+                    <Handshake className="w-4 h-4 text-emerald-300 shrink-0" />
+                    <div className="flex-1">
+                        <p className="text-xs sm:text-sm text-emerald-100 font-bold">Agencias sin mail: contactar a mano</p>
+                        <p className="text-[11px] text-emerald-200/70">
+                            Las de mail las escribe la rutina de las 15 h. Estas van por WhatsApp o Instagram, con un toque.
+                        </p>
+                    </div>
+                    <span className="text-emerald-300 text-sm font-bold">→</span>
+                </Link>
+            )}
+
             {/* Odontología: la prueba de la hora tiene su propia pantalla, pensada
                 para el celular, porque es ahí donde está el chip de paciente. */}
             {sistemaActivo === "odontologia" && (

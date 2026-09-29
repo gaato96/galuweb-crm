@@ -934,13 +934,27 @@ export const listasStore = {
 };
 
 export const prospectosStore = {
+    /**
+     * Todos, en páginas de 1000. Supabase corta cada consulta en 1000 filas sin
+     * avisar: con 1264 prospectos, los 264 de menor score no aparecían en ninguna
+     * pantalla (la planilla de agencias mostraba 124 de 161). El `id` como
+     * segundo orden hace estable la paginación entre empates de score.
+     */
     getAll: async (): Promise<Prospecto[]> => {
-        const { data, error } = await supabase
-            .from("prospectos")
-            .select("*")
-            .order("score", { ascending: false });
-        if (error) throw error;
-        return (data || []).map((r) => rowToProspecto(r as Record<string, unknown>));
+        const PAGINA = 1000;
+        const filas: Record<string, unknown>[] = [];
+        for (let desde = 0; ; desde += PAGINA) {
+            const { data, error } = await supabase
+                .from("prospectos")
+                .select("*")
+                .order("score", { ascending: false })
+                .order("id", { ascending: true })
+                .range(desde, desde + PAGINA - 1);
+            if (error) throw error;
+            filas.push(...((data || []) as Record<string, unknown>[]));
+            if (!data || data.length < PAGINA) break;
+        }
+        return filas.map(rowToProspecto);
     },
 
     getById: async (id: string): Promise<Prospecto | null> => {
