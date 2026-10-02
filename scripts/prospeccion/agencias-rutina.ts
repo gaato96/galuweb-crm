@@ -26,6 +26,7 @@ import path from "path";
 import { generarMensajeAgencia, nombreCorto } from "../../src/lib/agencias-mensajes";
 import { proximaAccion } from "../../src/lib/prospeccion";
 import { escanearAgencia } from "../../src/lib/escaneo-agencia";
+import { mailsRebotados } from "../../src/lib/contacto-web";
 import type { Prospecto } from "../../src/lib/types";
 
 const RAIZ = path.resolve(__dirname, "../..");
@@ -107,7 +108,14 @@ async function plan(nuevas: number) {
     // su propio mensaje. Las "sin verificar" no salen nunca solas: afirmarles
     // cualquiera de las dos cosas sin haber mirado su web quema el contacto.
     const porScore = (a: Prospecto, b: Prospecto) => b.score - a.score;
-    const disponibles = agencias.filter((p) => SIN_CONTACTAR.includes(p.estado) && p.email.trim());
+    // Un mail que ya rebotó no se reintenta aunque alguien lo vuelva a cargar a
+    // mano: la nota "Rebotó x@y" queda, y mandarle de nuevo solo daña la cuenta.
+    const disponibles = agencias.filter(
+        (p) =>
+            SIN_CONTACTAR.includes(p.estado) &&
+            p.email.trim() &&
+            !mailsRebotados(p.notas).has(p.email.trim().toLowerCase())
+    );
     const candidatas = [
         ...disponibles.filter((p) => p.ofrece_desarrollo_web === false).sort(porScore),
         ...disponibles.filter((p) => p.ofrece_desarrollo_web === true).sort(porScore),
