@@ -1,5 +1,5 @@
 import type {
-    ArchivoProyecto, Cliente, Finanza, LogProyecto, Proyecto, SolicitudProyecto, Tarea,
+    ArchivoProyecto, Cliente, EsperaCliente, Finanza, LogProyecto, Proyecto, SolicitudProyecto, Tarea,
 } from "@/lib/types";
 
 export type PageTab = "resumen" | "fases" | "finanzas" | "brief" | "archivos" | "documentos" | "novedades" | "accesos";
@@ -18,6 +18,11 @@ export interface ProyectoCtx {
     /** Guarda campos del proyecto y actualiza el estado local. Devuelve false si falló. */
     guardarProyecto: (data: Partial<Proyecto>, mensaje?: string) => Promise<boolean>;
     recargar: (...que: Recargable[]) => Promise<void>;
+    /**
+     * Pone al día las esperas al cliente y corre los plazos. `editar` abre,
+     * cierra o quita esperas a mano. Devuelve false si falló.
+     */
+    sincronizarEsperas: (editar?: (esperas: EsperaCliente[]) => EsperaCliente[], mensaje?: string) => Promise<boolean>;
     irA: (tab: PageTab) => void;
     portalUrl: string;
 }

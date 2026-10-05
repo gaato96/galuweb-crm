@@ -8,12 +8,16 @@
 
 import {
     proyectosStore, tareasStore, finanzasStore, clientesStore,
-    cotizacionesStore, logsProyectoStore,
+    cotizacionesStore, logsProyectoStore, solicitudesStore,
 } from "./store";
-import type { Cliente, FaseProyecto, Proyecto, Tarea, TareaPlantilla, TipoProyecto } from "./types";
+import type {
+    Cliente, EsperaCliente, FaseProyecto, Proyecto, SolicitudProyecto, Tarea, TareaPlantilla, TipoProyecto,
+} from "./types";
 import {
-    aISO, briefPlantilla, fasesIniciales, generarPlanCobro, tareasParaFase, tareasPlantillaDeFase,
+    aISO, briefPlantilla, correrFases, diasDeEspera, fasesIniciales, generarPlanCobro, inicioDelProyecto,
+    planEsperas, sumarDias, tareasParaFase, tareasPlantillaDeFase,
 } from "./proyecto-gestion";
+import { fasesDe } from "./proyectos-estado";
 import { slugify } from "./utils";
 
 export async function registrarLog(proyectoId: string, titulo: string, descripcion = ""): Promise<void> {
@@ -131,4 +135,74 @@ export async function cargarChecklistFase(
     const filas = tareasParaFase(proyecto.id, fase, plantillas, existentes);
     if (!filas.length) return [];
     return tareasStore.createBulk(filas);
+}
+
+// ─────────────────────────────────────────────────────────────
+// Esperas al cliente → plazos corridos
+// ─────────────────────────────────────────────────────────────
+
+export interface ResultadoEsperas {
+    proyecto: Proyecto;
+    /** Días que se corrieron los plazos en esta pasada (negativo si se volvieron atrás). */
+    delta: number;
+    /** Si se guardó algo (esperas o plazos). */
+    cambio: boolean;
+}
+
+/** Corre las tareas pendientes de las fases sin completar, igual que sus fases. */
+async function correrTareas(proyecto: Proyecto, dias: number): Promise<void> {
+    const fasesAbiertas = new Set(fasesDe(proyecto).filter((f) => !f.completada).map((f) => f.nombre));
+    const tareas = await tareasStore.getByProyecto(proyecto.id);
+    await Promise.all(
+        tareas
+            .filter((t) => t.estado !== "completada" && t.fecha_vencimiento && t.fase && fasesAbiertas.has(t.fase))
+            .map((t) => tareasStore.update(t.id, { fecha_vencimiento: sumarDias(t.fecha_vencimiento!, dias) }).catch(() => null))
+    );
+}
+
+/**
+ * Pone al día las esperas al cliente y corre los plazos (fases pendientes,
+ * entrega y sus tareas) por los días que se esperó. Es idempotente: se puede
+ * llamar cada vez que se abre el proyecto, y así los plazos se van corriendo
+ * día a día mientras falte algo del cliente.
+ *
+ * `editar` permite abrir, cerrar o quitar esperas a mano antes de calcular.
+ * Lee el proyecto fresco de la base para no correr dos veces lo mismo.
+ * Tira error si falta la migración 20261005_esperas_cliente.sql.
+ */
+export async function sincronizarEsperas(
+    proyectoId: string,
+    editar?: (esperas: EsperaCliente[]) => EsperaCliente[],
+    hoy: string = aISO(new Date())
+): Promise<ResultadoEsperas | null> {
+    const proyecto = await proyectosStore.getById(proyectoId);
+    if (!proyecto) return null;
+    if (proyecto.es_interno || proyecto.estado === "finalizado") return { proyecto, delta: 0, cambio: false };
+
+    let solicitudes: SolicitudProyecto[] | null = null;
+    try { solicitudes = await solicitudesStore.getByProyecto(proyectoId); } catch { /* sin la tabla: sus esperas no se tocan */ }
+
+    const originales = proyecto.esperas_cliente || [];
+    const base: Proyecto = editar ? { ...proyecto, esperas_cliente: editar(originales.map((e) => ({ ...e }))) } : proyecto;
+    const plan = planEsperas(base, solicitudes, hoy);
+    if (JSON.stringify(plan.esperas) === JSON.stringify(originales) && plan.delta === 0) return { proyecto, delta: 0, cambio: false };
+
+    const cambios: Partial<Proyecto> = { esperas_cliente: plan.esperas };
+    if (plan.delta !== 0) {
+        cambios.dias_espera_aplicados = (proyecto.dias_espera_aplicados || 0) + plan.delta;
+        if (proyecto.fases?.length) cambios.fases = correrFases(proyecto.fases, plan.delta);
+        if (proyecto.fecha_entrega) cambios.fecha_entrega = sumarDias(proyecto.fecha_entrega, plan.delta);
+    }
+    const actualizado = await proyectosStore.update(proyecto.id, cambios);
+    if (plan.delta !== 0) await correrTareas(proyecto, plan.delta).catch((e) => console.error("No se pudieron correr las tareas:", e));
+
+    const inicio = inicioDelProyecto(proyecto, hoy);
+    for (const e of plan.abiertas) {
+        await registrarLog(proyecto.id, `En pausa esperando al cliente: ${e.motivo}`, "Mientras falte, los plazos de las fases pendientes y la entrega se corren solos.");
+    }
+    for (const e of plan.cerradas) {
+        const dias = diasDeEspera([e], inicio, hoy);
+        await registrarLog(proyecto.id, `Se recibió del cliente: ${e.motivo}`, dias > 0 ? `Se esperó ${dias} día${dias === 1 ? "" : "s"}; los plazos se corrieron en consecuencia.` : "");
+    }
+    return { proyecto: actualizado, delta: plan.delta, cambio: true };
 }

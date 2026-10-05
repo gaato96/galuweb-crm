@@ -6,11 +6,12 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { tareasStore } from "@/lib/store";
 import { fasesDe } from "@/lib/proyectos-estado";
-import { aISO, distribuirPlazos, fasesIniciales, textoDiasFase } from "@/lib/proyecto-gestion";
+import { aISO, distribuirPlazos, esperasAbiertas, fasesIniciales, textoDiasFase } from "@/lib/proyecto-gestion";
 import type { FaseProyecto } from "@/lib/types";
 import { PRIORIDAD_COLORS } from "@/lib/types";
 import { ui, type ProyectoCtx } from "./ctx";
 import ChecklistFase from "./checklist-fase";
+import EsperasCliente from "./esperas-cliente";
 import { alternarFase } from "./acciones-fase";
 
 export default function FasesTab({ ctx }: { ctx: ProyectoCtx }) {
@@ -20,6 +21,7 @@ export default function FasesTab({ ctx }: { ctx: ProyectoCtx }) {
     const idxActual = fases.findIndex((f) => !f.completada);
     const [abiertas, setAbiertas] = useState<Set<number>>(new Set(idxActual >= 0 ? [idxActual] : []));
     const [nuevaFase, setNuevaFase] = useState("");
+    const enPausa = esperasAbiertas(proyecto).length > 0;
 
     const nombresFases = new Set(fases.map((f) => f.nombre));
     const sinFase = tareas.filter((t) => !t.fase || !nombresFases.has(t.fase));
@@ -98,6 +100,8 @@ export default function FasesTab({ ctx }: { ctx: ProyectoCtx }) {
                 </div>
             </div>
 
+            <EsperasCliente ctx={ctx} />
+
             <div className="space-y-3">
                 {fases.map((fase, i) => {
                     const abierta = abiertas.has(i);
@@ -115,6 +119,7 @@ export default function FasesTab({ ctx }: { ctx: ProyectoCtx }) {
                                     <div className="flex items-center gap-2 flex-wrap">
                                         <span className={cn("text-sm font-bold", fase.completada ? "text-emerald-400" : "text-foreground")}>{fase.nombre}</span>
                                         {esActual && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 font-bold uppercase">Actual</span>}
+                                        {esActual && enPausa && <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-violet-500/20 text-violet-300 font-bold uppercase">En pausa · esperando al cliente</span>}
                                         {dias && <span className={cn("text-[10px] font-bold", dias.vencida ? "text-rose-400" : "text-muted-foreground")}>{dias.texto}</span>}
                                     </div>
                                     <div className="flex items-center gap-2 mt-1">

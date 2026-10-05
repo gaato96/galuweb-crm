@@ -112,9 +112,15 @@ export default function BriefTab({ ctx }: { ctx: ProyectoCtx }) {
 
     const enviar = async () => {
         if (sucio || borrador?.estado === "borrador") {
-            const ok = await guardar({ estado: borrador?.estado === "completado" ? "completado" : "enviado" }, "Brief publicado en el portal");
+            const completado = borrador?.estado === "completado";
+            const ok = await guardar({
+                estado: completado ? "completado" : "enviado",
+                // Desde acá se espera al cliente: hasta que lo complete, los plazos se corren.
+                enviado_at: borrador?.enviado_at || new Date().toISOString(),
+            }, "Brief publicado en el portal");
             if (!ok) return;
             registrarLog(proyecto.id, "Brief enviado al cliente");
+            if (!completado) ctx.sincronizarEsperas();
         }
         await navigator.clipboard.writeText(ctx.portalUrl).catch(() => {});
         toast.success("Link del portal copiado. El cliente ve el brief ahí.");

@@ -421,6 +421,29 @@ export interface Proyecto {
     cotizacion_id?: string | null;
     links?: LinkProyecto[];
     brief?: BriefProyecto | null;
+    // Esperas al cliente: mientras el cliente no entrega algo, los plazos se corren
+    esperas_cliente?: EsperaCliente[];
+    /** Días que ya se sumaron a los plazos guardados por esperas al cliente. */
+    dias_espera_aplicados?: number;
+}
+
+export type OrigenEspera = "brief" | "solicitud" | "manual";
+
+/**
+ * Un tramo en el que el proyecto no puede avanzar porque falta algo del
+ * cliente (el brief, material, una aprobación). Mientras está abierta, cada
+ * día que pasa corre los plazos de las fases pendientes y la entrega.
+ */
+export interface EsperaCliente {
+    id: string;
+    motivo: string;
+    origen: OrigenEspera;
+    /** Solicitud que la originó (origen "solicitud"). */
+    ref_id?: string | null;
+    /** YYYY-MM-DD */
+    desde: string;
+    /** YYYY-MM-DD; null mientras se sigue esperando. */
+    hasta?: string | null;
 }
 
 export interface LinkProyecto {
@@ -498,6 +521,8 @@ export interface BriefProyecto {
     secciones: BriefSeccion[];
     generado_con_ia?: boolean;
     actualizado_at: string;
+    /** Cuándo se publicó en el portal: desde ahí se espera al cliente. */
+    enviado_at?: string | null;
     completado_at?: string | null;
 }
 

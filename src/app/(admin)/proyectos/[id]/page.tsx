@@ -14,8 +14,9 @@ import {
 } from "@/lib/store";
 import { fasesDe } from "@/lib/proyectos-estado";
 import { briefAMarkdown, fechaCorta, infoPlazo, ESTADO_PLAZO_COLORS } from "@/lib/proyecto-gestion";
+import { sincronizarEsperas } from "@/lib/proyecto-acciones";
 import type {
-    Proyecto, Tarea, Cliente, LogProyecto, Finanza, ArchivoProyecto, SolicitudProyecto,
+    Proyecto, Tarea, Cliente, LogProyecto, Finanza, ArchivoProyecto, SolicitudProyecto, EsperaCliente,
 } from "@/lib/types";
 import { TIPO_PROYECTO_LABELS } from "@/lib/types";
 import { ui, type PageTab, type ProyectoCtx, type Recargable } from "./_components/ctx";
@@ -47,6 +48,7 @@ export default function ProyectoDetailPage() {
     const [archivos, setArchivos] = useState<ArchivoProyecto[]>([]);
     const [solicitudes, setSolicitudes] = useState<SolicitudProyecto[]>([]);
     const [faltaMigracion, setFaltaMigracion] = useState(false);
+    const [faltaMigracionEsperas, setFaltaMigracionEsperas] = useState(false);
     const [mounted, setMounted] = useState(false);
     const [activeTab, setActiveTab] = useState<PageTab>("resumen");
     const [editando, setEditando] = useState(false);
@@ -78,10 +80,28 @@ export default function ProyectoDetailPage() {
         await Promise.all(tareasPendientes);
     }, [id, router]);
 
+    const sincronizar = useCallback(async (editar?: (esperas: EsperaCliente[]) => EsperaCliente[], mensaje?: string): Promise<boolean> => {
+        if (!id) return false;
+        try {
+            const r = await sincronizarEsperas(id, editar);
+            if (!r) return false;
+            setProyecto(r.proyecto);
+            if (r.cambio) await (r.delta !== 0 ? recargar("tareas", "logs") : recargar("logs"));
+            if (mensaje) toast.success(mensaje);
+            return true;
+        } catch (e) {
+            const msg = mensajeError(e);
+            if (/esperas_cliente|dias_espera_aplicados|PGRST204/.test(msg)) setFaltaMigracionEsperas(true);
+            if (editar) toast.error("No se pudo actualizar la espera: " + msg);
+            return false;
+        }
+    }, [id, recargar]);
+
     useEffect(() => {
         setPortalUrl(`${window.location.origin}/portal/`);
-        recargar().then(() => setMounted(true));
-    }, [recargar]);
+        // Al abrir el proyecto, los plazos se corren por los días que se esperó al cliente.
+        recargar().then(() => setMounted(true)).then(() => sincronizar());
+    }, [recargar, sincronizar]);
 
     // Brief completado por el cliente → el BRIEF.md queda guardado solo en Docs.
     useEffect(() => {
@@ -122,7 +142,7 @@ export default function ProyectoDetailPage() {
 
     const ctx: ProyectoCtx = {
         proyecto, cliente, tareas, logs, finanzas, archivos, solicitudes, setTareas,
-        guardarProyecto, recargar, irA: setActiveTab, portalUrl: portalUrl + proyecto.slug_portal,
+        guardarProyecto, recargar, sincronizarEsperas: sincronizar, irA: setActiveTab, portalUrl: portalUrl + proyecto.slug_portal,
     };
 
     const fases = fasesDe(proyecto);
@@ -172,6 +192,12 @@ export default function ProyectoDetailPage() {
                 <div className="flex items-start gap-2 p-3 rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs text-amber-200">
                     <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                     <span>Falta aplicar la migración <code className="font-mono">supabase/migrations/20260923_gestion_proyectos.sql</code> en Supabase (SQL Editor). Sin ella no funcionan archivos, pedidos al cliente ni el checklist por fase.</span>
+                </div>
+            )}
+            {faltaMigracionEsperas && (
+                <div className="flex items-start gap-2 p-3 rounded-xl border border-amber-500/40 bg-amber-500/10 text-xs text-amber-200">
+                    <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                    <span>Falta aplicar la migración <code className="font-mono">supabase/migrations/20261005_esperas_cliente.sql</code> en Supabase (SQL Editor). Sin ella los plazos no se corren mientras esperás el brief o material del cliente.</span>
                 </div>
             )}
 

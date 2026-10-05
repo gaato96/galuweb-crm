@@ -11,6 +11,7 @@ import {
 } from "@/lib/proyecto-gestion";
 import { ui, type ProyectoCtx } from "./ctx";
 import ChecklistFase from "./checklist-fase";
+import EsperasCliente from "./esperas-cliente";
 import { alternarFase } from "./acciones-fase";
 
 export default function ResumenTab({ ctx }: { ctx: ProyectoCtx }) {
@@ -122,6 +123,8 @@ export default function ResumenTab({ ctx }: { ctx: ProyectoCtx }) {
                 </div>
             )}
 
+            <EsperasCliente ctx={ctx} />
+
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
                 {/* Fase actual con checklist */}
                 <div className={cn(ui.card, "lg:col-span-2 space-y-4 border-amber-500/30")}>
@@ -129,7 +132,10 @@ export default function ResumenTab({ ctx }: { ctx: ProyectoCtx }) {
                         <>
                             <div className="flex items-start justify-between gap-3 flex-wrap">
                                 <div>
-                                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-400">Fase actual · {idxActual + 1} de {fases.length}</p>
+                                    <p className="text-[10px] font-bold uppercase tracking-wider text-amber-400">
+                                        Fase actual · {idxActual + 1} de {fases.length}
+                                        {plazo.estado === "esperando" && <span className="ml-2 text-violet-300">· En pausa, esperando al cliente</span>}
+                                    </p>
                                     <h3 className="text-lg font-black text-foreground">{faseActual.nombre}</h3>
                                     {(() => {
                                         const d = textoDiasFase(faseActual, hoy);

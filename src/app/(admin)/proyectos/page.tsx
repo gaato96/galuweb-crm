@@ -5,9 +5,9 @@ import { useSearchParams, useRouter } from "next/navigation";
 import { Plus, Layers, X, CalendarClock, DollarSign, FileText, CheckSquare } from "lucide-react";
 import { cn, getInitials, formatCurrency } from "@/lib/utils";
 import { proyectosStore, tareasStore, clientesStore, cotizacionesStore, mensajeError } from "@/lib/store";
-import { crearProyectoCompleto } from "@/lib/proyecto-acciones";
+import { crearProyectoCompleto, sincronizarEsperas } from "@/lib/proyecto-acciones";
 import {
-    aISO, fasesIniciales, fechaCorta, generarPlanCobro, infoPlazo, sumarDias, ESTADO_PLAZO_COLORS,
+    aISO, esperasAbiertas, fasesIniciales, fechaCorta, generarPlanCobro, infoPlazo, sumarDias, ESTADO_PLAZO_COLORS,
 } from "@/lib/proyecto-gestion";
 import { fasesDe } from "@/lib/proyectos-estado";
 import { toast } from "sonner";
@@ -358,21 +358,34 @@ function ProyectosContent() {
     const [showNew, setShowNew] = useState(searchParams.get("new") === "true");
     const [filter, setFilter] = useState<string>("activo");
 
-    const reload = async () => {
+    const reload = async (): Promise<Proyecto[]> => {
         try {
             const [p, t, c] = await Promise.all([
                 proyectosStore.getAll(),
                 tareasStore.getAll(),
                 clientesStore.getAll(),
             ]);
-            setProyectos(p.filter(item => !item.es_interno && item.tipo_proyecto !== "saas"));
+            const deClientes = p.filter(item => !item.es_interno && item.tipo_proyecto !== "saas");
+            setProyectos(deClientes);
             setTareas(t);
             setClientes(c);
+            return deClientes;
         } catch (e) {
             console.error("Error reloading projects:", e);
+            return [];
         }
     };
-    useEffect(() => { reload().then(() => setMounted(true)); }, []);
+
+    // Los que esperan algo del cliente corren sus plazos al día (y se recarga si cambió algo).
+    const correrEsperas = async (lista: Proyecto[]) => {
+        const aRevisar = lista.filter((p) => p.estado !== "finalizado" && (esperasAbiertas(p).length > 0 || p.brief?.estado === "enviado"));
+        const resultados = await Promise.all(aRevisar.map((p) => sincronizarEsperas(p.id).catch(() => null)));
+        if (resultados.some((r) => r?.cambio)) {
+            await reload();
+        }
+    };
+
+    useEffect(() => { reload().then((lista) => { setMounted(true); return correrEsperas(lista); }); }, []);
 
     if (!mounted) {
         return (

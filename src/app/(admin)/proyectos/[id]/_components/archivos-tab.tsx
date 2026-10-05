@@ -3,14 +3,14 @@
 import { useEffect, useState } from "react";
 import {
     Upload, Loader2, Eye, EyeOff, Trash2, ExternalLink, Link2, Plus, Inbox, CheckCircle2,
-    RotateCcw, FileText, Image as ImageIcon, Download, User, Building2,
+    RotateCcw, FileText, Image as ImageIcon, Download, User, Building2, Hourglass,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn, formatDate } from "@/lib/utils";
 import { archivosProyectoStore, cotizacionesStore, solicitudesStore, storageStore, mensajeError } from "@/lib/store";
 import { registrarLog } from "@/lib/proyecto-acciones";
-import { fechaCorta, nuevoId } from "@/lib/proyecto-gestion";
-import type { ArchivoProyecto, CategoriaArchivo, Cotizacion, LinkProyecto } from "@/lib/types";
+import { aISO, fechaCorta, nuevoId } from "@/lib/proyecto-gestion";
+import type { ArchivoProyecto, CategoriaArchivo, Cotizacion, EsperaCliente, LinkProyecto, SolicitudProyecto } from "@/lib/types";
 import { CATEGORIA_ARCHIVO_LABELS } from "@/lib/types";
 import { ui, type ProyectoCtx } from "./ctx";
 
@@ -59,7 +59,7 @@ export default function ArchivosTab({ ctx }: { ctx: ProyectoCtx }) {
     const [visible, setVisible] = useState(true);
     const [cotizaciones, setCotizaciones] = useState<Cotizacion[]>([]);
     const [link, setLink] = useState({ titulo: "", url: "" });
-    const [sol, setSol] = useState({ titulo: "", descripcion: "", fecha_limite: "" });
+    const [sol, setSol] = useState({ titulo: "", descripcion: "", fecha_limite: "", frena: true });
 
     useEffect(() => {
         if (proyecto.cliente_id) cotizacionesStore.getByCliente(proyecto.cliente_id).then(setCotizaciones).catch(() => setCotizaciones([]));
@@ -128,30 +128,56 @@ export default function ArchivosTab({ ctx }: { ctx: ProyectoCtx }) {
         setLink({ titulo: "", url: "" });
     };
 
-    // Solicitudes
+    // Solicitudes. Las que frenan el proyecto abren una espera: mientras el
+    // cliente no entregue, los plazos se corren solos.
+    const esperas = proyecto.esperas_cliente || [];
+    const esperaAbierta = (s: SolicitudProyecto) => esperas.find((e) => e.origen === "solicitud" && e.ref_id === s.id && !e.hasta);
+    const esperaDe = (s: SolicitudProyecto, desde: string): EsperaCliente => ({ id: nuevoId("e"), motivo: s.titulo, origen: "solicitud", ref_id: s.id, desde, hasta: null });
+
     const crearSolicitud = async () => {
         if (!sol.titulo.trim()) { toast.error("Escribí qué le pedís al cliente"); return; }
         try {
-            await solicitudesStore.create({
+            const creada = await solicitudesStore.create({
                 proyecto_id: proyecto.id, titulo: sol.titulo.trim(), descripcion: sol.descripcion.trim(),
                 estado: "pendiente", respuesta_cliente: "", fecha_limite: sol.fecha_limite || null, entregada_at: null,
             });
-            setSol({ titulo: "", descripcion: "", fecha_limite: "" });
-            toast.success("Pedido publicado en el portal del cliente");
+            setSol({ titulo: "", descripcion: "", fecha_limite: "", frena: sol.frena });
+            toast.success(sol.frena ? "Pedido publicado. Los plazos se corren hasta que lo entregue." : "Pedido publicado en el portal del cliente");
             registrarLog(proyecto.id, `Pedido al cliente: ${sol.titulo.trim()}`);
-            ctx.recargar("solicitudes", "logs");
+            await ctx.recargar("solicitudes", "logs");
+            if (sol.frena) await ctx.sincronizarEsperas((es) => [...es, esperaDe(creada, aISO(new Date()))]);
         } catch (e) { toast.error(mensajeError(e)); }
     };
 
-    const cambiarEstadoSolicitud = async (id: string, estado: "pendiente" | "aprobada") => {
-        try { await solicitudesStore.update(id, { estado }); ctx.recargar("solicitudes"); }
-        catch (e) { toast.error(mensajeError(e)); }
+    const alternarFrena = async (s: SolicitudProyecto) => {
+        const abierta = esperaAbierta(s);
+        if (abierta) {
+            await ctx.sincronizarEsperas((es) => es.filter((e) => e.id !== abierta.id), "Ya no frena el proyecto: los plazos vuelven atrás");
+        } else {
+            // Cuenta desde que se pidió: es lo que se estuvo esperando.
+            await ctx.sincronizarEsperas((es) => [...es, esperaDe(s, aISO(new Date(s.created_at)))], "Frena el proyecto: los plazos se corren hasta que lo entregue");
+        }
+    };
+
+    const cambiarEstadoSolicitud = async (s: SolicitudProyecto, estado: "pendiente" | "aprobada") => {
+        try {
+            await solicitudesStore.update(s.id, { estado });
+            await ctx.recargar("solicitudes");
+            // Volver a pedir algo que frenaba: se vuelve a esperar desde hoy.
+            const frenaba = esperas.some((e) => e.origen === "solicitud" && e.ref_id === s.id);
+            if (!frenaba) return;
+            const reabrir = estado === "pendiente" && !esperaAbierta(s);
+            await ctx.sincronizarEsperas(reabrir ? (es) => [...es, esperaDe(s, aISO(new Date()))] : undefined);
+        } catch (e) { toast.error(mensajeError(e)); }
     };
 
     const borrarSolicitud = async (id: string) => {
         if (!confirm("¿Eliminar este pedido?")) return;
-        try { await solicitudesStore.delete(id); ctx.recargar("solicitudes"); }
-        catch (e) { toast.error(mensajeError(e)); }
+        try {
+            await solicitudesStore.delete(id);
+            await ctx.recargar("solicitudes");
+            await ctx.sincronizarEsperas();
+        } catch (e) { toast.error(mensajeError(e)); }
     };
 
     return (
@@ -159,16 +185,21 @@ export default function ArchivosTab({ ctx }: { ctx: ProyectoCtx }) {
             {/* Pedidos al cliente */}
             <div className={cn(ui.card, "space-y-3")}>
                 <h3 className={ui.h3}><Inbox className="w-4 h-4 text-cyan-400" /> Pedidos al cliente</h3>
-                <p className="text-[11px] text-muted-foreground">Lo que le pidas acá aparece arriba de todo en su portal, con un botón para subir los archivos y dejarte un comentario.</p>
+                <p className="text-[11px] text-muted-foreground">Lo que le pidas acá aparece arriba de todo en su portal, con un botón para subir los archivos y dejarte un comentario. Si sin eso no podés avanzar, marcalo como que <strong className="text-violet-300">frena el proyecto</strong>: los plazos se corren hasta que lo entregue.</p>
                 <div className="grid grid-cols-1 sm:grid-cols-4 gap-2">
                     <input value={sol.titulo} onChange={(e) => setSol({ ...sol, titulo: e.target.value })} placeholder="Ej: Fotos del local y del equipo" className={cn(ui.input, "sm:col-span-2")} />
                     <input type="date" value={sol.fecha_limite} onChange={(e) => setSol({ ...sol, fecha_limite: e.target.value })} className={ui.input} title="Para cuándo lo necesitás" />
                     <button onClick={crearSolicitud} className={cn(ui.btn, ui.btnPrimary)}><Plus className="w-3.5 h-3.5" /> Pedir</button>
                     <textarea value={sol.descripcion} onChange={(e) => setSol({ ...sol, descripcion: e.target.value })} placeholder="Detalle opcional: formato, cantidad, ejemplos…" rows={2} className={cn(ui.textarea, "sm:col-span-4")} />
+                    <label className="sm:col-span-4 flex items-center gap-1.5 text-[11px] text-foreground">
+                        <input type="checkbox" checked={sol.frena} onChange={(e) => setSol({ ...sol, frena: e.target.checked })} />
+                        Sin esto no puedo avanzar (frena el proyecto y corre los plazos)
+                    </label>
                 </div>
                 <div className="space-y-2">
                     {solicitudes.map((s) => {
                         const adjuntos = archivos.filter((a) => a.solicitud_id === s.id);
+                        const frena = Boolean(esperaAbierta(s));
                         return (
                             <div key={s.id} className={cn("p-3 rounded-xl border space-y-2", s.estado === "entregada" ? "border-cyan-500/40 bg-cyan-500/5" : s.estado === "aprobada" ? "border-emerald-500/20 bg-emerald-500/5" : "border-border bg-secondary/20")}>
                                 <div className="flex items-start justify-between gap-2">
@@ -181,10 +212,16 @@ export default function ArchivosTab({ ctx }: { ctx: ProyectoCtx }) {
                                         </p>
                                     </div>
                                     <div className="flex items-center gap-1 shrink-0">
+                                        {s.estado === "pendiente" && (
+                                            <button onClick={() => alternarFrena(s)} title={frena ? "Frena el proyecto: los plazos se corren hasta que lo entregue (clic para que no frene)" : "No frena el proyecto (clic si sin esto no podés avanzar)"}
+                                                className={cn(ui.btn, frena ? "bg-violet-500/15 text-violet-300 border border-violet-500/30" : ui.btnGhost)}>
+                                                <Hourglass className="w-3.5 h-3.5" /> {frena ? "Frena" : "No frena"}
+                                            </button>
+                                        )}
                                         {s.estado === "entregada" && (
                                             <>
-                                                <button onClick={() => cambiarEstadoSolicitud(s.id, "aprobada")} className={cn(ui.btn, "bg-emerald-500 text-slate-950 hover:bg-emerald-400")}><CheckCircle2 className="w-3.5 h-3.5" /> Aprobar</button>
-                                                <button onClick={() => cambiarEstadoSolicitud(s.id, "pendiente")} className={cn(ui.btn, ui.btnGhost)} title="Volver a pedir"><RotateCcw className="w-3.5 h-3.5" /></button>
+                                                <button onClick={() => cambiarEstadoSolicitud(s, "aprobada")} className={cn(ui.btn, "bg-emerald-500 text-slate-950 hover:bg-emerald-400")}><CheckCircle2 className="w-3.5 h-3.5" /> Aprobar</button>
+                                                <button onClick={() => cambiarEstadoSolicitud(s, "pendiente")} className={cn(ui.btn, ui.btnGhost)} title="Volver a pedir"><RotateCcw className="w-3.5 h-3.5" /></button>
                                             </>
                                         )}
                                         <button onClick={() => borrarSolicitud(s.id)} className="p-1 text-muted-foreground hover:text-rose-400"><Trash2 className="w-3.5 h-3.5" /></button>

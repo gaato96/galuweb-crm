@@ -5,8 +5,8 @@
 // para que el panel, el portal y las rutas de IA calculen exactamente lo mismo.
 
 import type {
-    BriefPregunta, BriefProyecto, BriefSeccion, Cliente, FaseProyecto, Finanza,
-    Proyecto, Tarea, TipoPreguntaBrief, TipoProyecto, TareaPlantilla,
+    BriefPregunta, BriefProyecto, BriefSeccion, Cliente, EsperaCliente, FaseProyecto, Finanza,
+    Proyecto, SolicitudProyecto, Tarea, TipoPreguntaBrief, TipoProyecto, TareaPlantilla,
     CategoriaTarea, Prioridad,
 } from "./types";
 import { FASES_POR_TIPO, TIPO_PROYECTO_LABELS } from "./types";
@@ -114,13 +114,128 @@ export function tareasParaFase(
 }
 
 // ─────────────────────────────────────────────────────────────
+// Esperas al cliente
+// ─────────────────────────────────────────────────────────────
+// Si falta el brief o un material que frena el proyecto, no se puede avanzar:
+// cada día de espera corre las fases pendientes y la entrega. Los plazos
+// guardados ya incluyen `dias_espera_aplicados`; lo que falte aplicar es la
+// diferencia con los días de espera reales (unión de tramos, sin contar dos
+// veces los días en que se esperaban dos cosas a la vez).
+
+export function inicioDelProyecto(proyecto: Proyecto, hoy: string = aISO(new Date())): string {
+    return proyecto.fecha_inicio || proyecto.created_at?.slice(0, 10) || hoy;
+}
+
+export function esperasAbiertas(proyecto: Pick<Proyecto, "esperas_cliente">): EsperaCliente[] {
+    return (proyecto.esperas_cliente || []).filter((e) => !e.hasta);
+}
+
+/**
+ * Días de espera desde `inicio` hasta `hoy`. Lo esperado antes de que arranque
+ * el proyecto no cuenta: el plan ya suponía empezar en la fecha de inicio.
+ */
+export function diasDeEspera(esperas: EsperaCliente[], inicio: string, hoy: string = aISO(new Date())): number {
+    const tramos = esperas
+        .map((e) => [e.desde > inicio ? e.desde : inicio, e.hasta && e.hasta < hoy ? e.hasta : hoy] as const)
+        .filter(([a, b]) => b > a)
+        .sort((x, y) => x[0].localeCompare(y[0]));
+    let total = 0;
+    let fin: string | null = null;
+    for (const [a, b] of tramos) {
+        if (!fin || a >= fin) { total += diasEntre(a, b); fin = b; }
+        else if (b > fin) { total += diasEntre(fin, b); fin = b; }
+    }
+    return total;
+}
+
+/** Corre `dias` las fases sin completar (las completadas conservan su fecha). */
+export function correrFases(fases: FaseProyecto[], dias: number): FaseProyecto[] {
+    if (!dias) return fases;
+    return fases.map((f) => (f.completada || !f.fecha_limite ? f : { ...f, fecha_limite: sumarDias(f.fecha_limite, dias) }));
+}
+
+const fechaLocal = (ts: string | null | undefined, hoy: string) => (ts ? aISO(new Date(ts)) : hoy);
+
+export interface PlanEsperas {
+    esperas: EsperaCliente[];
+    /** Días a sumar (o restar) a los plazos guardados. */
+    delta: number;
+    abiertas: EsperaCliente[];
+    cerradas: EsperaCliente[];
+    cambio: boolean;
+}
+
+/**
+ * Pone las esperas al día con lo que pasó: el brief enviado abre una espera
+ * y completado la cierra; un pedido que frena se cierra cuando el cliente lo
+ * entrega, y si se borra el pedido su espera abierta desaparece.
+ * `solicitudes` en null = no se pudieron leer, así que no se tocan sus esperas.
+ */
+export function planEsperas(
+    proyecto: Proyecto,
+    solicitudes: SolicitudProyecto[] | null,
+    hoy: string = aISO(new Date())
+): PlanEsperas {
+    const originales = proyecto.esperas_cliente || [];
+    const inicio = inicioDelProyecto(proyecto, hoy);
+    const abiertas: EsperaCliente[] = [];
+    const cerradas: EsperaCliente[] = [];
+    let esperas: EsperaCliente[] = originales.map((e) => ({ ...e }));
+
+    const brief = proyecto.brief;
+    const hayEsperaBrief = esperas.some((e) => e.origen === "brief");
+    if (brief?.estado === "enviado" && !hayEsperaBrief) {
+        // Sin fecha de envío (briefs anteriores a esto) se cuenta desde el inicio:
+        // sin brief no se pudo arrancar.
+        const nueva: EsperaCliente = { id: nuevoId("e"), motivo: "Brief del cliente", origen: "brief", desde: brief.enviado_at ? fechaLocal(brief.enviado_at, hoy) : inicio, hasta: null };
+        esperas.push(nueva);
+        abiertas.push(nueva);
+    }
+    if (brief?.estado === "completado") {
+        const hasta = fechaLocal(brief.completado_at, hoy);
+        if (!hayEsperaBrief && brief.enviado_at) {
+            // Se envió y se completó sin que nadie abriera el proyecto en el medio.
+            const desde = fechaLocal(brief.enviado_at, hoy);
+            const nueva: EsperaCliente = { id: nuevoId("e"), motivo: "Brief del cliente", origen: "brief", desde, hasta: hasta > desde ? hasta : desde };
+            esperas.push(nueva);
+            cerradas.push(nueva);
+        }
+        esperas = esperas.map((e) => {
+            if (e.origen !== "brief" || e.hasta) return e;
+            const cerrada = { ...e, hasta: hasta > e.desde ? hasta : e.desde };
+            cerradas.push(cerrada);
+            return cerrada;
+        });
+    }
+
+    if (solicitudes) {
+        const porId = new Map(solicitudes.map((s) => [s.id, s]));
+        esperas = esperas.flatMap((e) => {
+            if (e.origen !== "solicitud" || e.hasta || !e.ref_id) return [e];
+            const s = porId.get(e.ref_id);
+            if (!s) return [];
+            if (s.estado === "pendiente") return [e];
+            const hasta = fechaLocal(s.entregada_at, hoy);
+            const cerrada = { ...e, hasta: hasta > e.desde ? hasta : e.desde };
+            cerradas.push(cerrada);
+            return [cerrada];
+        });
+    }
+
+    const delta = diasDeEspera(esperas, inicio, hoy) - (proyecto.dias_espera_aplicados || 0);
+    const cambio = delta !== 0 || JSON.stringify(esperas) !== JSON.stringify(originales);
+    return { esperas, delta, abiertas, cerradas, cambio };
+}
+
+// ─────────────────────────────────────────────────────────────
 // Plazo general del proyecto
 // ─────────────────────────────────────────────────────────────
 
-export type EstadoPlazo = "sin_fecha" | "en_tiempo" | "ajustado" | "atrasado" | "vencido" | "entregado";
+export type EstadoPlazo = "sin_fecha" | "en_tiempo" | "ajustado" | "atrasado" | "vencido" | "esperando" | "entregado";
 
 export const ESTADO_PLAZO_COLORS: Record<EstadoPlazo, string> = {
     sin_fecha: "text-slate-300 border-slate-500/30 bg-slate-500/10",
+    esperando: "text-violet-300 border-violet-500/30 bg-violet-500/10",
     en_tiempo: "text-emerald-300 border-emerald-500/30 bg-emerald-500/10",
     ajustado: "text-amber-300 border-amber-500/30 bg-amber-500/10",
     atrasado: "text-orange-300 border-orange-500/30 bg-orange-500/10",
@@ -143,10 +258,20 @@ export function infoPlazo(proyecto: Proyecto, progreso: number, hoy: string = aI
     if (!proyecto.fecha_entrega) {
         return { estado: "sin_fecha", diasRestantes: null, diasTotales: null, pctTiempo: null, texto: "Sin fecha de entrega" };
     }
-    const inicio = proyecto.fecha_inicio || proyecto.created_at?.slice(0, 10) || hoy;
+    const inicio = inicioDelProyecto(proyecto, hoy);
     const diasTotales = Math.max(diasEntre(inicio, proyecto.fecha_entrega), 1);
     const diasRestantes = diasEntre(hoy, proyecto.fecha_entrega);
     const pctTiempo = Math.min(100, Math.max(0, Math.round(((diasTotales - diasRestantes) / diasTotales) * 100)));
+
+    // Esperando al cliente, el plazo se corre solo: no está atrasado por nosotros.
+    const esperando = esperasAbiertas(proyecto);
+    if (esperando.length > 0) {
+        const dias = diasDeEspera(esperando, inicio, hoy);
+        return {
+            estado: "esperando", diasRestantes, diasTotales, pctTiempo,
+            texto: `Esperando al cliente${dias > 0 ? ` · ${dias} día${dias === 1 ? "" : "s"}` : ""}`,
+        };
+    }
 
     let estado: EstadoPlazo;
     if (diasRestantes < 0) estado = "vencido";

@@ -294,6 +294,9 @@ export default function PortalClient({ slug }: { slug: string }) {
                             <Seccion titulo="Lo que necesitamos de vos" icono={Inbox}>
                                 <div className="space-y-3">
                                     {brief && brief.estado !== "completado" && (
+                                        <p className="text-xs text-muted-foreground">Sin el brief no podemos arrancar: mientras lo esperamos, el proyecto queda en pausa y la fecha de entrega se corre.</p>
+                                    )}
+                                    {brief && brief.estado !== "completado" && (
                                         <button onClick={() => setTab("brief")} className="w-full text-left rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 flex items-center gap-4 hover:bg-amber-400/15 transition">
                                             <div className="w-11 h-11 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shrink-0"><ClipboardList className="w-5 h-5" /></div>
                                             <div className="flex-1 min-w-0">
