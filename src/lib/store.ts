@@ -1076,8 +1076,12 @@ export const prospectosStore = {
             // Un solo registro conflictivo tumba el lote entero. En vez de perder las
             // 100 filas, se reintenta de a una para salvar las buenas y poder decir
             // exactamente cuál falló y por qué.
-            const codigosDeFila = ["23505", "23503", "22P02", "23514"];
-            const esProblemaDeFila = codigosDeFila.includes((error as { code?: string }).code || "");
+            // Clase 22 (dato inválido: número fuera de rango, texto demasiado largo,
+            // fecha mal escrita) y clase 23 (restricciones) son siempre de una fila.
+            // Antes solo se reconocían cuatro códigos: un rating de 48 (22003) cortaba
+            // la importación entera después del primer lote, y de 340 filas entraban 100.
+            const codigo = (error as { code?: string }).code || "";
+            const esProblemaDeFila = codigo.startsWith("22") || codigo.startsWith("23");
             if (!esProblemaDeFila) throw error;
 
             for (const fila of chunk) {

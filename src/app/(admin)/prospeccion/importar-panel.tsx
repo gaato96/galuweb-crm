@@ -410,10 +410,21 @@ function construirProspecto(
     const web = valores.sitio_web_url || "";
     const instagram = valores.instagram_url || (web.includes("instagram.com") ? web : "");
     /** Rating: "4,5" y "4.5" son el mismo número. Acá el separador SÍ es decimal. */
-    const decimal = (v?: string) => {
-        if (!v) return null;
-        const n = Number(v.replace(",", ".").replace(/[^\d.-]/g, ""));
-        return Number.isFinite(n) ? n : null;
+    /**
+     * Rating de Google: de 1 a 5, con un decimal. Se toma el PRIMER número de la
+     * celda y nada más.
+     *
+     * Antes se borraba todo lo que no fuera dígito y se parseaba el resto, así que
+     * "4,8(123)" —como lo exportan varios scrapers de Maps— quedaba "4.8123", y
+     * una columna con la cantidad de reseñas mapeada como rating daba 123. La
+     * columna en la base es NUMERIC(2,1): cualquier valor de 10 o más tiraba la
+     * importación entera. Fuera de 0-5 no es un rating, y queda vacío.
+     */
+    const rating = (v?: string) => {
+        const m = (v || "").match(/\d+(?:[.,]\d+)?/);
+        if (!m) return null;
+        const n = Math.round(Number(m[0].replace(",", ".")) * 10) / 10;
+        return Number.isFinite(n) && n >= 0 && n <= 5 ? n : null;
     };
 
     /**
@@ -460,7 +471,7 @@ function construirProspecto(
         // En agencias el WhatsApp casi nunca es el canal, aunque el teléfono
         // esté publicado: el mail y LinkedIn llegan a quien decide.
         canal: !esAgencia && telefonoAWhatsapp(telefono) ? "whatsapp" : "instagram",
-        rating: decimal(valores.rating),
+        rating: rating(valores.rating),
         reviews_count: entero(valores.reviews_count),
         servicios: valores.servicios || "",
         tam_equipo: entero(valores.tam_equipo),
