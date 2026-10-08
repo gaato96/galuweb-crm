@@ -407,7 +407,10 @@ function construirProspecto(
     });
 
     const telefono = valores.telefono || "";
-    const web = valores.sitio_web_url || "";
+    // Los resultados patrocinados de Maps traen como "sitio" el link del anuncio
+    // (google.com/aclk?...), que no es la web de nadie: el escaneo no tiene qué leer.
+    const webCruda = valores.sitio_web_url || "";
+    const web = /google\.[a-z.]+\/aclk/i.test(webCruda) ? "" : webCruda;
     const instagram = valores.instagram_url || (web.includes("instagram.com") ? web : "");
     /** Rating: "4,5" y "4.5" son el mismo número. Acá el separador SÍ es decimal. */
     /**

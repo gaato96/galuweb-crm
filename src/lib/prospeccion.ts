@@ -1464,26 +1464,28 @@ export function diagnosticoEmbudo(prospectos: Prospecto[]): DiagnosticoEmbudo[] 
 // Importación desde la planilla de Google Sheets (pegado TSV/CSV)
 // ─────────────────────────────────────────────────────────────
 
+// Los nombres raros (xxvwce, usdlk, mw4etd…) son las clases de Google Maps que
+// usa como encabezado la exportación de Instant Data Scraper.
 export const CAMPOS_IMPORTABLES = [
-    { key: "negocio", label: "Negocio", alias: ["negocio", "nombre", "empresa", "titulo", "name"] },
+    { key: "negocio", label: "Negocio", alias: ["negocio", "nombre", "empresa", "titulo", "name", "xxvwce"] },
     { key: "contacto_nombre", label: "Contacto", alias: ["contacto", "referente", "dueno", "dueño", "owner", "founder"] },
-    { key: "rubro", label: "Rubro", alias: ["rubro", "categoria", "category", "tipo"] },
+    { key: "rubro", label: "Rubro", alias: ["rubro", "categoria", "category", "tipo", "w4efsd"] },
     { key: "especialidad", label: "Especialidad", alias: ["especialidad", "subrubro"] },
     { key: "ciudad", label: "Ciudad", alias: ["ciudad", "lugar", "localidad", "city"] },
     // País va antes que dirección a propósito: en prospección internacional es
     // el campo que más se olvida mapear, y sin él el índice único de la tabla
     // colapsa dos agencias distintas de dos "Santiago" en una sola.
     { key: "pais", label: "País", alias: ["pais", "país", "country", "nacion"] },
-    { key: "direccion", label: "Dirección", alias: ["direccion", "domicilio", "address"] },
-    { key: "telefono", label: "Teléfono", alias: ["telefono", "tel", "celular", "phone", "whatsapp"] },
+    { key: "direccion", label: "Dirección", alias: ["direccion", "domicilio", "address", "w4efsd 3"] },
+    { key: "telefono", label: "Teléfono", alias: ["telefono", "tel", "celular", "phone", "whatsapp", "usdlk"] },
     { key: "email", label: "Email", alias: ["email", "mail", "correo", "e-mail"] },
-    { key: "sitio_web_url", label: "Sitio web", alias: ["sitio", "web", "website", "url", "sitio web", "pagina"] },
+    { key: "sitio_web_url", label: "Sitio web", alias: ["sitio", "web", "website", "url", "sitio web", "pagina", "lcr4fd"] },
     { key: "instagram_url", label: "Instagram", alias: ["instagram", "ig", "red social", "redes"] },
     { key: "linkedin_url", label: "LinkedIn", alias: ["linkedin", "in", "perfil linkedin"] },
     { key: "servicios", label: "Servicios que ofrece", alias: ["servicios", "services", "que hace", "oferta"] },
-    { key: "maps_url", label: "Link de Maps", alias: ["maps", "google maps", "link", "perfil", "ficha"] },
-    { key: "rating", label: "Rating", alias: ["rating", "estrellas", "puntaje", "score", "calificacion"] },
-    { key: "reviews_count", label: "Cant. reseñas", alias: ["reviews", "resenas", "reseñas", "opiniones", "comentarios"] },
+    { key: "maps_url", label: "Link de Maps", alias: ["maps", "google maps", "link", "perfil", "ficha", "hfpxzc"] },
+    { key: "rating", label: "Rating", alias: ["rating", "estrellas", "puntaje", "score", "calificacion", "mw4etd"] },
+    { key: "reviews_count", label: "Cant. reseñas", alias: ["reviews", "resenas", "reseñas", "opiniones", "comentarios", "uy7f9"] },
     { key: "tam_equipo", label: "Tamaño del equipo", alias: ["equipo", "personas", "empleados", "team", "headcount", "tamano"] },
     { key: "notas", label: "Notas", alias: ["notas", "observaciones", "comentario"] },
 ] as const;
@@ -1528,7 +1530,46 @@ export function parsearPegado(texto: string): FilaParseada | null {
     };
 
     const headers = partir(lineas[0]);
-    const filas = lineas.slice(1).map(partir);
+    const clave = (h: string) => h.trim().toLowerCase();
+    const conocidos = new Set(headers.map(clave).filter(Boolean));
+
+    /*
+     * Varias exportaciones pegadas una abajo de la otra.
+     *
+     * Los scrapers de Maps (Instant Data Scraper y similares) no siempre sacan
+     * las columnas en el mismo orden: en una tanda el rating va al final y en la
+     * siguiente va pegado al nombre. Antes todo el pegado se leía con el orden
+     * del primer encabezado, y en las tandas siguientes el rating caía en
+     * "rubro", la dirección en "web" y la URL en "reseñas" — 40 agencias de
+     * Monterrey quedaron así. Ahora, cuando aparece otra fila de encabezados,
+     * las filas que siguen se reacomodan al orden del primero.
+     *
+     * El encabezado repetido suele venir corrido con celdas vacías adelante, pero
+     * las filas de datos no: por eso se usa el ORDEN de sus celdas no vacías, no
+     * su posición.
+     */
+    let orden: number[] | null = null;
+    const filas: string[][] = [];
+    for (const linea of lineas.slice(1)) {
+        const celdas = partir(linea);
+        const llenas = celdas.filter((c) => c.trim());
+        const esEncabezado =
+            llenas.length >= Math.min(3, conocidos.size) && llenas.every((c) => conocidos.has(clave(c)));
+        if (esEncabezado) {
+            orden = llenas.map((c) => headers.findIndex((h) => clave(h) === clave(c)));
+            continue;
+        }
+        if (!orden) {
+            filas.push(celdas);
+            continue;
+        }
+        const fila = new Array(headers.length).fill("");
+        celdas.forEach((c, k) => {
+            const destino = orden![k] ?? k;
+            if (destino >= 0 && destino < headers.length) fila[destino] = c;
+        });
+        filas.push(fila);
+    }
     return { headers, filas };
 }
 
