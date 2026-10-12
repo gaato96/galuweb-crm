@@ -2,7 +2,7 @@ import type {
     ArchivoProyecto, Cliente, EsperaCliente, Finanza, LogProyecto, Proyecto, SolicitudProyecto, Tarea,
 } from "@/lib/types";
 
-export type PageTab = "resumen" | "fases" | "finanzas" | "brief" | "archivos" | "documentos" | "novedades" | "accesos";
+export type PageTab = "resumen" | "fases" | "finanzas" | "formularios" | "archivos" | "documentos" | "novedades" | "accesos";
 
 export type Recargable = "proyecto" | "tareas" | "finanzas" | "archivos" | "solicitudes" | "logs";
 

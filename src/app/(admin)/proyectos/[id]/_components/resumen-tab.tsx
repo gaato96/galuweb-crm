@@ -7,7 +7,7 @@ import {
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { fasesDe } from "@/lib/proyectos-estado";
 import {
-    aISO, fechaCorta, infoPlazo, progresoBrief, resumenCobros, textoDiasFase, ESTADO_PLAZO_COLORS,
+    aISO, fechaCorta, infoPlazo, progresoBrief, respuestasSinContexto, resumenCobros, textoDiasFase, ESTADO_PLAZO_COLORS,
 } from "@/lib/proyecto-gestion";
 import { ui, type ProyectoCtx } from "./ctx";
 import ChecklistFase from "./checklist-fase";
@@ -25,6 +25,9 @@ export default function ResumenTab({ ctx }: { ctx: ProyectoCtx }) {
     const plazo = infoPlazo(proyecto, progreso, hoy);
     const cobros = resumenCobros(finanzas, Number(proyecto.monto_total) || 0, hoy);
     const brief = progresoBrief(proyecto.brief);
+    const formularios = proyecto.formularios || [];
+    const formsEsperando = formularios.filter((f) => f.estado === "enviado");
+    const sinContexto = respuestasSinContexto(proyecto);
     const solicitudesPend = solicitudes.filter((s) => s.estado === "pendiente");
     const entregasNuevas = solicitudes.filter((s) => s.estado === "entregada");
     const archivosCliente = archivos.filter((a) => a.subido_por === "cliente");
@@ -39,8 +42,11 @@ export default function ResumenTab({ ctx }: { ctx: ProyectoCtx }) {
     if (tareasVencidas.length) alertas.push({ texto: `${tareasVencidas.length} tarea${tareasVencidas.length > 1 ? "s" : ""} vencida${tareasVencidas.length > 1 ? "s" : ""}.`, tono: "rose", accion: () => ctx.irA("fases") });
     if (cobros.vencidos.length) alertas.push({ texto: `${cobros.vencidos.length} cobro${cobros.vencidos.length > 1 ? "s" : ""} vencido${cobros.vencidos.length > 1 ? "s" : ""} por ${formatCurrency(cobros.vencidos.reduce((s, f) => s + Number(f.monto), 0))}.`, tono: "rose", accion: () => ctx.irA("finanzas") });
     if (!proyecto.monto_total && !finanzas.length) alertas.push({ texto: "No cargaste cuánto cobrás por este proyecto.", tono: "amber", accion: () => ctx.irA("finanzas") });
-    if (proyecto.brief?.estado === "borrador") alertas.push({ texto: "El brief todavía no se envió al cliente.", tono: "cyan", accion: () => ctx.irA("brief") });
-    if (proyecto.brief?.estado === "completado" && !(proyecto.documentos || []).some((d) => d.id === "doc_contexto")) alertas.push({ texto: "El cliente completó el brief: generá el CONTEXTO.md para desarrollar.", tono: "cyan", accion: () => ctx.irA("brief") });
+    if (proyecto.brief?.estado === "borrador") alertas.push({ texto: "El brief todavía no se envió al cliente.", tono: "cyan", accion: () => ctx.irA("formularios") });
+    if (sinContexto.brief) alertas.push({ texto: "El cliente completó el brief: generá el CONTEXTO.md para desarrollar.", tono: "cyan", accion: () => ctx.irA("formularios") });
+    if (sinContexto.formularios.length) alertas.push({ texto: `El cliente completó ${sinContexto.formularios.map((f) => `"${f.titulo}"`).join(", ")}: sumalo al CONTEXTO.md.`, tono: "cyan", accion: () => ctx.irA("formularios") });
+    const borradores = formularios.filter((f) => f.estado === "borrador");
+    if (borradores.length) alertas.push({ texto: `${borradores.length === 1 ? `El formulario "${borradores[0].titulo}" no se publicó` : `${borradores.length} formularios no se publicaron`} todavía en el portal.`, tono: "cyan", accion: () => ctx.irA("formularios") });
     if (entregasNuevas.length) alertas.push({ texto: `El cliente entregó ${entregasNuevas.length} pedido${entregasNuevas.length > 1 ? "s" : ""} para revisar.`, tono: "cyan", accion: () => ctx.irA("archivos") });
 
     const tonoCls = { rose: "border-rose-500/30 bg-rose-500/5 text-rose-300", amber: "border-amber-500/30 bg-amber-500/5 text-amber-300", cyan: "border-cyan-500/30 bg-cyan-500/5 text-cyan-300" };
@@ -96,7 +102,7 @@ export default function ResumenTab({ ctx }: { ctx: ProyectoCtx }) {
                 </button>
 
                 {/* Cliente */}
-                <button onClick={() => ctx.irA(proyecto.brief?.estado === "completado" ? "archivos" : "brief")} className="text-left rounded-2xl border border-cyan-500/30 bg-cyan-500/5 p-4 space-y-2 hover:border-cyan-500/60 transition-colors">
+                <button onClick={() => ctx.irA(proyecto.brief?.estado === "completado" && !formsEsperando.length ? "archivos" : "formularios")} className="text-left rounded-2xl border border-cyan-500/30 bg-cyan-500/5 p-4 space-y-2 hover:border-cyan-500/60 transition-colors">
                     <div className="flex items-center justify-between">
                         <span className="text-[10px] font-bold uppercase tracking-wider text-cyan-400 flex items-center gap-1.5"><Users className="w-4 h-4" /> Cliente</span>
                         <ChevronRight className="w-4 h-4 text-cyan-400" />
@@ -105,6 +111,12 @@ export default function ResumenTab({ ctx }: { ctx: ProyectoCtx }) {
                         <ClipboardList className="w-4 h-4 text-cyan-400" />
                         Brief: {proyecto.brief ? (proyecto.brief.estado === "completado" ? "completo" : `${brief.pct}% ${proyecto.brief.estado === "enviado" ? "(enviado)" : "(borrador)"}`) : "sin crear"}
                     </p>
+                    {formularios.length > 0 && (
+                        <p className="text-[11px] text-muted-foreground flex items-center gap-1.5">
+                            <ClipboardList className="w-3.5 h-3.5" />
+                            {formularios.length} formulario{formularios.length === 1 ? "" : "s"} · {formularios.filter((f) => f.estado === "completado").length} completo{formularios.filter((f) => f.estado === "completado").length === 1 ? "" : "s"}{formsEsperando.length > 0 && ` · ${formsEsperando.length} esperando respuesta`}
+                        </p>
+                    )}
                     <p className="text-[11px] text-muted-foreground flex items-center gap-1.5"><Inbox className="w-3.5 h-3.5" /> {solicitudesPend.length} pedidos pendientes · {entregasNuevas.length} por revisar</p>
                     <p className="text-[11px] text-muted-foreground">{archivosCliente.length} archivos subidos por el cliente</p>
                 </button>

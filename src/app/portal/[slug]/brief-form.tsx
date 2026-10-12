@@ -4,12 +4,12 @@ import { useEffect, useRef, useState } from "react";
 import { Check, ChevronLeft, ChevronRight, Loader2, Paperclip, Send, Upload, X, CheckCircle2, Cloud } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { archivosProyectoStore, logsProyectoStore, proyectosStore, storageStore, mensajeError } from "@/lib/store";
+import { archivosProyectoStore, logsProyectoStore, storageStore, mensajeError } from "@/lib/store";
 import { aISO, progresoBrief, tieneRespuesta } from "@/lib/proyecto-gestion";
 import type { BriefPregunta, BriefProyecto, Proyecto } from "@/lib/types";
 
 /** Aplica las respuestas locales sobre la versión más nueva del brief (por si la agencia editó preguntas). */
-function aplicarRespuestas(base: BriefProyecto, local: BriefProyecto): BriefProyecto {
+export function aplicarRespuestas<T extends BriefProyecto>(base: T, local: BriefProyecto): T {
     const resp = new Map<string, BriefPregunta["respuesta"]>();
     local.secciones.forEach((s) => s.preguntas.forEach((q) => { if (q.respuesta !== undefined) resp.set(q.id, q.respuesta); }));
     return {
@@ -108,8 +108,18 @@ function Pregunta({ q, proyecto, onChange }: { q: BriefPregunta; proyecto: Proye
     );
 }
 
-export default function BriefForm({ proyecto, slug, onCompletado }: { proyecto: Proyecto; slug: string; onCompletado: () => void }) {
-    const [brief, setBrief] = useState<BriefProyecto>(proyecto.brief!);
+/**
+ * El brief o un formulario extra, paso a paso y con guardado automático.
+ * `guardarEnBase` escribe las respuestas sobre la versión más nueva de la base.
+ */
+export default function BriefForm({ proyecto, form, esBrief, guardarEnBase, onCompletado }: {
+    proyecto: Proyecto;
+    form: BriefProyecto;
+    esBrief: boolean;
+    guardarEnBase: (local: BriefProyecto) => Promise<void>;
+    onCompletado: (final: BriefProyecto) => void;
+}) {
+    const [brief, setBrief] = useState<BriefProyecto>(form);
     const [paso, setPaso] = useState(0);
     const [estadoGuardado, setEstadoGuardado] = useState<"guardado" | "pendiente" | "guardando" | "error">("guardado");
     const [enviando, setEnviando] = useState(false);
@@ -120,9 +130,7 @@ export default function BriefForm({ proyecto, slug, onCompletado }: { proyecto: 
     const persistir = async (local: BriefProyecto): Promise<boolean> => {
         setEstadoGuardado("guardando");
         try {
-            const fresco = await proyectosStore.getPortal(slug);
-            const final = aplicarRespuestas(fresco?.brief || local, local);
-            await proyectosStore.updateSinRetorno(proyecto.id, { brief: final });
+            await guardarEnBase(local);
             setEstadoGuardado("guardado");
             return true;
         } catch (e) {
@@ -167,11 +175,11 @@ export default function BriefForm({ proyecto, slug, onCompletado }: { proyecto: 
         setBrief(final);
         setEditandoCompletado(false);
         logsProyectoStore.create({
-            proyecto_id: proyecto.id, titulo: "El cliente completó el brief",
+            proyecto_id: proyecto.id, titulo: esBrief ? "El cliente completó el brief" : `El cliente completó el formulario: ${(form as BriefProyecto & { titulo?: string }).titulo || ""}`,
             descripcion: `${progreso.respondidas} de ${progreso.total} preguntas respondidas.`, fecha: aISO(new Date()),
         }).catch(() => {});
         toast.success("¡Gracias! Recibimos tus respuestas.");
-        onCompletado();
+        onCompletado(final);
         window.scrollTo({ top: 0, behavior: "smooth" });
     };
 
@@ -179,8 +187,8 @@ export default function BriefForm({ proyecto, slug, onCompletado }: { proyecto: 
         return (
             <div className="rounded-3xl border border-emerald-500/30 bg-emerald-500/5 p-8 text-center space-y-3">
                 <CheckCircle2 className="w-12 h-12 text-emerald-400 mx-auto" />
-                <h3 className="text-xl font-bold text-foreground">¡Brief completo!</h3>
-                <p className="text-sm text-muted-foreground max-w-md mx-auto">Ya tenemos todo lo que necesitamos para arrancar. Si te acordás de algo más, podés editar tus respuestas cuando quieras.</p>
+                <h3 className="text-xl font-bold text-foreground">{esBrief ? "¡Brief completo!" : "¡Formulario completo!"}</h3>
+                <p className="text-sm text-muted-foreground max-w-md mx-auto">{esBrief ? "Ya tenemos todo lo que necesitamos para arrancar." : "¡Gracias! Con esto seguimos avanzando."} Si te acordás de algo más, podés editar tus respuestas cuando quieras.</p>
                 <button onClick={() => { setEditandoCompletado(true); setPaso(0); }} className="px-4 py-2 rounded-xl border border-white/10 text-sm text-foreground hover:border-amber-400/50">Editar respuestas</button>
             </div>
         );
@@ -227,7 +235,7 @@ export default function BriefForm({ proyecto, slug, onCompletado }: { proyecto: 
                 </button>
                 {esUltimo ? (
                     <button disabled={enviando} onClick={enviar} className="flex items-center gap-2 px-6 py-3 rounded-xl bg-amber-400 text-slate-950 text-sm font-bold hover:bg-amber-300 disabled:opacity-60 shadow-lg shadow-amber-400/20">
-                        {enviando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} Enviar brief
+                        {enviando ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />} {esBrief ? "Enviar brief" : "Enviar respuestas"}
                     </button>
                 ) : (
                     <button onClick={() => { if (timer.current) { clearTimeout(timer.current); persistir(ultimo.current); } setPaso(paso + 1); window.scrollTo({ top: 0, behavior: "smooth" }); }} className="flex items-center gap-1 px-5 py-2.5 rounded-xl bg-white/10 text-sm font-bold text-foreground hover:bg-white/15">

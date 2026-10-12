@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { cn, formatCurrency, formatDate, daysFromNow } from "@/lib/utils";
 import { finanzasStore, tareasStore, proyectosStore, archivosProyectoStore } from "@/lib/store";
 import type { ArchivoProyecto, Finanza, Proyecto, Tarea } from "@/lib/types";
-import { aISO, diasEntre } from "@/lib/proyecto-gestion";
+import { aISO, diasEntre, respuestasSinContexto } from "@/lib/proyecto-gestion";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type NotifType = "cobro_vencido" | "cobro_proximo" | "tarea_vencida" | "cobro_hoy" | "entrega" | "cliente";
@@ -127,6 +127,19 @@ function generateNotifications(finanzas: Finanza[], tareas: Tarea[], proyectos: 
                 href: `/proyectos/${p.id}`,
             });
         });
+    proyectos.forEach((p) => {
+        respuestasSinContexto(p).formularios.forEach((f) => {
+            notifs.push({
+                id: `form_${p.id}_${f.id}_${f.completado_at}`,
+                type: "cliente",
+                title: `El cliente completó "${f.titulo}"`,
+                body: `${p.nombre} — sumalo al CONTEXTO.md`,
+                date: f.completado_at || p.created_at,
+                urgency: "low",
+                href: `/proyectos/${p.id}`,
+            });
+        });
+    });
     const porProyecto = new Map<string, ArchivoProyecto[]>();
     archivosCliente.forEach((a) => porProyecto.set(a.proyecto_id, [...(porProyecto.get(a.proyecto_id) || []), a]));
     porProyecto.forEach((lista, proyectoId) => {

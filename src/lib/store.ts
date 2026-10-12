@@ -83,13 +83,13 @@ export const proyectosStore = {
      * viajen al navegador del cliente los accesos, las notas internas ni la wiki.
      */
     getPortal: async (slug: string): Promise<Proyecto | null> => {
-        const { data, error } = await supabase
-            .from("proyectos")
-            .select("id, created_at, cliente_id, nombre, tipo_proyecto, figma_url, calendly_url, slug_portal, contrato_url, estado, descripcion, fecha_inicio, fecha_entrega, es_interno, fases, logo_url, figma_aprobado, figma_comentarios, links, brief")
-            .eq("slug_portal", slug)
-            .maybeSingle();
+        const columnas = "id, created_at, cliente_id, nombre, tipo_proyecto, figma_url, calendly_url, slug_portal, contrato_url, estado, descripcion, fecha_inicio, fecha_entrega, es_interno, fases, logo_url, figma_aprobado, figma_comentarios, links, brief";
+        const leer = (cols: string) => supabase.from("proyectos").select(cols).eq("slug_portal", slug).maybeSingle();
+        let { data, error } = await leer(`${columnas}, formularios`);
+        // Sin la migración 20261012_formularios.sql el portal sigue andando, sin formularios.
+        if (error && /formularios/.test(error.message)) ({ data, error } = await leer(columnas));
         if (error) throw error;
-        return data as Proyecto | null;
+        return data as unknown as Proyecto | null;
     },
     /** Update sin devolver la fila: lo usa el portal, que no debe recibir columnas privadas. */
     updateSinRetorno: async (id: string, data: Partial<Proyecto>): Promise<void> => {

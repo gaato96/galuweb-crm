@@ -421,13 +421,15 @@ export interface Proyecto {
     cotizacion_id?: string | null;
     links?: LinkProyecto[];
     brief?: BriefProyecto | null;
+    /** Formularios extra que se le mandan al cliente además del brief (ej: antes de una fase). */
+    formularios?: FormularioProyecto[];
     // Esperas al cliente: mientras el cliente no entrega algo, los plazos se corren
     esperas_cliente?: EsperaCliente[];
     /** Días que ya se sumaron a los plazos guardados por esperas al cliente. */
     dias_espera_aplicados?: number;
 }
 
-export type OrigenEspera = "brief" | "solicitud" | "manual";
+export type OrigenEspera = "brief" | "solicitud" | "formulario" | "manual";
 
 /**
  * Un tramo en el que el proyecto no puede avanzar porque falta algo del
@@ -438,7 +440,7 @@ export interface EsperaCliente {
     id: string;
     motivo: string;
     origen: OrigenEspera;
-    /** Solicitud que la originó (origen "solicitud"). */
+    /** Solicitud o formulario que la originó (origen "solicitud" o "formulario"). */
     ref_id?: string | null;
     /** YYYY-MM-DD */
     desde: string;
@@ -524,6 +526,23 @@ export interface BriefProyecto {
     /** Cuándo se publicó en el portal: desde ahí se espera al cliente. */
     enviado_at?: string | null;
     completado_at?: string | null;
+}
+
+/**
+ * Formulario extra: mismas secciones y preguntas que el brief, pero con nombre
+ * propio. Sirve para profundizar algo que quedó corto en el brief (ej: el
+ * detalle de cada producto) antes de la fase que lo necesita.
+ */
+export interface FormularioProyecto extends BriefProyecto {
+    id: string;
+    titulo: string;
+    /** Nombre de la fase para la que se necesitan las respuestas. */
+    fase?: string | null;
+    /** Sin esto no se puede avanzar: mientras no lo completa, los plazos se corren. */
+    frena?: boolean;
+    /** Lo que se le pidió a la IA para armarlo (para regenerarlo sin reescribirlo). */
+    pedido_ia?: string;
+    creado_at: string;
 }
 
 export interface Tarea {

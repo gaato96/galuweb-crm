@@ -11,6 +11,7 @@ import { ui, type ProyectoCtx } from "./ctx";
 const ORIGEN_LABEL: Record<EsperaCliente["origen"], string> = {
     brief: "Brief",
     solicitud: "Pedido",
+    formulario: "Formulario",
     manual: "Manual",
 };
 
@@ -61,15 +62,15 @@ export default function EsperasCliente({ ctx }: { ctx: ProyectoCtx }) {
         );
         if (!ok) return;
         const detalle = dias > 0 ? `Se esperó ${plural(dias, "día")}; los plazos se corrieron en consecuencia.` : "";
-        registrarLog(proyecto.id, e.origen === "brief" ? "Se sigue sin esperar el brief" : `Se recibió del cliente: ${e.motivo}`, detalle);
+        registrarLog(proyecto.id, e.origen === "brief" ? "Se sigue sin esperar el brief" : e.origen === "formulario" ? `Se sigue sin esperar: ${e.motivo}` : `Se recibió del cliente: ${e.motivo}`, detalle);
     };
 
     // "No frenaba": la espera deja de contar y los plazos vuelven atrás.
-    // La del brief se cierra sin días (si se borrara, se volvería a abrir sola).
+    // La del brief o un formulario se cierra sin días (si se borrara, se volvería a abrir sola).
     const quitar = (e: EsperaCliente) => {
         if (!confirm(`¿"${e.motivo}" no frena el proyecto? Los días que se corrieron por esta espera vuelven atrás.`)) return;
         editar(
-            (es) => (e.origen === "brief" ? es.map((x) => (x.id === e.id ? { ...x, hasta: x.desde } : x)) : es.filter((x) => x.id !== e.id)),
+            (es) => (e.origen === "brief" || e.origen === "formulario" ? es.map((x) => (x.id === e.id ? { ...x, hasta: x.desde } : x)) : es.filter((x) => x.id !== e.id)),
             "Espera quitada"
         );
     };
@@ -134,8 +135,8 @@ export default function EsperasCliente({ ctx }: { ctx: ProyectoCtx }) {
                                     Desde
                                     <input type="date" value={e.desde} max={hoy} disabled={ocupado} onChange={(ev) => cambiarDesde(e, ev.target.value)} className="h-7 px-1.5 rounded-lg bg-background border border-border text-[11px] text-foreground" />
                                 </label>
-                                <button onClick={() => reanudar(e)} disabled={ocupado} className={cn(ui.btn, "bg-emerald-500 text-slate-950 hover:bg-emerald-400")} title={e.origen === "brief" ? "Seguir sin esperar el brief" : "Ya llegó: reanudar"}>
-                                    <Play className="w-3.5 h-3.5" /> {e.origen === "brief" ? "Seguir sin esperar" : "Ya llegó"}
+                                <button onClick={() => reanudar(e)} disabled={ocupado} className={cn(ui.btn, "bg-emerald-500 text-slate-950 hover:bg-emerald-400")} title={e.origen === "brief" || e.origen === "formulario" ? "Seguir sin esperar las respuestas" : "Ya llegó: reanudar"}>
+                                    <Play className="w-3.5 h-3.5" /> {e.origen === "brief" || e.origen === "formulario" ? "Seguir sin esperar" : "Ya llegó"}
                                 </button>
                                 <button onClick={() => quitar(e)} disabled={ocupado} className="p-1 text-muted-foreground hover:text-rose-400" title="No frenaba: quitar y volver atrás los plazos">
                                     <X className="w-3.5 h-3.5" />

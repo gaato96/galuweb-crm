@@ -6,7 +6,7 @@
 
 import type {
     BriefPregunta, BriefProyecto, BriefSeccion, Cliente, EsperaCliente, FaseProyecto, Finanza,
-    Proyecto, SolicitudProyecto, Tarea, TipoPreguntaBrief, TipoProyecto, TareaPlantilla,
+    FormularioProyecto, Proyecto, SolicitudProyecto, Tarea, TipoPreguntaBrief, TipoProyecto, TareaPlantilla,
     CategoriaTarea, Prioridad,
 } from "./types";
 import { FASES_POR_TIPO, TIPO_PROYECTO_LABELS } from "./types";
@@ -206,6 +206,40 @@ export function planEsperas(
             cerradas.push(cerrada);
             return cerrada;
         });
+    }
+
+    // Formularios extra: solo los que frenan el proyecto abren una espera.
+    // Sin la columna (formularios undefined) no se tocan sus esperas.
+    if (proyecto.formularios) {
+        const porId = new Map(proyecto.formularios.map((f) => [f.id, f]));
+        esperas = esperas.flatMap((e) => {
+            if (e.origen !== "formulario" || e.hasta || !e.ref_id) return [e];
+            const f = porId.get(e.ref_id);
+            // Se borró o ya no frena: la espera abierta desaparece y los plazos vuelven atrás.
+            if (!f || !f.frena) return [];
+            if (f.estado !== "completado") return [e];
+            const hasta = fechaLocal(f.completado_at, hoy);
+            const cerrada = { ...e, hasta: hasta > e.desde ? hasta : e.desde };
+            cerradas.push(cerrada);
+            return [cerrada];
+        });
+        for (const f of proyecto.formularios) {
+            if (!f.frena || f.estado === "borrador") continue;
+            const suyas = esperas.filter((e) => e.origen === "formulario" && e.ref_id === f.id);
+            const motivo = `Formulario: ${f.titulo}`;
+            // Una vez cerrada (o "seguir sin esperar") no se vuelve a abrir sola.
+            if (f.estado === "enviado" && suyas.length === 0) {
+                const nueva: EsperaCliente = { id: nuevoId("e"), motivo, origen: "formulario", ref_id: f.id, desde: f.enviado_at ? fechaLocal(f.enviado_at, hoy) : hoy, hasta: null };
+                esperas.push(nueva);
+                abiertas.push(nueva);
+            } else if (f.estado === "completado" && suyas.length === 0 && f.enviado_at) {
+                const desde = fechaLocal(f.enviado_at, hoy);
+                const hasta = fechaLocal(f.completado_at, hoy);
+                const nueva: EsperaCliente = { id: nuevoId("e"), motivo, origen: "formulario", ref_id: f.id, desde, hasta: hasta > desde ? hasta : desde };
+                esperas.push(nueva);
+                cerradas.push(nueva);
+            }
+        }
     }
 
     if (solicitudes) {
@@ -563,18 +597,18 @@ function respuestaMarkdown(q: BriefPregunta): string {
     return String(q.respuesta).trim();
 }
 
-/** Brief respondido → .md listo para usar como contexto de desarrollo. */
-export function briefAMarkdown(brief: BriefProyecto, proyecto: Proyecto, cliente: Cliente | null): string {
+/** Brief (o formulario) respondido → .md listo para usar como contexto de desarrollo. */
+export function briefAMarkdown(brief: BriefProyecto, proyecto: Proyecto, cliente: Cliente | null, titulo = "Brief"): string {
     const lineas: string[] = [
-        `# Brief — ${proyecto.nombre}`,
+        `# ${titulo} — ${proyecto.nombre}`,
         "",
         `- **Cliente:** ${cliente ? `${cliente.nombre}${cliente.negocio ? ` (${cliente.negocio})` : ""}` : "Interno"}`,
         `- **Tipo de proyecto:** ${TIPO_PROYECTO_LABELS[proyecto.tipo_proyecto]}`,
         ...(proyecto.fecha_entrega ? [`- **Entrega:** ${proyecto.fecha_entrega}`] : []),
-        `- **Estado del brief:** ${brief.estado}${brief.completado_at ? ` (completado el ${brief.completado_at.slice(0, 10)})` : ""}`,
+        `- **Estado del ${titulo === "Brief" ? "brief" : "formulario"}:** ${brief.estado}${brief.completado_at ? ` (completado el ${brief.completado_at.slice(0, 10)})` : ""}`,
         "",
     ];
-    if (proyecto.descripcion) lineas.push("## Descripción del proyecto", "", proyecto.descripcion, "");
+    if (proyecto.descripcion && titulo === "Brief") lineas.push("## Descripción del proyecto", "", proyecto.descripcion, "");
     for (const s of brief.secciones) {
         lineas.push(`## ${s.titulo}`, "");
         for (const q of s.preguntas) {
@@ -582,6 +616,223 @@ export function briefAMarkdown(brief: BriefProyecto, proyecto: Proyecto, cliente
         }
     }
     return lineas.join("\n").trim() + "\n";
+}
+
+// ─────────────────────────────────────────────────────────────
+// Formularios extra
+// ─────────────────────────────────────────────────────────────
+
+export function nuevoFormulario(titulo: string, fase: string | null, base?: Partial<BriefProyecto>): FormularioProyecto {
+    const ahora = new Date().toISOString();
+    return {
+        estado: "borrador",
+        intro: "",
+        secciones: [{ id: nuevoId("s"), titulo: "Preguntas", preguntas: [p("Nueva pregunta")] }],
+        generado_con_ia: false,
+        completado_at: null,
+        ...base,
+        actualizado_at: ahora,
+        id: nuevoId("f"),
+        titulo: titulo.trim() || "Formulario",
+        fase,
+        frena: false,
+        creado_at: ahora,
+    };
+}
+
+export const docIdFormulario = (id: string) => `doc_${id}`;
+
+/** Reemplaza un formulario por id (o lo agrega al final si no estaba). */
+export function reemplazarFormulario(lista: FormularioProyecto[], form: FormularioProyecto): FormularioProyecto[] {
+    return lista.some((f) => f.id === form.id) ? lista.map((f) => (f.id === form.id ? form : f)) : [...lista, form];
+}
+
+/**
+ * Respuestas del cliente que todavía no están en el CONTEXTO.md: el brief
+ * completo sin contexto generado, o formularios completados después.
+ */
+export function respuestasSinContexto(proyecto: Pick<Proyecto, "brief" | "formularios" | "documentos">): { brief: boolean; formularios: FormularioProyecto[] } {
+    const ctx = (proyecto.documentos || []).find((d) => d.id === "doc_contexto");
+    return {
+        brief: proyecto.brief?.estado === "completado" && !ctx,
+        formularios: (proyecto.formularios || []).filter((f) => f.estado === "completado" && (!ctx || (f.completado_at || "") > ctx.updated_at)),
+    };
+}
+
+/**
+ * Todo lo que respondió el cliente (brief + formularios con respuestas) en un
+ * solo markdown: es la entrada del CONTEXTO.md y de la IA que arma formularios.
+ */
+export function respuestasClienteMarkdown(proyecto: Proyecto, cliente: Cliente | null, excluir?: string): string {
+    const partes: string[] = [];
+    if (proyecto.brief && progresoBrief(proyecto.brief).respondidas > 0) partes.push(briefAMarkdown(proyecto.brief, proyecto, cliente));
+    for (const f of proyecto.formularios || []) {
+        if (f.id === excluir || progresoBrief(f).respondidas === 0) continue;
+        partes.push(briefAMarkdown(f, proyecto, cliente, `Formulario: ${f.titulo}`));
+    }
+    return partes.join("\n---\n\n");
+}
+
+// ─────────────────────────────────────────────────────────────
+// Formulario desde texto pegado (.md)
+// ─────────────────────────────────────────────────────────────
+// Para armar un formulario pegando lo que ya está escrito, sin IA:
+//   # Título                    → título del formulario (si hay ## abajo)
+//   ## Sección                  → sección (también una línea toda en **negrita**)
+//   - ¿Pregunta? / 1. Pregunta  → pregunta (o cualquier línea que termine en ?)
+//       - Opción                → opciones de una sola respuesta
+//       - [ ] Opción            → opciones de varias respuestas
+//   > texto o línea suelta      → ayuda de la pregunta de arriba
+//   Pregunta *                  → obligatoria
+//   [archivo] [texto] [párrafo] [una] [varias] → fuerza el tipo
+
+export const EJEMPLO_FORMULARIO_MD = `# Tus cursos en detalle
+
+## Curso de Maquillaje Profesional
+- ¿A quién va dirigido? *
+- ¿Cuánto dura y cuántas clases tiene? [texto]
+- ¿Cuál es la modalidad?
+    - Presencial
+    - Online en vivo
+    - Grabado
+- ¿Qué incluye el precio?
+    - [ ] Materiales
+    - [ ] Certificado
+    - [ ] Kit de regalo
+- Contanos el temario, módulo por módulo
+  > Si lo tenés en un PDF, subilo en la pregunta de abajo.
+- Subí el programa, fotos o videos del curso [archivo]`;
+
+const RE_TITULO = /^(#{1,6})\s+(.+?)\s*#*\s*$/;
+const RE_LISTA = /^([ \t]*)(?:[-*+•]|\d+[.)])\s+(.*)$/;
+const RE_CHECK = /^\[[ xX]?\]\s*/;
+const RE_TAG = /\[(archivos?|adjuntos?|texto|corto|corta|p[aá]rrafo|largo|larga|una|opci[oó]n|varias|m[uú]ltiple)\]/i;
+
+function limpiarMd(t: string): string {
+    return t
+        .replace(/\*\*(.+?)\*\*/g, "$1").replace(/__(.+?)__/g, "$1").replace(/`([^`]+)`/g, "$1")
+        .replace(/\s+/g, " ").trim();
+}
+
+function preguntaDesdeTexto(crudo: string): BriefPregunta | null {
+    let t = limpiarMd(crudo).replace(RE_CHECK, "");
+    let tipo: TipoPreguntaBrief | null = null;
+    let requerida = false;
+    const tag = t.match(RE_TAG);
+    if (tag) {
+        const k = tag[1].toLowerCase();
+        tipo = /^(archivo|adjunto)/.test(k) ? "archivo" : /^(texto|cort)/.test(k) ? "texto" : /^(p[aá]rrafo|larg)/.test(k) ? "parrafo" : /^(una|opci)/.test(k) ? "opcion" : "multiple";
+        t = t.replace(RE_TAG, " ").replace(/\s+/g, " ").trim();
+    }
+    if (/\s*(\*|\(obligatori[oa]\))$/i.test(t)) { requerida = true; t = t.replace(/\s*(\*|\(obligatori[oa]\))$/i, "").trim(); }
+    // Opciones en la misma línea: "¿Modalidad? (opciones: presencial, online)"
+    let opciones: string[] | undefined;
+    const enLinea = t.match(/\((opciones|varias)\s*:\s*([^)]+)\)\s*$/i);
+    if (enLinea) {
+        opciones = enLinea[2].split(/\s*[,/|]\s*/).map((x) => x.trim()).filter(Boolean);
+        if (!tipo) tipo = /varias/i.test(enLinea[1]) ? "multiple" : "opcion";
+        t = t.slice(0, enLinea.index).trim();
+    }
+    t = t.replace(/:$/, "").trim();
+    if (!t) return null;
+    if (!tipo) {
+        if (/^(sub[ií]|adjunt|mand[aá]nos|envi[aá]nos|compart[ií])/i.test(t)) tipo = "archivo";
+        else if (t.length <= 70 && /precio|cu[aá]nto (cuesta|sale|dura)|duraci[oó]n|fecha|nombre|tel[eé]fono|e-?mail|link|url|instagram|cantidad|cu[aá]nt[oa]s/i.test(t)) tipo = "texto";
+        else tipo = "parrafo";
+    }
+    return { id: nuevoId("q"), pregunta: t, tipo, ...(opciones ? { opciones } : {}), ...(requerida ? { requerida: true } : {}) };
+}
+
+type PreguntaEnArmado = BriefPregunta & { indent: number; casillas: boolean; sub: string[] };
+
+/** Texto pegado (markdown o texto plano) → secciones y preguntas del formulario. */
+export function formularioDesdeTexto(texto: string): { titulo?: string; intro?: string; secciones: BriefSeccion[] } {
+    const lineas = texto.replace(/\r/g, "").split("\n");
+    const niveles = lineas
+        .map((l) => l.match(RE_TITULO))
+        .filter((m): m is RegExpMatchArray => m !== null && !m[2].trim().endsWith("?"))
+        .map((m) => m[1].length);
+    const minimo = niveles.length ? Math.min(...niveles) : 0;
+    // El # de más arriba es el título solo si aparece una vez y hay secciones debajo.
+    const nivelTitulo = niveles.filter((n) => n === minimo).length === 1 && niveles.some((n) => n > minimo) ? minimo : null;
+
+    let titulo: string | undefined;
+    const intro: string[] = [];
+    const secciones: BriefSeccion[] = [];
+    let seccion: BriefSeccion | null = null;
+    let pregunta: PreguntaEnArmado | null = null;
+
+    const cerrarPregunta = () => {
+        if (!pregunta) return;
+        const { indent: _i, casillas, sub, ...q } = pregunta;
+        void _i;
+        if (sub.length >= 2) {
+            q.opciones = sub;
+            if (q.tipo !== "opcion" && q.tipo !== "multiple") q.tipo = casillas ? "multiple" : "opcion";
+        } else if (sub.length === 1) {
+            q.ayuda = [q.ayuda, sub[0]].filter(Boolean).join(" ");
+        }
+        if ((q.tipo === "opcion" || q.tipo === "multiple") && (!q.opciones || q.opciones.length < 2)) { q.tipo = "parrafo"; delete q.opciones; }
+        if (!seccion) { seccion = { id: nuevoId("s"), titulo: "Preguntas", preguntas: [] }; secciones.push(seccion); }
+        seccion.preguntas.push(q);
+        pregunta = null;
+    };
+    const nuevaSeccion = (t: string) => {
+        cerrarPregunta();
+        seccion = { id: nuevoId("s"), titulo: limpiarMd(t).replace(/:$/, ""), preguntas: [] };
+        secciones.push(seccion);
+    };
+    const nuevaPregunta = (t: string, indent: number) => {
+        cerrarPregunta();
+        const q = preguntaDesdeTexto(t);
+        if (q) pregunta = { ...q, indent, casillas: false, sub: [] };
+    };
+
+    for (const linea of lineas) {
+        if (!linea.trim() || /^\s*(-{3,}|\*{3,}|_{3,})\s*$/.test(linea)) continue;
+        const h = linea.match(RE_TITULO);
+        if (h) {
+            const t = h[2].trim();
+            if (t.endsWith("?")) nuevaPregunta(t, 0);
+            else if (h[1].length === nivelTitulo && !titulo) { cerrarPregunta(); titulo = limpiarMd(t); }
+            else nuevaSeccion(t);
+            continue;
+        }
+        const negrita = linea.trim().match(/^\*\*([^*]+)\*\*:?$/);
+        if (negrita && !negrita[1].trim().endsWith("?")) { nuevaSeccion(negrita[1]); continue; }
+
+        const li = linea.match(RE_LISTA);
+        if (li) {
+            const indent = li[1].replace(/\t/g, "    ").length;
+            const contenido = li[2].trim();
+            const actual = pregunta as PreguntaEnArmado | null;
+            // Sub-viñeta de una pregunta: opción (salvo que sea otra pregunta).
+            if (actual && indent > actual.indent && !limpiarMd(contenido).endsWith("?")) {
+                if (RE_CHECK.test(contenido)) actual.casillas = true;
+                const o = limpiarMd(contenido.replace(RE_CHECK, ""));
+                if (o) actual.sub.push(o);
+                continue;
+            }
+            nuevaPregunta(contenido, indent);
+            continue;
+        }
+
+        const esCita = /^\s*>/.test(linea);
+        const plano = linea.trim().replace(/^>\s?/, "");
+        if (!esCita && (/\?\s*\*?\s*$/.test(plano) || RE_TAG.test(plano))) { nuevaPregunta(plano, linea.length - linea.trimStart().length); continue; }
+        const actual = pregunta as PreguntaEnArmado | null;
+        if (actual) { actual.ayuda = [actual.ayuda, limpiarMd(plano)].filter(Boolean).join(" "); continue; }
+        const sec = seccion as BriefSeccion | null;
+        if (sec && sec.preguntas.length === 0) { sec.descripcion = [sec.descripcion, limpiarMd(plano)].filter(Boolean).join(" "); continue; }
+        if (!sec) intro.push(limpiarMd(plano));
+    }
+    cerrarPregunta();
+
+    return {
+        ...(titulo ? { titulo } : {}),
+        ...(intro.length ? { intro: intro.join(" ") } : {}),
+        secciones: secciones.filter((s) => s.preguntas.length > 0),
+    };
 }
 
 // ─────────────────────────────────────────────────────────────

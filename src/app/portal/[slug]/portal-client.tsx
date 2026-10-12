@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
     CheckCircle2, Circle, Clock, ExternalLink, MessageCircle, Calendar, FileText, LifeBuoy, Check,
     X as XIcon, Upload, Loader2, ClipboardList, FolderOpen, Home, Inbox, Link2, Download, Palette,
-    Image as ImageIcon, Send, ArrowRight,
+    Image as ImageIcon, Send, ArrowRight, ChevronLeft, Flag,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -14,11 +14,11 @@ import {
 } from "@/lib/store";
 import { aISO, fechaCorta, infoPlazo, progresoBrief } from "@/lib/proyecto-gestion";
 import { fasesDe } from "@/lib/proyectos-estado";
-import type { ArchivoProyecto, CategoriaArchivo, Proyecto, SolicitudProyecto } from "@/lib/types";
+import type { ArchivoProyecto, BriefProyecto, CategoriaArchivo, FormularioProyecto, Proyecto, SolicitudProyecto } from "@/lib/types";
 import { CATEGORIA_ARCHIVO_LABELS, TIPO_PROYECTO_LABELS } from "@/lib/types";
-import BriefForm from "./brief-form";
+import BriefForm, { aplicarRespuestas } from "./brief-form";
 
-type Tab = "inicio" | "brief" | "archivos" | "ayuda";
+type Tab = "inicio" | "formularios" | "archivos" | "ayuda";
 
 // Celular de Galu (+54 381 597-6357). WhatsApp exige el 9 después del 54 en celulares argentinos.
 const WHATSAPP_AGENCIA = "5493815976357";
@@ -108,6 +108,8 @@ export default function PortalClient({ slug }: { slug: string }) {
     const [solicitudes, setSolicitudes] = useState<SolicitudProyecto[]>([]);
     const [estado, setEstado] = useState<"cargando" | "ok" | "no_existe" | "error">("cargando");
     const [tab, setTab] = useState<Tab>("inicio");
+    /** Formulario abierto en la pestaña Formularios: "brief", el id de uno extra, o null = la lista. */
+    const [formAbierto, setFormAbierto] = useState<string | null>(null);
     const [showTicket, setShowTicket] = useState(false);
     const [ticketForm, setTicketForm] = useState({ asunto: "", descripcion: "" });
     const [cambiosFigma, setCambiosFigma] = useState<string | null>(null);
@@ -170,11 +172,31 @@ export default function PortalClient({ slug }: { slug: string }) {
     const brief = proyecto.brief && proyecto.brief.estado !== "borrador" ? proyecto.brief : null;
     const briefProg = progresoBrief(brief);
     const pendientes = solicitudes.filter((s) => s.estado === "pendiente");
+    const formularios = (proyecto.formularios || []).filter((f) => f.estado !== "borrador");
+    const formsPendientes = formularios.filter((f) => f.estado !== "completado");
     const links = (proyecto.links || []).filter((l) => l.visible_cliente);
     const deAgencia = archivos.filter((a) => a.subido_por === "agencia");
     const deCliente = archivos.filter((a) => a.subido_por === "cliente");
     const figmaPendiente = Boolean(proyecto.figma_url) && !proyecto.figma_aprobado;
-    const cantPendientes = pendientes.length + (brief && brief.estado !== "completado" ? 1 : 0) + (figmaPendiente ? 1 : 0);
+    const cantPendientes = pendientes.length + (brief && brief.estado !== "completado" ? 1 : 0) + formsPendientes.length + (figmaPendiente ? 1 : 0);
+    const hayFormularios = Boolean(brief) || formularios.length > 0;
+    // Con un solo formulario (el brief) se abre directo, como siempre.
+    const conLista = formularios.length > 0;
+    const abrirForm = (id: string) => { setTab("formularios"); setFormAbierto(id); window.scrollTo({ top: 0 }); };
+
+    const guardarBrief = async (local: BriefProyecto) => {
+        const fresco = await proyectosStore.getPortal(slug);
+        await proyectosStore.updateSinRetorno(proyecto.id, { brief: aplicarRespuestas(fresco?.brief || local, local) });
+    };
+    const guardarFormulario = (id: string) => async (local: BriefProyecto) => {
+        const fresco = await proyectosStore.getPortal(slug);
+        const lista = fresco?.formularios || proyecto.formularios || [];
+        const base = lista.find((f) => f.id === id);
+        if (!base) throw new Error("El formulario ya no está disponible");
+        const final = aplicarRespuestas(base, local);
+        await proyectosStore.updateSinRetorno(proyecto.id, { formularios: lista.map((f) => (f.id === id ? final : f)) });
+    };
+    const formAbiertoExtra = formAbierto && formAbierto !== "brief" ? formularios.find((f) => f.id === formAbierto) || null : null;
     const primerNombre = cliente?.nombre?.split(" ")[0];
 
     const aprobarFigma = async (aprobado: boolean) => {
@@ -225,7 +247,7 @@ export default function PortalClient({ slug }: { slug: string }) {
 
     const TABS: { id: Tab; label: string; icon: typeof Home; badge?: number; oculto?: boolean }[] = [
         { id: "inicio", label: "Inicio", icon: Home, badge: cantPendientes || undefined },
-        { id: "brief", label: "Brief", icon: ClipboardList, oculto: !brief },
+        { id: "formularios", label: conLista ? "Formularios" : "Brief", icon: ClipboardList, oculto: !hayFormularios, badge: conLista && formsPendientes.length ? formsPendientes.length : undefined },
         { id: "archivos", label: "Archivos", icon: FolderOpen },
         { id: "ayuda", label: "Contacto", icon: MessageCircle },
     ];
@@ -241,7 +263,7 @@ export default function PortalClient({ slug }: { slug: string }) {
                 </div>
                 <nav className="max-w-3xl mx-auto px-2 sm:px-6 flex gap-1 overflow-x-auto scrollbar-none">
                     {TABS.filter((t) => !t.oculto).map((t) => (
-                        <button key={t.id} onClick={() => { setTab(t.id); window.scrollTo({ top: 0 }); }}
+                        <button key={t.id} onClick={() => { setTab(t.id); setFormAbierto(null); window.scrollTo({ top: 0 }); }}
                             className={cn("relative flex items-center gap-1.5 px-3 sm:px-4 py-3 text-sm font-semibold border-b-2 transition shrink-0",
                                 tab === t.id ? "border-amber-400 text-foreground" : "border-transparent text-muted-foreground hover:text-foreground")}>
                             <t.icon className="w-4 h-4" /> {t.label}
@@ -297,7 +319,7 @@ export default function PortalClient({ slug }: { slug: string }) {
                                         <p className="text-xs text-muted-foreground">Sin el brief no podemos arrancar: mientras lo esperamos, el proyecto queda en pausa y la fecha de entrega se corre.</p>
                                     )}
                                     {brief && brief.estado !== "completado" && (
-                                        <button onClick={() => setTab("brief")} className="w-full text-left rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 flex items-center gap-4 hover:bg-amber-400/15 transition">
+                                        <button onClick={() => abrirForm("brief")} className="w-full text-left rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 flex items-center gap-4 hover:bg-amber-400/15 transition">
                                             <div className="w-11 h-11 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shrink-0"><ClipboardList className="w-5 h-5" /></div>
                                             <div className="flex-1 min-w-0">
                                                 <p className="text-sm font-bold text-foreground">Completar el brief</p>
@@ -306,6 +328,23 @@ export default function PortalClient({ slug }: { slug: string }) {
                                             <ArrowRight className="w-5 h-5 text-amber-400 shrink-0" />
                                         </button>
                                     )}
+                                    {formsPendientes.map((f) => {
+                                        const prog = progresoBrief(f);
+                                        return (
+                                            <button key={f.id} onClick={() => abrirForm(f.id)} className="w-full text-left rounded-2xl border border-amber-400/40 bg-amber-400/10 p-4 flex items-center gap-4 hover:bg-amber-400/15 transition">
+                                                <div className="w-11 h-11 rounded-xl bg-amber-400 text-slate-950 flex items-center justify-center shrink-0"><ClipboardList className="w-5 h-5" /></div>
+                                                <div className="flex-1 min-w-0">
+                                                    <p className="text-sm font-bold text-foreground">Completar: {f.titulo}</p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {prog.respondidas ? `Vas ${prog.respondidas} de ${prog.total}. Se guarda solo.` : `${prog.total} preguntas. Podés hacerlo de a poco: se guarda solo.`}
+                                                        {f.fase && !f.frena && ` Lo vamos a necesitar para la etapa de ${f.fase}.`}
+                                                        {f.frena && " Sin esto no podemos seguir: mientras falte, la fecha de entrega se corre."}
+                                                    </p>
+                                                </div>
+                                                <ArrowRight className="w-5 h-5 text-amber-400 shrink-0" />
+                                            </button>
+                                        );
+                                    })}
                                     {pendientes.map((s) => <SolicitudCard key={s.id} s={s} proyecto={proyecto} onEntregada={() => cargarMaterial(proyecto.id)} />)}
                                     {figmaPendiente && (
                                         <div className="rounded-2xl border border-purple-400/30 bg-purple-400/5 p-4 space-y-3">
@@ -391,11 +430,66 @@ export default function PortalClient({ slug }: { slug: string }) {
                     </>
                 )}
 
-                {tab === "brief" && brief && (
-                    <Seccion titulo="Brief del proyecto" icono={ClipboardList}>
-                        <BriefForm proyecto={proyecto} slug={slug} onCompletado={() => setProyecto({ ...proyecto, brief: { ...brief, estado: "completado" } })} />
-                    </Seccion>
-                )}
+                {tab === "formularios" && hayFormularios && (() => {
+                    const volver = conLista && (
+                        <button onClick={() => { setFormAbierto(null); window.scrollTo({ top: 0 }); }} className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+                            <ChevronLeft className="w-4 h-4" /> Formularios
+                        </button>
+                    );
+                    if (brief && (formAbierto === "brief" || !conLista)) {
+                        return (
+                            <Seccion titulo="Brief del proyecto" icono={ClipboardList} accion={volver}>
+                                <BriefForm key="brief" proyecto={proyecto} form={brief} esBrief guardarEnBase={guardarBrief}
+                                    onCompletado={(final) => setProyecto({ ...proyecto, brief: { ...brief, ...final } })} />
+                            </Seccion>
+                        );
+                    }
+                    if (formAbiertoExtra) {
+                        const f = formAbiertoExtra;
+                        return (
+                            <Seccion titulo={f.titulo} icono={ClipboardList} accion={volver}>
+                                <BriefForm key={f.id} proyecto={proyecto} form={f} esBrief={false} guardarEnBase={guardarFormulario(f.id)}
+                                    onCompletado={(final) => setProyecto({ ...proyecto, formularios: (proyecto.formularios || []).map((x) => (x.id === f.id ? { ...x, ...final } as FormularioProyecto : x)) })} />
+                            </Seccion>
+                        );
+                    }
+                    const items: { id: string; titulo: string; form: BriefProyecto; fase?: string | null }[] = [
+                        ...(brief ? [{ id: "brief", titulo: "Brief del proyecto", form: brief }] : []),
+                        ...formularios.map((f) => ({ id: f.id, titulo: f.titulo, form: f as BriefProyecto, fase: f.fase })),
+                    ];
+                    return (
+                        <Seccion titulo="Formularios" icono={ClipboardList}>
+                            <p className="text-sm text-muted-foreground -mt-2">Preguntas que nos ayudan a armar tu proyecto. Podés completarlas de a poco: todo se guarda solo.</p>
+                            <div className="space-y-2">
+                                {items.map((it) => {
+                                    const prog = progresoBrief(it.form);
+                                    const completo = it.form.estado === "completado";
+                                    return (
+                                        <button key={it.id} onClick={() => abrirForm(it.id)} className={cn("w-full text-left rounded-2xl border p-4 flex items-center gap-4 transition",
+                                            completo ? "border-white/10 bg-white/[0.02] hover:border-emerald-400/40" : "border-amber-400/40 bg-amber-400/[0.06] hover:bg-amber-400/10")}>
+                                            <div className={cn("w-11 h-11 rounded-xl flex items-center justify-center shrink-0", completo ? "bg-emerald-500/15 text-emerald-400" : "bg-amber-400 text-slate-950")}>
+                                                {completo ? <CheckCircle2 className="w-5 h-5" /> : <ClipboardList className="w-5 h-5" />}
+                                            </div>
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-sm font-bold text-foreground">{it.titulo}</p>
+                                                <p className="text-xs text-muted-foreground">
+                                                    {completo ? "Completo · podés revisar tus respuestas" : prog.respondidas ? `Vas ${prog.respondidas} de ${prog.total}` : `${prog.total} preguntas`}
+                                                </p>
+                                                {it.fase && !completo && <p className="text-[11px] text-amber-300/90 mt-0.5 flex items-center gap-1"><Flag className="w-3 h-3" /> Para la etapa: {it.fase}</p>}
+                                            </div>
+                                            {!completo && (
+                                                <div className="w-14 shrink-0">
+                                                    <div className="h-1.5 rounded-full bg-white/10 overflow-hidden"><div className="h-full bg-amber-400" style={{ width: `${prog.pct}%` }} /></div>
+                                                </div>
+                                            )}
+                                            <ArrowRight className={cn("w-5 h-5 shrink-0", completo ? "text-muted-foreground" : "text-amber-400")} />
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        </Seccion>
+                    );
+                })()}
 
                 {tab === "archivos" && (
                     <>

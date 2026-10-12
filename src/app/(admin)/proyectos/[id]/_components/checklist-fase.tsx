@@ -6,7 +6,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { tareasStore, mensajeError } from "@/lib/store";
 import { cargarChecklistFase } from "@/lib/proyecto-acciones";
-import { briefAMarkdown, tareasPlantillaDeFase, configDeFase, fechaCorta } from "@/lib/proyecto-gestion";
+import { respuestasClienteMarkdown, tareasPlantillaDeFase, configDeFase, fechaCorta } from "@/lib/proyecto-gestion";
 import type { FaseProyecto, TareaPlantilla, Prioridad } from "@/lib/types";
 import { PRIORIDAD_COLORS } from "@/lib/types";
 import { ui, type ProyectoCtx } from "./ctx";
@@ -77,7 +77,7 @@ export default function ChecklistFase({ ctx, fase, compacto = false }: { ctx: Pr
                     tipo: proyecto.tipo_proyecto,
                     nombre: proyecto.nombre,
                     descripcion: proyecto.descripcion,
-                    briefResumen: proyecto.brief && proyecto.brief.estado !== "borrador" ? briefAMarkdown(proyecto.brief, proyecto, cliente) : "",
+                    briefResumen: respuestasClienteMarkdown(proyecto, cliente),
                     existentes: tareas.map((t) => t.titulo),
                 }),
             });

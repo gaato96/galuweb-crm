@@ -13,7 +13,7 @@ import {
     archivosProyectoStore, solicitudesStore, mensajeError,
 } from "@/lib/store";
 import { fasesDe } from "@/lib/proyectos-estado";
-import { briefAMarkdown, fechaCorta, infoPlazo, ESTADO_PLAZO_COLORS } from "@/lib/proyecto-gestion";
+import { briefAMarkdown, docIdFormulario, fechaCorta, infoPlazo, respuestasSinContexto, ESTADO_PLAZO_COLORS } from "@/lib/proyecto-gestion";
 import { sincronizarEsperas } from "@/lib/proyecto-acciones";
 import type {
     Proyecto, Tarea, Cliente, LogProyecto, Finanza, ArchivoProyecto, SolicitudProyecto, EsperaCliente,
@@ -24,7 +24,7 @@ import { upsertDoc } from "./_components/docs-util";
 import ResumenTab from "./_components/resumen-tab";
 import FasesTab from "./_components/fases-tab";
 import FinanzasTab from "./_components/finanzas-tab";
-import BriefTab from "./_components/brief-tab";
+import FormulariosTab from "./_components/formularios-tab";
 import ArchivosTab from "./_components/archivos-tab";
 import DocsTab from "./_components/docs-tab";
 import EditarProyectoModal from "./_components/editar-proyecto-modal";
@@ -103,15 +103,23 @@ export default function ProyectoDetailPage() {
         recargar().then(() => setMounted(true)).then(() => sincronizar());
     }, [recargar, sincronizar]);
 
-    // Brief completado por el cliente → el BRIEF.md queda guardado solo en Docs.
+    // Brief o formulario completado por el cliente → su .md queda guardado solo en Docs.
     useEffect(() => {
-        if (!proyecto?.brief || proyecto.brief.estado !== "completado") return;
-        const doc = (proyecto.documentos || []).find((d) => d.id === "doc_brief");
-        if (doc && doc.updated_at >= (proyecto.brief.completado_at || "")) return;
-        const docs = upsertDoc(proyecto.documentos || [], {
-            id: "doc_brief", titulo: "Brief", categoria: "estrategia", contenido: briefAMarkdown(proyecto.brief, proyecto, cliente),
-        });
-        proyectosStore.update(proyecto.id, { documentos: docs }).then(setProyecto).catch(() => {});
+        if (!proyecto) return;
+        const completados = [
+            ...(proyecto.brief?.estado === "completado" ? [{ id: "doc_brief", titulo: "Brief", form: proyecto.brief, md: "Brief" }] : []),
+            ...(proyecto.formularios || []).filter((f) => f.estado === "completado")
+                .map((f) => ({ id: docIdFormulario(f.id), titulo: `Formulario — ${f.titulo}`, form: f, md: `Formulario: ${f.titulo}` })),
+        ];
+        let docs = proyecto.documentos || [];
+        let cambio = false;
+        for (const c of completados) {
+            const doc = docs.find((d) => d.id === c.id);
+            if (doc && doc.updated_at >= (c.form.completado_at || "")) continue;
+            docs = upsertDoc(docs, { id: c.id, titulo: c.titulo, categoria: "estrategia", contenido: briefAMarkdown(c.form, proyecto, cliente, c.md) });
+            cambio = true;
+        }
+        if (cambio) proyectosStore.update(proyecto.id, { documentos: docs }).then(setProyecto).catch(() => {});
     }, [proyecto, cliente]);
 
     if (!mounted) return (
@@ -149,6 +157,7 @@ export default function ProyectoDetailPage() {
     const progreso = fases.length ? Math.round((fases.filter((f) => f.completada).length / fases.length) * 100) : 0;
     const plazo = infoPlazo(proyecto, progreso);
     const pendientesCliente = solicitudes.filter((s) => s.estado === "entregada").length;
+    const sinContexto = respuestasSinContexto(proyecto);
 
     const handleUploadLogo = async (file: File) => {
         const toastId = toast.loading("Subiendo logo...");
@@ -179,7 +188,7 @@ export default function ProyectoDetailPage() {
         { id: "resumen", label: "Resumen", icon: Zap },
         { id: "fases", label: "Fases y tareas", icon: Layers, count: tareas.filter((t) => t.estado !== "completada").length || undefined },
         { id: "finanzas", label: "Finanzas", icon: DollarSign, count: finanzas.length || undefined },
-        { id: "brief", label: "Brief", icon: ClipboardList, alerta: proyecto.brief?.estado === "completado" && !(proyecto.documentos || []).some((d) => d.id === "doc_contexto") },
+        { id: "formularios", label: "Formularios", icon: ClipboardList, count: (proyecto.formularios || []).length ? (proyecto.formularios || []).length + 1 : undefined, alerta: sinContexto.brief || sinContexto.formularios.length > 0 },
         { id: "archivos", label: "Archivos y pedidos", icon: FolderOpen, count: archivos.length || undefined, alerta: pendientesCliente > 0 },
         { id: "documentos", label: "Docs .md", icon: BookOpen, count: (proyecto.documentos || []).length || undefined },
         { id: "novedades", label: "Novedades", icon: ScrollText, count: logs.length || undefined },
@@ -264,7 +273,7 @@ export default function ProyectoDetailPage() {
             {activeTab === "resumen" && <ResumenTab ctx={ctx} />}
             {activeTab === "fases" && <FasesTab ctx={ctx} />}
             {activeTab === "finanzas" && <FinanzasTab ctx={ctx} />}
-            {activeTab === "brief" && <BriefTab ctx={ctx} />}
+            {activeTab === "formularios" && <FormulariosTab ctx={ctx} />}
             {activeTab === "archivos" && <ArchivosTab ctx={ctx} />}
             {activeTab === "documentos" && <DocsTab ctx={ctx} />}
 
