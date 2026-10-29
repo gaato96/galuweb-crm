@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
     CheckCircle2, Circle, Clock, ExternalLink, MessageCircle, Calendar, FileText, LifeBuoy, Check,
     X as XIcon, Upload, Loader2, ClipboardList, FolderOpen, Home, Inbox, Link2, Download, Palette,
-    Image as ImageIcon, Send, ArrowRight, ChevronLeft, Flag,
+    Image as ImageIcon, Send, ArrowRight, ChevronLeft, Flag, ScrollText, Hourglass,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -12,13 +12,13 @@ import {
     proyectosStore, clientesStore, ticketsStore, archivosProyectoStore, solicitudesStore,
     storageStore, logsProyectoStore, mensajeError,
 } from "@/lib/store";
-import { aISO, fechaCorta, infoPlazo, progresoBrief } from "@/lib/proyecto-gestion";
+import { aISO, diasDeEspera, diasEntre, esLogInterno, fechaCorta, infoPlazo, inicioDelProyecto, progresoBrief } from "@/lib/proyecto-gestion";
 import { fasesDe } from "@/lib/proyectos-estado";
-import type { ArchivoProyecto, BriefProyecto, CategoriaArchivo, FormularioProyecto, Proyecto, SolicitudProyecto } from "@/lib/types";
+import type { ArchivoProyecto, BriefProyecto, CategoriaArchivo, FormularioProyecto, LogProyecto, Proyecto, SolicitudProyecto } from "@/lib/types";
 import { CATEGORIA_ARCHIVO_LABELS, TIPO_PROYECTO_LABELS } from "@/lib/types";
 import BriefForm, { aplicarRespuestas } from "./brief-form";
 
-type Tab = "inicio" | "formularios" | "archivos" | "ayuda";
+type Tab = "inicio" | "formularios" | "archivos" | "novedades" | "ayuda";
 
 // Celular de Galu (+54 381 597-6357). WhatsApp exige el 9 después del 54 en celulares argentinos.
 const WHATSAPP_AGENCIA = "5493815976357";
@@ -106,6 +106,7 @@ export default function PortalClient({ slug }: { slug: string }) {
     const [cliente, setCliente] = useState<{ id: string; nombre: string; negocio: string } | null>(null);
     const [archivos, setArchivos] = useState<ArchivoProyecto[]>([]);
     const [solicitudes, setSolicitudes] = useState<SolicitudProyecto[]>([]);
+    const [logs, setLogs] = useState<LogProyecto[]>([]);
     const [estado, setEstado] = useState<"cargando" | "ok" | "no_existe" | "error">("cargando");
     const [tab, setTab] = useState<Tab>("inicio");
     /** Formulario abierto en la pestaña Formularios: "brief", el id de uno extra, o null = la lista. */
@@ -118,12 +119,14 @@ export default function PortalClient({ slug }: { slug: string }) {
     const [categoriaSubida, setCategoriaSubida] = useState<CategoriaArchivo>("imagen");
 
     const cargarMaterial = async (id: string) => {
-        const [a, s] = await Promise.all([
+        const [a, s, l] = await Promise.all([
             archivosProyectoStore.getByProyecto(id, true).catch(() => []),
             solicitudesStore.getByProyecto(id).catch(() => []),
+            logsProyectoStore.getByProyecto(id).catch(() => []),
         ]);
         setArchivos(a);
         setSolicitudes(s);
+        setLogs(l.filter((x) => !esLogInterno(x.titulo)));
     };
 
     const cargar = async () => {
@@ -198,6 +201,13 @@ export default function PortalClient({ slug }: { slug: string }) {
     };
     const formAbiertoExtra = formAbierto && formAbierto !== "brief" ? formularios.find((f) => f.id === formAbierto) || null : null;
     const primerNombre = cliente?.nombre?.split(" ")[0];
+    const hoy = aISO(new Date());
+    const inicio = inicioDelProyecto(proyecto, hoy);
+    // Más recientes primero: las abiertas arriba, después por fecha de pedido.
+    const esperas = [...(proyecto.esperas_cliente || [])]
+        .filter((e) => e.hasta !== e.desde) // las quitadas ("no frenaba") se cierran el mismo día
+        .sort((a, b) => Number(Boolean(a.hasta)) - Number(Boolean(b.hasta)) || b.desde.localeCompare(a.desde));
+    const diasCorridos = diasDeEspera(esperas, inicio, hoy);
 
     const aprobarFigma = async (aprobado: boolean) => {
         if (!aprobado && !cambiosFigma?.trim()) { toast.error("Contanos qué te gustaría cambiar"); return; }
@@ -249,6 +259,7 @@ export default function PortalClient({ slug }: { slug: string }) {
         { id: "inicio", label: "Inicio", icon: Home, badge: cantPendientes || undefined },
         { id: "formularios", label: conLista ? "Formularios" : "Brief", icon: ClipboardList, oculto: !hayFormularios, badge: conLista && formsPendientes.length ? formsPendientes.length : undefined },
         { id: "archivos", label: "Archivos", icon: FolderOpen },
+        { id: "novedades", label: "Novedades", icon: ScrollText, oculto: logs.length === 0 && esperas.length === 0 },
         { id: "ayuda", label: "Contacto", icon: MessageCircle },
     ];
 
@@ -533,6 +544,57 @@ export default function PortalClient({ slug }: { slug: string }) {
                                 ))}
                             </div>
                             {deCliente.length === 0 && <p className="text-xs text-muted-foreground">Todavía no subiste archivos.</p>}
+                        </Seccion>
+                    </>
+                )}
+
+                {tab === "novedades" && (
+                    <>
+                        {esperas.length > 0 && (
+                            <Seccion titulo="Lo que esperamos de vos" icono={Hourglass}>
+                                <p className="text-sm text-muted-foreground -mt-2">
+                                    Mientras esperamos algo tuyo el proyecto no puede avanzar, así que las fechas se corren un día por cada día de espera.
+                                    {diasCorridos > 0 && <> Hasta hoy la entrega se corrió <span className="font-bold text-foreground">{diasCorridos} día{diasCorridos === 1 ? "" : "s"}</span>.</>}
+                                </p>
+                                <div className="space-y-2">
+                                    {esperas.map((e) => {
+                                        const dias = diasEntre(e.desde, e.hasta || hoy);
+                                        return (
+                                            <div key={e.id} className={cn("p-4 rounded-2xl border", e.hasta ? "border-white/10 bg-white/[0.02]" : "border-amber-400/30 bg-amber-400/[0.06]")}>
+                                                <div className="flex items-start justify-between gap-3">
+                                                    <p className="text-sm font-semibold text-foreground">{e.motivo}</p>
+                                                    <span className={cn("text-[11px] font-bold px-2 py-0.5 rounded-full shrink-0", e.hasta ? "bg-emerald-500/15 text-emerald-300" : "bg-amber-400/15 text-amber-300")}>
+                                                        {e.hasta ? "Recibido" : "Esperando"}
+                                                    </span>
+                                                </div>
+                                                <div className="grid grid-cols-3 gap-2 mt-3 text-xs">
+                                                    <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Pedido</p><p className="text-foreground">{fechaCorta(e.desde)}</p></div>
+                                                    <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">Respuesta</p><p className="text-foreground">{e.hasta ? fechaCorta(e.hasta) : "Pendiente"}</p></div>
+                                                    <div><p className="text-[10px] uppercase tracking-wider text-muted-foreground font-bold">{e.hasta ? "Demora" : "Esperando hace"}</p><p className="text-foreground">{dias} día{dias === 1 ? "" : "s"}</p></div>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </Seccion>
+                        )}
+
+                        <Seccion titulo="Registro de novedades" icono={ScrollText}>
+                            {logs.length === 0 ? (
+                                <p className="text-sm text-muted-foreground italic">Todavía no hay novedades.</p>
+                            ) : (
+                                <ol className="space-y-2">
+                                    {logs.map((l) => (
+                                        <li key={l.id} className="p-3 rounded-2xl border border-white/10 bg-white/[0.02] flex items-start justify-between gap-3">
+                                            <div className="min-w-0">
+                                                <p className="text-sm font-semibold text-foreground">{l.titulo}</p>
+                                                {l.descripcion && <p className="text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap">{l.descripcion}</p>}
+                                            </div>
+                                            <span className="text-[11px] text-muted-foreground shrink-0">{fechaCorta(l.fecha)}</span>
+                                        </li>
+                                    ))}
+                                </ol>
+                            )}
                         </Seccion>
                     </>
                 )}

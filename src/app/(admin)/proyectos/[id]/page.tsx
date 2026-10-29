@@ -13,7 +13,7 @@ import {
     archivosProyectoStore, solicitudesStore, mensajeError,
 } from "@/lib/store";
 import { fasesDe } from "@/lib/proyectos-estado";
-import { briefAMarkdown, docIdFormulario, fechaCorta, infoPlazo, respuestasSinContexto, ESTADO_PLAZO_COLORS } from "@/lib/proyecto-gestion";
+import { briefAMarkdown, docIdFormulario, esLogInterno, fechaCorta, infoPlazo, respuestasSinContexto, ESTADO_PLAZO_COLORS, PREFIJO_LOG_INTERNO } from "@/lib/proyecto-gestion";
 import { sincronizarEsperas } from "@/lib/proyecto-acciones";
 import type {
     Proyecto, Tarea, Cliente, LogProyecto, Finanza, ArchivoProyecto, SolicitudProyecto, EsperaCliente,
@@ -54,7 +54,7 @@ export default function ProyectoDetailPage() {
     const [editando, setEditando] = useState(false);
     const [portalUrl, setPortalUrl] = useState("");
 
-    const [logForm, setLogForm] = useState({ titulo: "", descripcion: "" });
+    const [logForm, setLogForm] = useState({ titulo: "", descripcion: "", interno: false });
     const [newAcceso, setNewAcceso] = useState({ servicio: "", url: "", usuario: "", password: "" });
 
     const recargar = useCallback(async (...que: Recargable[]) => {
@@ -171,8 +171,9 @@ export default function ProyectoDetailPage() {
     const agregarLog = async () => {
         if (!logForm.titulo.trim()) { toast.error("El título es requerido"); return; }
         try {
-            await logsProyectoStore.create({ proyecto_id: proyecto.id, ...logForm, fecha: new Date().toLocaleDateString("en-CA") });
-            setLogForm({ titulo: "", descripcion: "" });
+            const titulo = (logForm.interno ? PREFIJO_LOG_INTERNO : "") + logForm.titulo.trim();
+            await logsProyectoStore.create({ proyecto_id: proyecto.id, titulo, descripcion: logForm.descripcion, fecha: new Date().toLocaleDateString("en-CA") });
+            setLogForm({ titulo: "", descripcion: "", interno: false });
             recargar("logs");
         } catch (e) { toast.error(mensajeError(e)); }
     };
@@ -280,17 +281,26 @@ export default function ProyectoDetailPage() {
             {activeTab === "novedades" && (
                 <div className={cn(ui.card, "space-y-4")}>
                     <h3 className="text-base font-bold text-foreground">Registro de novedades</h3>
-                    <p className="text-xs text-muted-foreground -mt-2">Se registran solas cuando completás fases, cobrás, o el cliente completa el brief o sube material.</p>
+                    <p className="text-xs text-muted-foreground -mt-2">Se registran solas cuando completás fases, cobrás, o el cliente completa el brief o sube material. El cliente las ve en su portal, salvo las marcadas como internas (cobros, montos y las que cargues como internas).</p>
                     <div className="p-3 rounded-xl border border-border bg-secondary/20 space-y-2">
                         <input value={logForm.titulo} onChange={(e) => setLogForm({ ...logForm, titulo: e.target.value })} placeholder="Nueva entrada (ej: Reunión con el cliente)…" className={ui.input} />
                         <textarea value={logForm.descripcion} onChange={(e) => setLogForm({ ...logForm, descripcion: e.target.value })} placeholder="Detalle opcional…" rows={2} className={ui.textarea} />
-                        <div className="flex justify-end"><button onClick={agregarLog} className={cn(ui.btn, ui.btnPrimary)}><Plus className="w-3.5 h-3.5" /> Registrar</button></div>
+                        <div className="flex items-center justify-between gap-2">
+                            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+                                <input type="checkbox" checked={logForm.interno} onChange={(e) => setLogForm({ ...logForm, interno: e.target.checked })} />
+                                Interna (no se muestra en el portal)
+                            </label>
+                            <button onClick={agregarLog} className={cn(ui.btn, ui.btnPrimary)}><Plus className="w-3.5 h-3.5" /> Registrar</button>
+                        </div>
                     </div>
                     <div className="space-y-2">
                         {logs.map((l) => (
                             <div key={l.id} className="group p-3 rounded-xl border border-border bg-card flex items-start justify-between gap-3">
                                 <div className="min-w-0">
-                                    <p className="text-xs font-bold text-foreground">{l.titulo}</p>
+                                    <p className="text-xs font-bold text-foreground flex items-center gap-1.5">
+                                        {esLogInterno(l.titulo) && <span title="No se muestra en el portal"><Lock className="w-3 h-3 text-muted-foreground" /></span>}
+                                        {l.titulo}
+                                    </p>
                                     {l.descripcion && <p className="text-xs text-muted-foreground mt-0.5 whitespace-pre-wrap">{l.descripcion}</p>}
                                 </div>
                                 <div className="flex items-center gap-2 shrink-0">

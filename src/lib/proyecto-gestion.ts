@@ -148,6 +148,18 @@ export function diasDeEspera(esperas: EsperaCliente[], inicio: string, hoy: stri
     return total;
 }
 
+/** Prefijo de las novedades que no se muestran en el portal del cliente. */
+export const PREFIJO_LOG_INTERNO = "[Interno] ";
+
+/**
+ * Novedades que son solo para la agencia: plata, herramientas internas y las
+ * que se cargaron a mano como internas. El resto se ve en el portal.
+ */
+export function esLogInterno(titulo: string): boolean {
+    return titulo.startsWith(PREFIJO_LOG_INTERNO.trim())
+        || /^(Cobro registrado|Monto del proyecto actualizado|CONTEXTO\.md generado)/.test(titulo);
+}
+
 /** Corre `dias` las fases sin completar (las completadas conservan su fecha). */
 export function correrFases(fases: FaseProyecto[], dias: number): FaseProyecto[] {
     if (!dias) return fases;
