@@ -29,10 +29,9 @@ import {
     type PasoMensajeVivoMenu,
 } from "@/lib/vivomenu-mensajes";
 import {
-    generarMensajeOdontologia, PASO_ODONTOLOGIA_LABELS, tienePrueba, vozDe,
-    frasePrueba, horasPrueba,
-    type PasoMensajeOdontologia,
+    tienePrueba, vozDe, frasePrueba, horasPrueba,
 } from "@/lib/odontologia-mensajes";
+import { generarMensajeTurnos, PASO_TURNOS_LABELS, type PasoTurnos } from "@/lib/turnos";
 import {
     generarMensajeAgencia, PASO_AGENCIA_LABELS, type PasoMensajeAgencia,
     canalSugerido, CANAL_AGENCIA_LABELS, type CanalAgencia,
@@ -45,7 +44,7 @@ import { atajosEscaneo } from "@/lib/escaneo-atajos";
 import { FUENTE_LABELS, type EscaneoAutomatico } from "@/lib/escaneo-auto";
 
 type Tab = "datos" | "escaneo" | "mensajes" | "seguimiento";
-type PasoUI = PasoMensaje | PasoMensajeVivoMenu | PasoMensajeAgencia | PasoMensajeOdontologia;
+type PasoUI = PasoMensaje | PasoMensajeVivoMenu | PasoMensajeAgencia | PasoTurnos;
 
 /** VivoMenu reusa el campo quien_leyo con otra etiqueta: "secretaria" = "empleado que atiende". */
 const QUIEN_LEYO_LABELS_VIVOMENU: Record<QuienLeyo, string> = {
@@ -155,7 +154,7 @@ export default function ProspectoModal({
             : p.sistema === "vivomenu"
               ? generarMensajeVivoMenu(paso as PasoMensajeVivoMenu, p)
               : p.sistema === "odontologia"
-                ? generarMensajeOdontologia(paso as PasoMensajeOdontologia, p, vozDe(p))
+                ? generarMensajeTurnos(paso as PasoTurnos, p)
                 : generarMensaje(paso as PasoMensaje, p);
 
     const labelDePaso = (paso: PasoUI): string =>
@@ -164,7 +163,7 @@ export default function ProspectoModal({
             : esVivoMenu
               ? PASO_VIVOMENU_LABELS[paso as PasoMensajeVivoMenu]
               : esOdonto
-                ? PASO_ODONTOLOGIA_LABELS[paso as PasoMensajeOdontologia]
+                ? PASO_TURNOS_LABELS[paso as PasoTurnos]
                 : PASO_MENSAJE_LABELS[paso as PasoMensaje];
 
     /**
@@ -213,9 +212,7 @@ export default function ProspectoModal({
         const inicial: PasoUI =
             nuevo.sistema === "vivomenu"
                 ? "primer_contacto"
-                : nuevo.sistema === "odontologia" && !tienePrueba(nuevo)
-                  ? "m1_sin_prueba"
-                  : "m1";
+                : "m1";
         setPasoMensaje(inicial);
         // El canal vuelve al sugerido en cada prospecto: lo que se eligió a mano
         // para el anterior no dice nada del que viene.
@@ -1339,7 +1336,7 @@ export default function ProspectoModal({
                                     : esVivoMenu
                                       ? (Object.keys(PASO_VIVOMENU_LABELS) as PasoMensajeVivoMenu[])
                                       : esOdonto
-                                        ? (Object.keys(PASO_ODONTOLOGIA_LABELS) as PasoMensajeOdontologia[])
+                                        ? (Object.keys(PASO_TURNOS_LABELS) as PasoTurnos[])
                                         : (Object.keys(PASO_MENSAJE_LABELS) as PasoMensaje[])
                                 ).map((p) => (
                                     <button

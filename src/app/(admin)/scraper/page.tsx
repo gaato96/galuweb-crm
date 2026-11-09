@@ -10,8 +10,10 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
-import type { ProspectoScraped, ScraperBusqueda } from "@/lib/types";
-import { scraperStore, prospectosStore } from "@/lib/store";
+import type { ProspectoScraped, ScraperBusqueda, Sistema } from "@/lib/types";
+import { SISTEMAS_ACTIVOS, SISTEMA_LABELS, nombreSugeridoLista } from "@/lib/types";
+import { scraperStore, prospectosStore, listasStore } from "@/lib/store";
+import { rubroTurnosDe } from "@/lib/turnos";
 
 // Categorías / Rubros sugeridos para prospección en frío
 const RUBROS_SUGERIDOS = [
@@ -62,6 +64,19 @@ export default function ScraperPage() {
     const [tabFiltro, setTabFiltro] = useState<"todos" | "prioritarios" | "sin_web" | "con_whatsapp" | "top_rated" | "contactados" | "pendientes" | "guardados">("todos");
     const [viewMode, setViewMode] = useState<"cards" | "table">("cards");
     const [enviandoPlanilla, setEnviandoPlanilla] = useState(false);
+    /**
+     * A qué sistema va la tanda. Antes no se elegía y caía siempre en "galu", que
+     * está archivado y sin listado: los negocios quedaban donde no se trabajan.
+     * Arranca en Sarvo si el rubro buscado es de turnos.
+     */
+    const [sistemaDestino, setSistemaDestino] = useState<Sistema>("odontologia");
+    useEffect(() => {
+        const r = (currentSearch?.rubro || "").toLowerCase();
+        if (!r) return;
+        if (/agencia|marketing|publicidad|dise[nñ]o/.test(r)) setSistemaDestino("agencias");
+        else if (/restaur|comida|pizz|bar\b|cafe|resto|hamburg|rotis|empanad|sushi|parrilla/.test(r)) setSistemaDestino("vivomenu");
+        else if (rubroTurnosDe({ rubro: r, especialidad: "", negocio: "" })) setSistemaDestino("odontologia");
+    }, [currentSearch?.rubro]);
 
     // Edición de título de búsqueda
     const [editingSearchId, setEditingSearchId] = useState<string | null>(null);
@@ -395,10 +410,28 @@ export default function ScraperPage() {
         setEnviandoPlanilla(true);
         try {
             const universo = await prospectosStore.getAll();
-            const { insertados, duplicados } = await prospectosStore.importarDesdeScraper(prospectosFiltrados, universo);
+            const rubroBuscado = currentSearch?.rubro || rubro;
+            const lugarBuscado = currentSearch?.lugar || lugar;
+            const pais = sistemaDestino === "odontologia" ? "Argentina" : "";
+            // Cada tanda a su listado (PAÍS · Ciudad · Rubro), para poder medirla aparte.
+            let listaId: string | null = null;
+            try {
+                const nombre = nombreSugeridoLista(pais || "", lugarBuscado, rubroBuscado);
+                const listas = await listasStore.getAll();
+                const existente = listas.find((l) => l.sistema === sistemaDestino && l.nombre === nombre && !l.archivada);
+                listaId = existente
+                    ? existente.id
+                    : (await listasStore.create({ nombre, sistema: sistemaDestino, pais, ciudad: lugarBuscado, rubro: rubroBuscado, origen: "scraper" })).id;
+            } catch {
+                listaId = null; // sin la tabla de listados se importa igual
+            }
+            const { insertados, duplicados } = await prospectosStore.importarDesdeScraper(
+                prospectosFiltrados, universo, sistemaDestino, { listaId, pais }
+            );
             toast.success(
-                `${insertados.length} prospectos enviados a la planilla` +
-                (duplicados > 0 ? ` · ${duplicados} ya estaban` : "")
+                `${insertados.length} prospectos enviados a ${SISTEMA_LABELS[sistemaDestino]}` +
+                (duplicados > 0 ? ` · ${duplicados} ya estaban` : "") +
+                (sistemaDestino === "odontologia" ? ". Escanealos desde Prospección → Turnos." : "")
             );
         } catch (error) {
             const msg = error instanceof Error ? error.message : "Error al enviar a la planilla";
@@ -407,6 +440,7 @@ export default function ScraperPage() {
             setEnviandoPlanilla(false);
         }
     };
+
 
     // Aplicar filtros a la lista actual (insensible a acentos/tildes y mayúsculas)
     const prospectosFiltrados = prospectos.filter(p => {
@@ -483,6 +517,16 @@ export default function ScraperPage() {
                                 <RefreshCw className="w-3.5 h-3.5" />
                                 Limpiar Vista
                             </button>
+                            <select
+                                value={sistemaDestino}
+                                onChange={(e) => setSistemaDestino(e.target.value as Sistema)}
+                                className="px-3 py-2.5 rounded-xl border border-border bg-card text-xs text-foreground"
+                                title="A qué sistema de prospección van estos negocios"
+                            >
+                                {SISTEMAS_ACTIVOS.map((s) => (
+                                    <option key={s} value={s}>{SISTEMA_LABELS[s]}</option>
+                                ))}
+                            </select>
                             <button
                                 onClick={handleEnviarAPlanilla}
                                 disabled={enviandoPlanilla}

@@ -737,21 +737,21 @@ export default function ProspeccionPage() {
                 </Link>
             )}
 
-            {/* Odontología: la prueba de la hora tiene su propia pantalla, pensada
-                para el celular, porque es ahí donde está el chip de paciente. */}
+            {/* Sarvo: desde el 2026-11-09 todo el flujo (traer, escanear, mandar,
+                seguir) vive en su propia pantalla, pensada para el celular. */}
             {sistemaActivo === "odontologia" && (
                 <Link
-                    href="/prospeccion/prueba-hora"
-                    className="rounded-2xl border border-sky-500/25 bg-sky-500/[0.06] p-4 flex items-center gap-3 hover:border-sky-400/50 transition-colors"
+                    href="/prospeccion/turnos"
+                    className="rounded-2xl border border-emerald-500/30 bg-emerald-500/[0.07] p-4 flex items-center gap-3 hover:border-emerald-400/50 transition-colors"
                 >
-                    <Stethoscope className="w-4 h-4 text-sky-300 shrink-0" />
+                    <Stethoscope className="w-4 h-4 text-emerald-300 shrink-0" />
                     <div className="flex-1">
-                        <p className="text-xs sm:text-sm text-sky-100 font-bold">Prueba de la hora desde el celular</p>
-                        <p className="text-[11px] text-sky-200/70">
-                            Un toque por consultorio: abre WhatsApp Business con la consulta, guarda la hora y arma el mensaje 1.
+                        <p className="text-xs sm:text-sm text-emerald-100 font-bold">Sarvo · Turnos: trabajá desde acá</p>
+                        <p className="text-[11px] text-emerald-200/70">
+                            Traer un rubro de Maps, escaneo automático, los 12 del día con el mensaje escrito y los seguimientos del día 3 y 8.
                         </p>
                     </div>
-                    <span className="text-sky-300 text-sm font-bold">→</span>
+                    <span className="text-emerald-300 text-sm font-bold">→</span>
                 </Link>
             )}
 

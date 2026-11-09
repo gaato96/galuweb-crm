@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { ProspectoScraped, ScraperBusqueda } from "@/lib/types";
 import { telefonoAWhatsapp, normalizar } from "@/lib/prospeccion";
+import { rubroTurnosDe } from "@/lib/turnos";
 
 // La paginación de Places necesita esperas entre tokens: sin esto Vercel corta
 // la ruta a los 10s por defecto y la búsqueda vuelve truncada.
@@ -77,6 +78,17 @@ const SINONIMOS: Record<string, string[]> = {
     pediatras: ["pediatras", "centro pediátrico", "consultorio pediátrico"],
     kinesiologos: ["kinesiología", "fisioterapia", "rehabilitación"],
     esteticas: ["centro de estética", "cosmetología", "depilación definitiva", "spa"],
+    // Los rubros de Sarvo (negocios con turnos, desde el 2026-11-09). La primera
+    // búsqueda de cada uno es la que manda la pantalla Turnos.
+    cosmetologa: ["cosmetóloga", "centro de estética", "depilación definitiva", "lifting de pestañas", "limpieza facial"],
+    nutricionista: ["nutricionista", "licenciada en nutrición", "nutrición deportiva"],
+    kinesiologo: ["kinesiólogo", "kinesiología", "fisioterapia"],
+    odontologo: ["odontólogo", "dentista", "consultorio odontológico"],
+    podologo: ["podólogo", "podología"],
+    fonoaudiologa: ["fonoaudióloga", "fonoaudiología", "psicopedagoga"],
+    psicologa: ["psicóloga", "psicólogo", "consultorio de psicología"],
+    veterinaria: ["veterinaria", "peluquería canina", "clínica veterinaria"],
+    "consultorio medico": ["consultorio médico", "médico clínico"],
     veterinarias: ["veterinarias", "clínica veterinaria", "pet shop"],
     opticas: ["ópticas", "óptica y contactología"],
     indumentaria: ["tiendas de ropa", "indumentaria", "boutique", "local de ropa"],
@@ -278,8 +290,22 @@ function puntuar(p: ProspectoScraped, percentilResenas: number | null, pesoResen
     return Math.max(0, score);
 }
 
+/**
+ * Para Sarvo (negocios con turnos) el orden es otro: "no tiene web" no dice nada.
+ * Importa que se le pueda escribir (WhatsApp, Instagram) y que tenga movimiento.
+ */
+function puntuarTurnos(p: ProspectoScraped, percentilResenas: number | null): number {
+    let score = 0;
+    if (p.telefonoClean) score += 25;
+    if (p.redesSociales.instagram) score += 10;
+    if (percentilResenas != null) score += Math.round(percentilResenas * 30);
+    if (p.reviewsCount != null && p.reviewsCount < 3) score -= 15;
+    return Math.max(0, score);
+}
+
 function ordenarPorPrioridad(items: ProspectoScraped[], rubro: string): ProspectoScraped[] {
     const r = normalizar(rubro);
+    const esTurnos = !!rubroTurnosDe({ rubro, especialidad: "", negocio: "" });
     const pesoResenas = RUBROS_RESENA_FUERTE.some((k) => r.includes(k)) ? 1 : 0.4;
 
     const conResenas = items
@@ -294,7 +320,10 @@ function ordenarPorPrioridad(items: ProspectoScraped[], rubro: string): Prospect
     };
 
     return items
-        .map((p) => ({ ...p, score: puntuar(p, percentil(p.reviewsCount), pesoResenas) }))
+        .map((p) => ({
+            ...p,
+            score: esTurnos ? puntuarTurnos(p, percentil(p.reviewsCount)) : puntuar(p, percentil(p.reviewsCount), pesoResenas),
+        }))
         .sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
 }
 

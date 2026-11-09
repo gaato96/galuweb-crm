@@ -12,9 +12,10 @@ import {
     type CanalAgencia,
 } from "@/lib/agencias-mensajes";
 import { senialPrincipal, PATRON_LABELS } from "@/lib/dolores-rubro";
+import { vozDe } from "@/lib/odontologia-mensajes";
 import {
-    generarMensajeOdontologia, vozDe, type PasoMensajeOdontologia,
-} from "@/lib/odontologia-mensajes";
+    generarMensajeTurnos, PASO_TURNOS_LABELS, type PasoTurnos, segmentoDe, nivelDe, rubroTurnosDe, sarvoDe, linkDemo,
+} from "@/lib/turnos";
 
 export const maxDuration = 30;
 
@@ -25,9 +26,7 @@ const PASOS_VIVOMENU: PasoMensajeVivoMenu[] = [
 const PASOS_AGENCIAS: PasoMensajeAgencia[] = [
     "m1", "fu1", "fu2", "credenciales", "precios", "primer_trabajo", "ruteo", "toque_vigencia",
 ];
-const PASOS_ODONTOLOGIA: PasoMensajeOdontologia[] = [
-    "m1", "m1_gestion", "m1_sin_prueba", "fu1", "fu2", "fu3", "video", "precio", "ruteo",
-];
+const PASOS_ODONTOLOGIA = Object.keys(PASO_TURNOS_LABELS) as PasoTurnos[];
 
 /** Reglas que la IA no puede romper, comunes a los tres sistemas. */
 /**
@@ -226,7 +225,7 @@ export async function POST(req: Request) {
             : esVivoMenu
               ? generarMensajeVivoMenu(paso as PasoMensajeVivoMenu, prospecto)
               : esOdonto
-                ? generarMensajeOdontologia(paso as PasoMensajeOdontologia, prospecto, vozDe(prospecto))
+                ? generarMensajeTurnos(paso as PasoTurnos, prospecto)
                 : generarMensaje(paso as PasoMensaje, prospecto);
 
         const apiKey = process.env.GEMINI_API_KEY;
@@ -291,6 +290,63 @@ ${
                 ? `\nOFERTA CERRADA (no se toca, va tal cual): ${prospecto.oferta_titulo || "[sin definir]"} · ${prospecto.oferta_precio || "[sin precio]"} · ${prospecto.oferta_plazo || "[sin plazo]"}`
                 : ""
         }`;
+
+        if (esOdonto) {
+            const sarvo = sarvoDe(prospecto);
+            const rubro = rubroTurnosDe(prospecto);
+            const seg = segmentoDe(prospecto);
+            const contextoTurnos = `--- DATOS DEL NEGOCIO ---
+Negocio: ${prospecto.negocio}
+Rubro: ${rubro?.label || prospecto.rubro || "s/d"}
+Profesional: ${prospecto.contacto_nombre || "sin nombre — no inventes uno"}
+Quién contesta: ${seg === "solo" ? "el mismo profesional (no tiene recepcionista)" : seg === "centro" ? "un centro con recepción" : "sin definir"}
+Nivel: ${nivelDe(prospecto) === "A" ? `A — su página ya está armada: ${linkDemo(prospecto)}` : "B — todavía no se le armó su página"}
+Primera línea (dato verificable): ${prospecto.dato_usado || "—"}
+${sarvo.presentado_por ? `Lo presentó: ${sarvo.presentado_por}` : ""}
+Lo que se vio: ${sarvo.evidencias.join(" · ") || "—"}
+Canal: ${prospecto.canal === "whatsapp" ? "WhatsApp" : "Instagram DM"}`;
+            const reglasTurnos = `${REGLA_1_RIO}
+2. Prohibido "IA", "inteligencia artificial", "bot", "agente", "automatización", "sistema de gestión". Se dice qué pasa: contesta, da el turno, a cualquier hora.
+3. No inventes datos que no estén arriba. Ni números, ni nombres, ni problemas del negocio. Si la primera línea está vacía, no la reemplaces por una inventada.
+4. Mantené la oferta tal cual: un mes gratis, 6 profesionales de acá. No agregues precios.
+5. Si el borrador trae un link, va tal cual. Si trae un marcador entre corchetes, queda entre corchetes.
+6. NO uses signos de apertura "¿" ni "¡". Como mucho UN guion largo. Comillas rectas.
+7. Máximo 80 palabras. Mantené los párrafos separados por línea en blanco: son burbujas distintas.`;
+            const promptTurnos = `Sos quien escribe los mensajes de Gastón, de Galu (Tucumán), a profesionales y negocios con turnos, para ofrecerles su página de turnos de Sarvo: le contesta a sus clientes el precio y los horarios, mira la agenda real y da el turno, a cualquier hora.
+Te paso un borrador con la estructura correcta. Reescribilo para que suene natural y de ESTE negocio, sin cambiar la estructura ni el pedido.
+
+${contextoTurnos}
+
+--- BORRADOR (paso ${paso}: ${PASO_TURNOS_LABELS[paso as PasoTurnos]}) ---
+${borrador}
+
+--- REGLAS QUE NO PODÉS ROMPER ---
+${reglasTurnos}
+
+Devolvé SOLO el mensaje final, sin comillas ni explicaciones.`;
+            const resT = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`,
+                {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: promptTurnos }] }],
+                        generationConfig: { temperature: 0.7, maxOutputTokens: 600, thinkingConfig: { thinkingBudget: 0 } },
+                    }),
+                    signal: AbortSignal.timeout(20000),
+                }
+            );
+            if (!resT.ok) return NextResponse.json({ mensaje: borrador, fuente: "plantilla" });
+            const dataT = await resT.json();
+            const textoT: string = (dataT.candidates?.[0]?.content?.parts || [])
+                .map((x: { text?: string }) => x.text || "")
+                .join("\n")
+                .trim();
+            const prohibido = /\b(ia|bot|agente|inteligencia artificial|automatizaci)/i.test(textoT);
+            return NextResponse.json(
+                textoT && !prohibido ? { mensaje: textoT, fuente: "ia" } : { mensaje: borrador, fuente: "plantilla" }
+            );
+        }
 
         const reglas = esAgencias
             ? reglasAgencias(paso as PasoMensajeAgencia, canalBody || canalSugerido(prospecto))

@@ -847,7 +847,10 @@ export const SISTEMA_LABELS: Record<Sistema, string> = {
     galu: "Galu — Agencia web (archivado)",
     vivomenu: "VivoMenu — Menú digital",
     agencias: "Proveedor — Agencias del exterior",
-    odontologia: "Sarvo — Consultorios odontológicos",
+    // La clave sigue siendo "odontologia" para no mover los 264 consultorios ni
+    // sus listados (es TEXT en la base), pero desde el 2026-11-09 es el sistema de
+    // Sarvo para cualquier negocio con turnos. Ver turnos.ts.
+    odontologia: "Sarvo — Negocios con turnos",
 };
 
 /**
@@ -883,7 +886,7 @@ export const SISTEMA_PITCH: Record<Sistema, string> = {
     agencias:
         "Agencia de marketing del exterior. Lista A: vende redes y pauta pero NO desarrollo web, y se le ofrece capacidad. Lista B: sí lo vende, pero lo terceriza con un freelance distinto cada vez, y se le ofrece continuidad y precio. Nunca análisis, en ninguna de las dos.",
     odontologia:
-        "Consultorio odontológico que publica WhatsApp. Se le escribe primero como paciente un sábado a la noche y la respuesta decide el ángulo: si tardó, la consulta que se pierde; si contestó rápido, lo que le cuesta sostener a alguien contestando y la agenda a mano. En los dos casos se pide permiso para mandar un video de 40 segundos, nunca un análisis.",
+        "Negocio con turnos de Tucumán. Primero el profesional que contesta su propio WhatsApp (sin recepcionista): estética, nutrición, kinesiología, odontología sin secretaria. Se le manda su página de turnos armada o la demo de su rubro, nunca una explicación. Al centro con recepción se entra por el dueño. Pilates y gimnasios no: Sarvo no maneja clases con cupo.",
 };
 
 export type OrigenProspecto = "manual" | "sheets" | "scraper";
@@ -1007,7 +1010,45 @@ export interface EscaneoProspecto {
     fallas: FallaVerificable[];     // nivel 2
     hito_reciente: string;          // nivel 3
     detalle_trabajo: string;        // nivel 4
+    /** Solo en el sistema de Sarvo (negocios con turnos). Ver turnos.ts. */
+    sarvo?: EscaneoSarvo;
 }
+
+/**
+ * Lo que el escaneo rápido de Sarvo averigua de un negocio con turnos.
+ *
+ * Vive adentro de la columna jsonb `escaneo` para no pedir una migración: el
+ * sistema nuevo se apoya en columnas que ya existían (cant_profesionales,
+ * contacto_nombre, dato_usado, revision_url) y lo que no tenía dónde ir va acá.
+ */
+export type SegmentoTurnos = "solo" | "centro" | "sin_definir";
+
+export interface EscaneoSarvo {
+    /** solo = el profesional contesta su propio WhatsApp · centro = hay recepción. */
+    segmento: SegmentoTurnos;
+    /** De qué rubro de turnos es (ver RUBROS_TURNOS). "" = sin detectar. */
+    rubro: string;
+    /** Si publica precios en su web o en Maps: con eso se le puede armar la página. */
+    precios_publicados: boolean | null;
+    /** El sistema de turnos que ya usa, si tiene uno (AgendaPro, Doctoralia…). */
+    link_turnos: string;
+    /** Lo que se vio para decidir todo lo de arriba, en frases cortas y verificables. */
+    evidencias: string[];
+    /** Si vino de un conocido: quién lo presentó. Cambia la primera línea del mensaje. */
+    presentado_por: string;
+    /** Cuándo pasó el escaneo rápido. null = nunca. */
+    escaneado_at: string | null;
+}
+
+export const ESCANEO_SARVO_VACIO: EscaneoSarvo = {
+    segmento: "sin_definir",
+    rubro: "",
+    precios_publicados: null,
+    link_turnos: "",
+    evidencias: [],
+    presentado_por: "",
+    escaneado_at: null,
+};
 
 export interface Prospecto {
     id: string;

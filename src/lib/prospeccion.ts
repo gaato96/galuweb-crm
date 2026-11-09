@@ -15,10 +15,11 @@ import type {
     FallaVerificable,
     Sistema,
 } from "./types";
-import { ESCANEO_VACIO, FALLA_LABELS } from "./types";
+import { ESCANEO_VACIO, ESCANEO_SARVO_VACIO, FALLA_LABELS } from "./types";
 import {
     detectarRubro, senialPrincipal, lecturaDelDolor, regaloDeSenial, saludoDe, conectorDe,
 } from "./dolores-rubro";
+import { scoreTurnos, motivoFueraTurnos } from "./turnos";
 
 // ─────────────────────────────────────────────────────────────
 // §4 — La escalera del dato de personalización
@@ -45,6 +46,8 @@ export function normalizarEscaneo(e: Partial<EscaneoProspecto> | null | undefine
         fallas: Array.isArray(e?.fallas) ? e!.fallas : [],
         hito_reciente: e?.hito_reciente || "",
         detalle_trabajo: e?.detalle_trabajo || "",
+        // Lo de Sarvo se conserva tal cual: sin esto, cada guardado lo borraba.
+        ...(e?.sarvo ? { sarvo: { ...ESCANEO_SARVO_VACIO, ...e.sarvo } } : {}),
     };
 }
 
@@ -506,6 +509,14 @@ export function calcularScoreAgencia(p: Prospecto): DesgloseScore {
  * demás señales — y por eso ahí el puntaje es negativo, no cero.
  */
 export function calcularScoreOdontologia(p: Prospecto): DesgloseScore {
+    // Desde el 2026-11-09 el sistema es Sarvo para cualquier negocio con turnos,
+    // y el score es el del método nuevo (turnos.ts). Lo de abajo queda para leer
+    // cómo se puntuaba con la prueba de la hora; no se ejecuta.
+    return scoreTurnos(p);
+}
+
+/** El score de la prueba de la hora (hasta el 2026-11-09). Ya no se usa. */
+export function calcularScoreOdontologiaPruebaHora(p: Prospecto): DesgloseScore {
     const partes: { concepto: string; puntos: number }[] = [];
     const escaneo = normalizarEscaneo(p.escaneo);
     const fallas = new Set(escaneo.fallas);
@@ -658,6 +669,7 @@ export function compararParaCola(sistema: Sistema) {
  * evita que ocupe uno de los diez mensajes del día, que es el recurso escaso.
  */
 export function motivoFueraDeCola(p: Prospecto): string | null {
+    if (p.sistema === "odontologia") return motivoFueraTurnos(p);
     // Agencias: los motivos son otros. Las reseñas de Maps no aplican (una
     // agencia se elige por portfolio) y el canal por defecto es el mail.
     if (p.sistema === "agencias") {
@@ -1153,7 +1165,10 @@ const CADENCIA_FOLLOWUP: Record<Sistema, { fu1: number; fu2: number; fu3?: numbe
     // dueño de agencia — tiene el celular lleno de pacientes, que es distinto:
     // no te ignora, te pierde entre mensajes. El tercer toque a los 14 días
     // recupera más de lo que quema.
-    odontologia: { fu1: 3, fu2: 7, fu3: 14 },
+    // Sarvo (desde el 2026-11-09): tres mensajes en ocho días. El primero, el
+    // día 3 con un recurso y el día 8 el cierre; después se cierra hasta febrero.
+    // fu2 cuenta desde el fu1: 3 + 5 = día 8.
+    odontologia: { fu1: 3, fu2: 5 },
 };
 
 export function proximaAccion(p: Prospecto, hoy: Date = new Date()): AccionSeguimiento {
