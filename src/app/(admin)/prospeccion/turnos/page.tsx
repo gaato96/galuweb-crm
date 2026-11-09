@@ -435,6 +435,8 @@ export default function TurnosPage() {
                             onGuardar={(c) => guardar(p, c)}
                             onEnviar={(paso, canal, texto) => enviar(p, paso, canal, texto)}
                             onDescartar={(motivo) => guardar(p, { estado: "descartado", motivo_descarte: motivo })}
+                            onEscanear={() => escanear([p])}
+                            ocupado={!!escaneo}
                         />
                     ))}
                     {!verTodos && cola.length > visibles.length && (
@@ -554,12 +556,14 @@ function Chip({ children, tono = "neutro", onClick }: { children: React.ReactNod
 const SIGUIENTE_SEGMENTO: Record<SegmentoTurnos, SegmentoTurnos> = { sin_definir: "solo", solo: "centro", centro: "sin_definir" };
 
 function TarjetaTurno({
-    p, onGuardar, onEnviar, onDescartar,
+    p, onGuardar, onEnviar, onDescartar, onEscanear, ocupado,
 }: {
     p: Prospecto;
     onGuardar: (c: Partial<Prospecto>) => void;
     onEnviar: (paso: PasoTurnos, canal: CanalTurnos, texto: string) => void;
     onDescartar: (motivo: string) => void;
+    onEscanear: () => void;
+    ocupado: boolean;
 }) {
     const sarvo = sarvoDe(p);
     const rubro = rubroTurnosDe(p);
@@ -584,6 +588,18 @@ function TarjetaTurno({
         onGuardar({ escaneo: { ...normalizarEscaneo(p.escaneo), sarvo: { ...sarvo, segmento: nuevo } } });
     };
 
+    /** Revisado a mano: cuenta como escaneado y guarda lo que marcaste. */
+    const loReviseYo = () => {
+        onGuardar({
+            contacto_nombre: nombre,
+            dato_usado: linea,
+            escaneo: { ...normalizarEscaneo(p.escaneo), sarvo: { ...sarvo, escaneado_at: new Date().toISOString() } },
+            escaneado_at: new Date().toISOString(),
+            ...(p.estado === "sin_calificar" ? { estado: "calificado" as const } : {}),
+        });
+        toast.success("Marcado como revisado");
+    };
+
     const copiarFicha = () => {
         navigator.clipboard.writeText(fichaParaSarvo(borrador)).catch(() => {});
         toast.success("Ficha copiada: pegala para armarlo en /admin de Sarvo");
@@ -593,6 +609,23 @@ function TarjetaTurno({
 
     return (
         <Tarjeta p={p}>
+            {!sarvo.escaneado_at && (
+                <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 space-y-2">
+                    <p className="text-[11px] text-amber-200 leading-relaxed">
+                        Sin escanear. Escanealo, o revisalo vos: tocá el segmento hasta que diga quién contesta, poné el
+                        nombre y la primera línea, y marcalo como revisado.
+                    </p>
+                    <div className="grid grid-cols-2 gap-2">
+                        <Boton onClick={onEscanear} tono="alerta" icon={Sparkles} disabled={ocupado}>
+                            Escanear este
+                        </Boton>
+                        <Boton onClick={loReviseYo} tono="neutro">
+                            Lo revisé yo
+                        </Boton>
+                    </div>
+                </div>
+            )}
+
             <div className="flex flex-wrap gap-1.5">
                 <Chip tono={segmento === "solo" ? "ok" : segmento === "centro" ? "info" : "neutro"} onClick={cambiarSegmento}>
                     {SEGMENTO_LABELS[segmento]} ↻

@@ -271,8 +271,8 @@ export function motivoFueraTurnos(p: Prospecto): string | null {
     if (!p.telefono_wa.trim() && !p.instagram_url.trim()) {
         return p.escaneo?.sarvo?.escaneado_at ? "Sin WhatsApp ni Instagram" : "Sin escanear: el escaneo trae el teléfono";
     }
-    const sarvo = sarvoDe(p);
-    if (!sarvo.escaneado_at) return "Sin escanear";
+    // Sin escanear pero con canal entra igual: se puede revisar a mano en la
+    // tarjeta (o escanear ahí mismo). Queda más abajo porque su score es menor.
     return null;
 }
 
