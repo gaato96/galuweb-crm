@@ -233,10 +233,16 @@ export function rubroTurnosDe(p: Pick<Prospecto, "rubro" | "especialidad" | "neg
     }
     const texto = sinTildes(`${p.rubro} ${p.especialidad} ${p.negocio}`);
     if (!texto) return undefined;
-    const orden = [...RUBROS_TURNOS.filter((r) => r.excluido), ...RUBROS_TURNOS.filter((r) => !r.excluido)];
+    const excluido = RUBROS_TURNOS.find((r) => r.excluido && r.claves.some((k) => texto.includes(k)));
+    if (excluido) return excluido;
     // "medicina" va al final: "consultorio" aparece en casi todos.
-    orden.sort((a, b) => (a.id === "medicina" ? 1 : 0) - (b.id === "medicina" ? 1 : 0));
-    return orden.find((r) => r.claves.some((k) => texto.includes(k)));
+    const activos = [...RUBROS_ACTIVOS].sort((a, b) => (a.id === "medicina" ? 1 : 0) - (b.id === "medicina" ? 1 : 0));
+    // El rubro cargado al importar ("Nutricionistas") gana sobre el nombre del
+    // negocio: "Alicia Sosa Nutrición y Estética" es una nutricionista que salió
+    // en esa búsqueda, no un centro de estética.
+    const rubroCargado = sinTildes(`${p.rubro} ${p.especialidad}`);
+    const porRubro = rubroCargado ? activos.find((r) => r.claves.some((k) => rubroCargado.includes(k))) : undefined;
+    return porRubro || activos.find((r) => r.claves.some((k) => texto.includes(k)));
 }
 
 // ─────────────────────────────────────────────────────────────
