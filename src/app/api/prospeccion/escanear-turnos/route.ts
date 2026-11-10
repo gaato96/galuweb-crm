@@ -248,7 +248,7 @@ Decidí:
 - profesional: el nombre de la persona que atiende o es dueña, SOLO si aparece escrito en los datos (en el nombre del negocio o en las reseñas). Si no aparece, "".
 - rubro: uno de estos ids: ${rubros}. "" si no encaja.
 - precios_publicados: true si los datos muestran precios con montos, false si no, null si no hay web.
-- primera_linea: UNA frase de hasta 20 palabras que empiece con "Vi que" o "Vi tus", dirigida al profesional (voseo rioplatense), con un dato concreto y verificable de los de arriba que muestre que se lo miró de verdad. Ejemplos de forma: "Vi que tus pacientes te nombran en casi todas las reseñas", "Vi que en tu web tenés los precios de cada tratamiento". NO afirmes problemas que no están escritos, NO inventes números ni nombres, NO menciones la IA. Si no hay un dato bueno, "".
+- primera_linea: UNA frase de hasta 20 palabras que empiece con "Vi que" o "Vi tus", dirigida al profesional (voseo rioplatense), con un dato concreto y verificable de los de arriba que muestre que se lo miró de verdad. Ejemplos de forma: "Vi que tus pacientes te nombran en casi todas las reseñas", "Vi que en tu web tenés los precios de cada tratamiento". NO afirmes problemas que no están escritos, NO inventes números ni nombres, NO menciones la IA. Nada de elogios de folleto ("excelente trabajo", "gran reputación", "increíbles reseñas", "se nota tu dedicación"): el dato solo, dicho como lo diría alguien al pasar. Sin guiones largos. Si no hay un dato bueno, "".
 - evidencias: hasta 3 frases cortas con lo que viste para decidir el segmento.
 
 Devolvé SOLO este JSON:

@@ -55,6 +55,15 @@ const ZONAS = ["San Miguel de Tucumán", "Yerba Buena", "Tafí Viejo", "Banda de
 
 const abrirUrl = (u: string) => (u.startsWith("http") ? u : `https://${u}`);
 
+/**
+ * Ya se le escribió antes desde el WhatsApp de Galu (la prueba de la hora o el
+ * guion viejo de odontología). La prueba de la hora no cambiaba el estado, así
+ * que sin esto volvían a aparecer en "Hoy" como si nadie les hubiera hablado.
+ */
+const yaContactado = (p: Prospecto) => !!(p.prueba_enviada_at || p.fecha_envio || (p.mensaje_enviado || "").trim());
+
+const rubroDeCola = (p: Prospecto) => rubroTurnosDe(p)?.id || "otros";
+
 export default function TurnosPage() {
     const [universo, setUniverso] = useState<Prospecto[]>([]);
     const [listas, setListas] = useState<ListaProspeccion[]>([]);
@@ -62,6 +71,7 @@ export default function TurnosPage() {
     const [pestania, setPestania] = useState<Pestania>("hoy");
     const [esAndroid, setEsAndroid] = useState(false);
     const [verTodos, setVerTodos] = useState(false);
+    const [filtroRubro, setFiltroRubro] = useState<string>("todos");
     const [escaneo, setEscaneo] = useState<{ hechos: number; total: number } | null>(null);
     const [buscando, setBuscando] = useState<string | null>(null);
     const cerradosAuto = useRef(false);
@@ -110,14 +120,14 @@ export default function TurnosPage() {
     const restantesHoy = Math.max(0, CUOTA_DIARIA - enviadosHoy);
 
     const sinEscanear = useMemo(
-        () => turnos.filter((p) => SIN_CONTACTAR.includes(p.estado) && !sarvoDe(p).escaneado_at),
+        () => turnos.filter((p) => SIN_CONTACTAR.includes(p.estado) && !yaContactado(p) && !sarvoDe(p).escaneado_at),
         [turnos]
     );
 
     const cola = useMemo(
         () =>
             turnos
-                .filter((p) => SIN_CONTACTAR.includes(p.estado) && motivoFueraTurnos(p) === null)
+                .filter((p) => SIN_CONTACTAR.includes(p.estado) && !yaContactado(p) && motivoFueraTurnos(p) === null)
                 // El score se calcula acá y no se lee de la base: los consultorios
                 // cargados antes del 2026-11-09 tienen guardado el de la prueba de la hora.
                 .map((p) => ({ ...p, score: scoreTurnos(p).total }))
@@ -340,7 +350,37 @@ export default function TurnosPage() {
         (p) => p.estado === "enviado" && p.fecha_envio === hoy && Date.now() - new Date(p.updated_at || 0).getTime() < 15 * 60_000
     );
 
-    const visibles = verTodos ? cola : cola.slice(0, Math.max(restantesHoy, 3));
+    // Filtro por rubro: los nutricionistas y los odontólogos conviven en la misma
+    // cola, y a veces querés trabajar solo uno.
+    const rubrosEnCola = useMemo(() => {
+        const cuenta = new Map<string, number>();
+        cola.forEach((p) => cuenta.set(rubroDeCola(p), (cuenta.get(rubroDeCola(p)) || 0) + 1));
+        return Array.from(cuenta.entries())
+            .map(([id, cant]) => ({ id, cant, label: rubroPorId(id)?.label || "Otros" }))
+            .sort((a, b) => b.cant - a.cant);
+    }, [cola]);
+    const filtroValido = filtroRubro === "todos" || rubrosEnCola.some((r) => r.id === filtroRubro) ? filtroRubro : "todos";
+    const colaFiltrada = filtroValido === "todos" ? cola : cola.filter((p) => rubroDeCola(p) === filtroValido);
+    const sinEscanearFiltrado =
+        filtroValido === "todos" ? sinEscanear : sinEscanear.filter((p) => rubroDeCola(p) === filtroValido);
+
+    /** Para un rubro al que ya le escribiste por otro lado: salen todos de la cola de una. */
+    const yaLesEscribi = async () => {
+        const rubro = rubrosEnCola.find((r) => r.id === filtroValido);
+        if (!rubro) return;
+        const ok = window.confirm(
+            `Vas a sacar de la cola a los ${rubro.cant} de ${rubro.label}, marcados como "ya contactado antes desde este número". No se borran: quedan en la planilla como descartados. Seguís?`
+        );
+        if (!ok) return;
+        const lista = colaFiltrada;
+        for (const p of lista) {
+            await guardar(p, { estado: "descartado", motivo_descarte: "Ya contactado antes desde este número" });
+        }
+        setFiltroRubro("todos");
+        toast.success(`${lista.length} de ${rubro.label} fuera de la cola`);
+    };
+
+    const visibles = verTodos ? colaFiltrada : colaFiltrada.slice(0, Math.max(restantesHoy, 3));
 
     // ─── Pantalla ────────────────────────────────────────────
 
@@ -413,13 +453,29 @@ export default function TurnosPage() {
                 </div>
             ) : pestania === "hoy" ? (
                 <section className="space-y-3">
-                    {sinEscanear.length > 0 && !escaneo && (
+                    {rubrosEnCola.length > 1 && (
+                        <div className="flex flex-wrap gap-1.5">
+                            {[{ id: "todos", label: "Todos", cant: cola.length }, ...rubrosEnCola].map((r) => (
+                                <button
+                                    key={r.id}
+                                    onClick={() => { setFiltroRubro(r.id); setVerTodos(false); }}
+                                    className={cn(
+                                        "px-2.5 py-1 rounded-lg text-[11px] font-bold border",
+                                        filtroValido === r.id ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground border-border"
+                                    )}
+                                >
+                                    {r.label} · {r.cant}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                    {sinEscanearFiltrado.length > 0 && !escaneo && (
                         <button
-                            onClick={() => escanear(sinEscanear)}
+                            onClick={() => escanear(sinEscanearFiltrado)}
                             className="w-full rounded-xl border border-sky-500/40 bg-sky-500/10 p-3 text-left text-xs text-sky-200"
                         >
                             <Sparkles className="w-3.5 h-3.5 inline mr-1" />
-                            {sinEscanear.length} sin escanear. Tocá para escanearlos todos (tarda unos segundos por tanda de 8).
+                            {sinEscanearFiltrado.length} sin escanear. Tocá para escanearlos todos (tarda unos segundos por tanda de 8).
                         </button>
                     )}
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
@@ -427,7 +483,7 @@ export default function TurnosPage() {
                             ? `Te quedan ${restantesHoy} de los ${CUOTA_DIARIA} de hoy. Antes de mandar: revisá la primera línea y, si le armaste la página, pegá el link.`
                             : "Ya hiciste los 12 de hoy. Los que siguen son para mañana."}
                     </p>
-                    {cola.length === 0 && <Vacio texto='No hay negocios listos. Traé un rubro desde "Traer".' />}
+                    {colaFiltrada.length === 0 && <Vacio texto='No hay negocios listos. Traé un rubro desde "Traer".' />}
                     {visibles.map((p) => (
                         <TarjetaTurno
                             key={p.id}
@@ -439,9 +495,14 @@ export default function TurnosPage() {
                             ocupado={!!escaneo}
                         />
                     ))}
-                    {!verTodos && cola.length > visibles.length && (
+                    {!verTodos && colaFiltrada.length > visibles.length && (
                         <button onClick={() => setVerTodos(true)} className="w-full text-xs text-muted-foreground py-2">
-                            Ver los {cola.length - visibles.length} que siguen
+                            Ver los {colaFiltrada.length - visibles.length} que siguen
+                        </button>
+                    )}
+                    {filtroValido !== "todos" && colaFiltrada.length > 0 && (
+                        <button onClick={yaLesEscribi} className="w-full text-[11px] text-amber-300/80 py-2 underline underline-offset-2">
+                            Ya les escribí a todos estos antes: sacarlos de la cola
                         </button>
                     )}
                 </section>

@@ -366,7 +366,15 @@ export function primerNombre(p: Pick<Prospecto, "contacto_nombre">): string {
 
 function hola(p: Prospecto): string {
     const n = primerNombre(p);
-    return n ? `Hola ${n}!` : "Hola!";
+    return n ? `Hola ${n}, cómo estás?` : "Hola, cómo estás?";
+}
+
+/** "como si fueras una clienta" / "un paciente" / "un cliente". */
+function comoSiFueras(cliente: string): string {
+    if (cliente === "clientas") return "una clienta";
+    if (cliente === "clientes") return "un cliente";
+    if (cliente === "alumnos") return "un alumno";
+    return "un paciente";
 }
 
 /** La primera línea: lo que solo es verdad de este negocio. Sin dato, no inventa. */
@@ -385,75 +393,80 @@ export function generarMensajeTurnos(paso: PasoTurnos, p: Prospecto, canal: Cana
     const negocio = nombreCorto(p.negocio);
     const linea = primeraLinea(p);
     const presentado = sarvo.presentado_por.trim();
+    const comoCliente = comoSiFueras(cliente);
+    const nombre = primerNombre(p);
 
+    // Cómo se escriben: cortos, como desde el celular. Una idea por burbuja, una
+    // sola pregunta al final, sin listas de tres, sin guiones largos y sin "no X,
+    // sino Y". Si un mensaje empieza a sonar a folleto, está mal.
     switch (paso) {
         case "m1": {
-            if (seg === "centro" && !primerNombre(p)) return generarMensajeTurnos("m1_recepcion", p, canal);
+            if (seg === "centro" && !nombre) return generarMensajeTurnos("m1_recepcion", p, canal);
 
             const apertura = presentado
-                ? `${hola(p)} Soy Gastón, de Galu. Me pasó tu contacto ${presentado}.`
+                ? `${hola(p)} Soy Gastón, de Galu. ${presentado} me pasó tu contacto.`
                 : `${hola(p)} Soy Gastón, de Galu.${linea ? ` ${linea}` : ""}`;
 
             if (seg === "centro") {
                 return [
-                    `${apertura} Te escribo a vos y no al WhatsApp de ${negocio} porque es una pregunta para quien decide: qué pasa con los mensajes que les llegan a la noche, los domingos y en enero, cuando no hay nadie en recepción?`,
+                    `${apertura} Te escribo a vos porque es algo que se decide arriba en ${negocio}. Cuando les escriben a la noche o un domingo y no hay nadie en recepción, esa consulta queda esperando hasta el otro día?`,
                     nivel === "A"
-                        ? `Armé la página de turnos de ${negocio} con sus servicios: contesta precio y horarios y da el turno con la agenda real, a cualquier hora. A tu recepcionista le saca lo repetitivo, no la reemplaza. Mirala: ${demo}`
-                        : `Armé una página de turnos que contesta precio y horarios y da el turno con la agenda real, a cualquier hora. A la recepcionista le saca lo repetitivo, no la reemplaza. Te la armo con los servicios de ${negocio} y te mando un video de 30 segundos?`,
+                        ? `Les armé una página de turnos con sus servicios. Contesta el precio y los horarios y da el turno con la agenda real, a la hora que sea. A la recepción le saca las preguntas de siempre. Mirala: ${demo}`
+                        : `Hago páginas de turnos que contestan el precio y los horarios y dan el turno con la agenda real, a la hora que sea. A la recepción le saca las preguntas de siempre. Si te interesa, la armo con los servicios de ${negocio} y te mando un video de 30 segundos.`,
                 ].join("\n\n");
             }
 
             if (canal === "instagram") {
                 return nivel === "A"
-                    ? `${apertura} Te armé una página de turnos con tus servicios y tus precios, que le contesta a tus ${cliente} y les da el turno sola, a cualquier hora. Mirala: ${demo}\n\nLa estoy dejando gratis un mes a 6 profesionales de acá. Si te sirve, es tuya.`
-                    : `${apertura} Armé una página de turnos que le contesta a tus ${cliente} el precio y los horarios y les da el turno sola, a cualquier hora. Te la armo con tus servicios para que la pruebes?`;
+                    ? `${apertura} Te armé una página de turnos con tus servicios y tus precios, para que tus ${cliente} saquen turno solos: ${demo}\n\nEste mes la dejo gratis a 6 profesionales de acá. Si te sirve, es tuya.`
+                    : `${apertura} Hago una página donde tus ${cliente} ven el precio y sacan turno solos, sin tener que escribirte. Te la armo con tus servicios para que la pruebes?`;
             }
 
             return nivel === "A"
                 ? [
                       apertura,
-                      `Te armé esto con tus servicios y tus precios: ${demo}`,
-                      `Es tu página de turnos: le contesta a tus ${cliente} el precio y los horarios a cualquier hora, mira tu agenda y les da el turno. Vos les mandás el link en vez de ir y venir con horarios.`,
-                      `La estoy dejando andando gratis un mes a 6 profesionales de acá. La probás como si fueras ${cliente === "clientas" ? "una clienta" : "un paciente"}?`,
+                      `Te armé tu página de turnos con tus servicios y tus precios: ${demo}`,
+                      `Tus ${cliente} ven el precio y sacan turno solos, aunque sea a la noche. Te ahorrás el ida y vuelta de "tenés lugar el jueves?".`,
+                      `Este mes la dejo andando gratis a 6 profesionales de acá. Probala como si fueras ${comoCliente} y decime qué te parece.`,
                   ].join("\n\n")
                 : [
                       apertura,
-                      `Armé una página de turnos que le contesta a tus ${cliente} el precio y los horarios a cualquier hora, mira tu agenda real y les da el turno. Vos les mandás el link en vez de ir y venir con horarios.`,
-                      `La estoy dejando gratis un mes a 6 profesionales de acá. Te paso ${r?.ejemplo || "una de ejemplo"} para que la pruebes como si fueras ${cliente === "clientas" ? "una clienta" : "un paciente"}? Es un minuto.`,
+                      `Hago una página de turnos donde tus ${cliente} ven el precio y sacan turno solos, con tu agenda real. Así no tenés que contestar uno por uno.`,
+                      `Este mes la dejo gratis a 6 profesionales de acá. Te paso ${r?.ejemplo || "una de ejemplo"} así la probás?`,
                   ].join("\n\n");
         }
 
         case "m1_recepcion":
             return [
-                `Hola! Sos vos la que contesta el WhatsApp de ${negocio}? Te escribo a vos porque esto te saca trabajo a vos: armé una página de turnos que contesta sola el "cuánto sale" y el "tenés lugar", y deja el turno en la agenda. A la noche y los domingos también.`,
-                `Me decís quién lo decide ahí? Le mando a esa persona un video de 30 segundos y le digo que vos lo viste primero.`,
+                `Hola, cómo estás? Vos sos la que contesta el WhatsApp de ${negocio}? Te cuento rápido: hago una página de turnos que responde sola el "cuánto sale" y el "tenés lugar", y deja el turno anotado en la agenda. También a la noche y los domingos.`,
+                `Quién decide estas cosas ahí? Le mando un video de 30 segundos y le cuento que lo viste vos primero.`,
             ].join("\n\n");
 
         case "fu1":
-            return `${primerNombre(p) ? `${primerNombre(p)}, l` : "L"}legaste a verlo? Te dejo esto que armé para ${r ? r.label.toLowerCase() : "negocios con turnos"}, sirve aunque no uses nada mío: ${linkRecurso(p)}`;
+            return `${nombre ? `${nombre}, p` : "P"}udiste verlo? Te dejo algo que armé para ${r ? r.label.toLowerCase() : "negocios con turnos"}, te sirve uses lo mío o no: ${linkRecurso(p)}`;
 
         case "fu2":
-            return `${primerNombre(p) ? `${primerNombre(p)}, n` : "N"}o te escribo más por esto 🙂 Te dejo la página armada o la borro? Cualquiera de las dos está perfecto.`;
+            return `${nombre ? `${nombre}, e` : "E"}s la última vez que te escribo por esto 🙂 Te dejo la página armada o la borro? Cualquiera de las dos me sirve.`;
 
         case "link":
             return demo
-                ? `Acá está: ${demo}\n\nEscribile como si fueras ${cliente === "clientas" ? "una clienta" : "un paciente"}: preguntale el precio, un horario, lo que quieras. ${nivel === "A" ? "Tiene tus servicios y tus precios." : "Si te gusta, te armo la tuya con tus servicios y tus precios hoy mismo."}`
-                : `Te la armo con tus servicios y tus precios y te la mando hoy. Me pasás qué servicios hacés, cuánto sale cada uno y tus horarios? (o te los saco de tu Instagram si están ahí)`;
+                ? `Acá la tenés: ${demo}\n\nEscribile como si fueras ${comoCliente}, preguntale el precio o pedile un horario. ${nivel === "A" ? "Ya tiene tus servicios y tus precios." : "Si te gusta, hoy te armo la tuya con tus servicios y tus precios."}`
+                : `Dale, te la armo y te la mando hoy. Me pasás qué servicios hacés, cuánto sale cada uno y en qué horarios atendés? Si está todo en tu Instagram, lo saco de ahí.`;
 
         case "llamada":
-            return `Buenísimo! Tenés 15 minutos hoy o mañana? Te lo dejo andando con tus horarios y te muestro dónde poner el link para que te empiecen a entrar los turnos. No tenés que configurar nada: lo cargo yo.`;
+            return `Buenísimo! Tenés 15 minutos hoy o mañana? La dejo andando con tus horarios y te muestro dónde poner el link para que te empiecen a entrar turnos. La cargo yo, vos no tenés que configurar nada.`;
 
         case "precio":
-            return `El primer mes es gratis, y te lo cargo yo. Después son ${PRECIO_NIVEL_1 || "[PRECIO DEL NIVEL 1 — se decide el 13/11]"} por mes, en pesos y con el precio congelado seis meses. Y si en el mes no te entran turnos por la página, lo apagamos y no pagás nada.`;
+            return `El primer mes es gratis y la cargo yo. Después son ${PRECIO_NIVEL_1 || "[PRECIO DEL NIVEL 1 — se decide el 13/11]"} por mes, en pesos, y ese precio te queda fijo seis meses. Si en el mes no te entra ningún turno por la página, la apagamos y no pagás nada.`;
 
         case "referido":
             return [
-                `Tenés dos colegas a los que les pase lo mismo con los mensajes? Si les mandás esto, les armo la suya:`,
-                `"Te paso el contacto de Gastón, de Galu. Me armó una página de turnos que le contesta a mis ${cliente} el precio y los horarios y les da el turno sola. La está dejando gratis un mes a algunos profesionales."`,
+                `Tenés un par de colegas a los que les escriban mucho para sacar turno? Si les reenviás esto, les armo la suya:`,
+                `"Te paso el contacto de Gastón, de Galu. Me armó una página donde mis ${cliente} ven el precio y sacan turno solos. La está dejando gratis un mes a algunos profesionales."`,
             ].join("\n\n");
 
         case "no_interesa":
-            return `Gracias por decírmelo! Una sola cosa: conocés a algún colega al que le escriban mucho por turnos? Si me pasás el contacto, le escribo yo de tu parte.`;
+            return `Gracias por avisarme! Te pregunto una sola cosa: conocés a algún colega al que le escriban mucho para sacar turno? Si me pasás el contacto, le escribo yo y le digo que vengo de tu parte.`;
     }
 }
 

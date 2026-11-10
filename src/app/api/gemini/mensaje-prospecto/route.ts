@@ -310,8 +310,9 @@ Canal: ${prospecto.canal === "whatsapp" ? "WhatsApp" : "Instagram DM"}`;
 3. No inventes datos que no estén arriba. Ni números, ni nombres, ni problemas del negocio. Si la primera línea está vacía, no la reemplaces por una inventada.
 4. Mantené la oferta tal cual: un mes gratis, 6 profesionales de acá. No agregues precios.
 5. Si el borrador trae un link, va tal cual. Si trae un marcador entre corchetes, queda entre corchetes.
-6. NO uses signos de apertura "¿" ni "¡". Como mucho UN guion largo. Comillas rectas.
-7. Máximo 80 palabras. Mantené los párrafos separados por línea en blanco: son burbujas distintas.`;
+6. NO uses signos de apertura "¿" ni "¡". CERO guiones largos (—). Comillas rectas. Sin emojis salvo uno al final si el borrador ya lo trae.
+7. Máximo 80 palabras. Mantené los párrafos separados por línea en blanco: son burbujas distintas.
+8. Que suene a alguien escribiendo desde el celular, no a un folleto. Prohibido: listas de tres cosas seguidas, "no X, sino Y", "no reemplaza, potencia", "solución", "optimizar", "gestionar", "experiencia", "fácil y rápido", "llevá tu negocio", "te cuento que", cerrar con una frase de efecto. Frases cortas y de largo distinto. Una sola pregunta, al final.`;
             const promptTurnos = `Sos quien escribe los mensajes de Gastón, de Galu (Tucumán), a profesionales y negocios con turnos, para ofrecerles su página de turnos de Sarvo: le contesta a sus clientes el precio y los horarios, mira la agenda real y da el turno, a cualquier hora.
 Te paso un borrador con la estructura correcta. Reescribilo para que suene natural y de ESTE negocio, sin cambiar la estructura ni el pedido.
 
