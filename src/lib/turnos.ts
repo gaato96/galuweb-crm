@@ -427,10 +427,13 @@ export function primerNombre(p: Pick<Prospecto, "contacto_nombre"> & { negocio?:
 }
 
 /** Los que trae Traer o el importador son de Tucumán: ahí se dice "de acá". */
+function esDeTucuman(p: Prospecto): boolean {
+    return /tucum|yerba buena|taf[ií]|banda del r|concepci|lules|famaill/i.test(`${p.ciudad} ${p.direccion}`);
+}
+
+/** A uno de Córdoba o de un perfil de Instagram sin ciudad, "de acá" sería mentira. */
 function soyGaston(p: Prospecto): string {
-    return /tucum|yerba buena|taf[ií]|banda del r|concepci|lules|famaill/i.test(`${p.ciudad} ${p.direccion}`)
-        ? "Soy Gastón, de acá de Tucumán."
-        : "Soy Gastón.";
+    return esDeTucuman(p) ? "Soy Gastón, de acá de Tucumán." : "Soy Gastón.";
 }
 
 function hola(p: Prospecto): string {
@@ -474,6 +477,7 @@ export function generarMensajeTurnos(paso: PasoTurnos, p: Prospecto, canal: Cana
     const comoCliente = comoSiFueras(cliente);
     const nombre = primerNombre(p);
     const soy = soyGaston(p);
+    const deAca = esDeTucuman(p) ? " de acá" : "";
     const para = r?.para || "negocios con turnos";
 
     // Quién escribe: "Gastón, de Galu" no le dice nada a nadie, y un nombre de
@@ -503,7 +507,7 @@ export function generarMensajeTurnos(paso: PasoTurnos, p: Prospecto, canal: Cana
 
             if (canal === "instagram") {
                 return nivel === "A"
-                    ? `${apertura} Hice una página de turnos para vos, con tus servicios y tus precios, para que tus ${cliente} saquen turno solos: ${demo}\n\nEste mes la dejo gratis a 6 profesionales de acá. Si te sirve, es tuya.`
+                    ? `${apertura} Hice una página de turnos para vos, con tus servicios y tus precios, para que tus ${cliente} saquen turno solos: ${demo}\n\nEste mes la dejo gratis a 6 profesionales${deAca}. Si te sirve, es tuya.`
                     : `${apertura} Hice una página de turnos para ${para}: tus ${cliente} ven el precio y sacan turno solos, sin tener que escribirte. Te armo la tuya con tus servicios para que la pruebes?`;
             }
 
@@ -512,12 +516,12 @@ export function generarMensajeTurnos(paso: PasoTurnos, p: Prospecto, canal: Cana
                       apertura,
                       `Hice una página de turnos para vos, con tus servicios y tus precios: ${demo}`,
                       `Tus ${cliente} ven el precio y sacan turno solos, aunque sea a la noche. Te ahorrás el ida y vuelta de "tenés lugar el jueves?".`,
-                      `Este mes la dejo andando gratis a 6 profesionales de acá. Probala como si fueras ${comoCliente} y decime qué te parece.`,
+                      `Este mes la dejo andando gratis a 6 profesionales${deAca}. Probala como si fueras ${comoCliente} y decime qué te parece.`,
                   ].join("\n\n")
                 : [
                       apertura,
                       `Hice una página de turnos para ${para}: tus ${cliente} ven el precio y sacan turno solos, con tu agenda real. Así no tenés que contestar uno por uno.`,
-                      `Este mes la dejo gratis a 6 profesionales de acá. Te paso una de ejemplo así la probás?`,
+                      `Este mes la dejo gratis a 6 profesionales${deAca}. Te paso una de ejemplo así la probás?`,
                   ].join("\n\n");
         }
 
