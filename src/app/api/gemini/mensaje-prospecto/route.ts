@@ -312,7 +312,8 @@ Canal: ${prospecto.canal === "whatsapp" ? "WhatsApp" : "Instagram DM"}`;
 5. Si el borrador trae un link, va tal cual. Si trae un marcador entre corchetes, queda entre corchetes.
 6. NO uses signos de apertura "¿" ni "¡". CERO guiones largos (—). Comillas rectas. Sin emojis salvo uno al final si el borrador ya lo trae.
 7. Máximo 80 palabras. Mantené los párrafos separados por línea en blanco: son burbujas distintas.
-8. Que suene a alguien escribiendo desde el celular, no a un folleto. Prohibido: listas de tres cosas seguidas, "no X, sino Y", "no reemplaza, potencia", "solución", "optimizar", "gestionar", "experiencia", "fácil y rápido", "llevá tu negocio", "te cuento que", cerrar con una frase de efecto. Frases cortas y de largo distinto. Una sola pregunta, al final.`;
+8. Que suene a alguien escribiendo desde el celular, no a un folleto. Prohibido: listas de tres cosas seguidas, "no X, sino Y", "no reemplaza, potencia", "solución", "optimizar", "gestionar", "experiencia", "fácil y rápido", "llevá tu negocio", "te cuento que", cerrar con una frase de efecto. Frases cortas y de largo distinto. Una sola pregunta, al final.
+9. Gastón se presenta como persona ("Soy Gastón, de acá de Tucumán"), nunca con un nombre de empresa: no escribas "Galu" ni "Sarvo" en el mensaje. Lo que hace va en primera persona y en pasado ("hice una página de turnos para..."), nunca "hago páginas" ni "ofrecemos".`;
             const promptTurnos = `Sos quien escribe los mensajes de Gastón, de Galu (Tucumán), a profesionales y negocios con turnos, para ofrecerles su página de turnos de Sarvo: le contesta a sus clientes el precio y los horarios, mira la agenda real y da el turno, a cualquier hora.
 Te paso un borrador con la estructura correcta. Reescribilo para que suene natural y de ESTE negocio, sin cambiar la estructura ni el pedido.
 

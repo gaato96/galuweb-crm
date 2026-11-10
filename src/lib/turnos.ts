@@ -71,6 +71,8 @@ export interface RubroTurnos {
     cliente: string;
     /** Cómo se nombra la demo en el mensaje B: "te paso [la de un consultorio de nutrición]". */
     ejemplo: string;
+    /** Para quién es la página, en el mensaje B: "hice una página de turnos para [consultorios de nutrición]". */
+    para: string;
     /** Si está afuera, por qué. Un rubro excluido nunca entra a la cola. */
     excluido?: string;
 }
@@ -86,6 +88,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         recurso: "link-de-turnos-consultorio",
         cliente: "clientas",
         ejemplo: "la de un centro de estética",
+        para: "centros de estética",
     },
     {
         id: "nutricion",
@@ -97,6 +100,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         recurso: "mensajes-precio-consulta-nutricion",
         cliente: "pacientes",
         ejemplo: "la de un consultorio de nutrición",
+        para: "consultorios de nutrición",
     },
     {
         id: "kinesiologia",
@@ -108,6 +112,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         recurso: "link-de-turnos-consultorio",
         cliente: "pacientes",
         ejemplo: "la de un consultorio de kinesiología",
+        para: "kinesiólogos",
     },
     {
         id: "odontologia",
@@ -119,6 +124,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         recurso: "paciente-con-miedo-odontologia",
         cliente: "pacientes",
         ejemplo: "la de un consultorio odontológico",
+        para: "consultorios odontológicos",
     },
     {
         id: "podologia",
@@ -130,6 +136,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         recurso: "link-de-turnos-consultorio",
         cliente: "pacientes",
         ejemplo: "una de ejemplo",
+        para: "podólogos",
     },
     {
         id: "fonoaudiologia",
@@ -141,6 +148,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         recurso: "link-de-turnos-consultorio",
         cliente: "pacientes",
         ejemplo: "una de ejemplo",
+        para: "fonoaudiólogas y psicopedagogas",
     },
     {
         id: "psicologia",
@@ -152,6 +160,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         recurso: "mensajes-recordatorio-turno-psicologia",
         cliente: "pacientes",
         ejemplo: "una de ejemplo",
+        para: "psicólogos",
     },
     {
         id: "veterinaria",
@@ -163,6 +172,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         recurso: "link-de-turnos-consultorio",
         cliente: "clientes",
         ejemplo: "la de una veterinaria",
+        para: "veterinarias",
     },
     {
         id: "medicina",
@@ -174,6 +184,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         recurso: "link-de-turnos-consultorio",
         cliente: "pacientes",
         ejemplo: "una de ejemplo",
+        para: "consultorios médicos",
     },
     {
         id: "clases",
@@ -185,6 +196,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         recurso: "",
         cliente: "alumnos",
         ejemplo: "",
+        para: "",
         excluido: "Sarvo da turnos de uno a uno y no maneja clases con cupo",
     },
     {
@@ -197,6 +209,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         recurso: "",
         cliente: "clientes",
         ejemplo: "",
+        para: "",
         excluido: "Fuera del plan, igual que en el contenido",
     },
 ];
@@ -364,6 +377,13 @@ export function primerNombre(p: Pick<Prospecto, "contacto_nombre">): string {
     return /^[A-Za-zÁÉÍÓÚÑáéíóúñ]{2,}$/.test(nombre) ? nombre : "";
 }
 
+/** Los que trae Traer o el importador son de Tucumán: ahí se dice "de acá". */
+function soyGaston(p: Prospecto): string {
+    return /tucum|yerba buena|taf[ií]|banda del r|concepci|lules|famaill/i.test(`${p.ciudad} ${p.direccion}`)
+        ? "Soy Gastón, de acá de Tucumán."
+        : "Soy Gastón.";
+}
+
 function hola(p: Prospecto): string {
     const n = primerNombre(p);
     return n ? `Hola ${n}, cómo estás?` : "Hola, cómo estás?";
@@ -395,7 +415,14 @@ export function generarMensajeTurnos(paso: PasoTurnos, p: Prospecto, canal: Cana
     const presentado = sarvo.presentado_por.trim();
     const comoCliente = comoSiFueras(cliente);
     const nombre = primerNombre(p);
+    const soy = soyGaston(p);
+    const para = r?.para || "negocios con turnos";
 
+    // Quién escribe: "Gastón, de Galu" no le dice nada a nadie, y un nombre de
+    // empresa que no conocen suena a venta o a estafa. Se presenta como persona
+    // y de dónde es, y lo que hace sale en la frase siguiente. El perfil de
+    // WhatsApp Business (foto, nombre, descripción) completa el resto.
+    //
     // Cómo se escriben: cortos, como desde el celular. Una idea por burbuja, una
     // sola pregunta al final, sin listas de tres, sin guiones largos y sin "no X,
     // sino Y". Si un mensaje empieza a sonar a folleto, está mal.
@@ -404,41 +431,41 @@ export function generarMensajeTurnos(paso: PasoTurnos, p: Prospecto, canal: Cana
             if (seg === "centro" && !nombre) return generarMensajeTurnos("m1_recepcion", p, canal);
 
             const apertura = presentado
-                ? `${hola(p)} Soy Gastón, de Galu. ${presentado} me pasó tu contacto.`
-                : `${hola(p)} Soy Gastón, de Galu.${linea ? ` ${linea}` : ""}`;
+                ? `${hola(p)} ${soy} ${presentado} me pasó tu contacto.`
+                : `${hola(p)} ${soy}${linea ? ` ${linea}` : ""}`;
 
             if (seg === "centro") {
                 return [
                     `${apertura} Te escribo a vos porque es algo que se decide arriba en ${negocio}. Cuando les escriben a la noche o un domingo y no hay nadie en recepción, esa consulta queda esperando hasta el otro día?`,
                     nivel === "A"
-                        ? `Les armé una página de turnos con sus servicios. Contesta el precio y los horarios y da el turno con la agenda real, a la hora que sea. A la recepción le saca las preguntas de siempre. Mirala: ${demo}`
-                        : `Hago páginas de turnos que contestan el precio y los horarios y dan el turno con la agenda real, a la hora que sea. A la recepción le saca las preguntas de siempre. Si te interesa, la armo con los servicios de ${negocio} y te mando un video de 30 segundos.`,
+                        ? `Les hice una página de turnos con sus servicios. Contesta el precio y los horarios y da el turno con la agenda real, a la hora que sea. A la recepción le saca las preguntas de siempre. Mirala: ${demo}`
+                        : `Hice una página de turnos para ${para} que contesta el precio y los horarios y da el turno con la agenda real, a la hora que sea. A la recepción le saca las preguntas de siempre. Si te interesa, la armo con los servicios de ${negocio} y te mando un video de 30 segundos.`,
                 ].join("\n\n");
             }
 
             if (canal === "instagram") {
                 return nivel === "A"
-                    ? `${apertura} Te armé una página de turnos con tus servicios y tus precios, para que tus ${cliente} saquen turno solos: ${demo}\n\nEste mes la dejo gratis a 6 profesionales de acá. Si te sirve, es tuya.`
-                    : `${apertura} Hago una página donde tus ${cliente} ven el precio y sacan turno solos, sin tener que escribirte. Te la armo con tus servicios para que la pruebes?`;
+                    ? `${apertura} Hice una página de turnos para vos, con tus servicios y tus precios, para que tus ${cliente} saquen turno solos: ${demo}\n\nEste mes la dejo gratis a 6 profesionales de acá. Si te sirve, es tuya.`
+                    : `${apertura} Hice una página de turnos para ${para}: tus ${cliente} ven el precio y sacan turno solos, sin tener que escribirte. Te armo la tuya con tus servicios para que la pruebes?`;
             }
 
             return nivel === "A"
                 ? [
                       apertura,
-                      `Te armé tu página de turnos con tus servicios y tus precios: ${demo}`,
+                      `Hice una página de turnos para vos, con tus servicios y tus precios: ${demo}`,
                       `Tus ${cliente} ven el precio y sacan turno solos, aunque sea a la noche. Te ahorrás el ida y vuelta de "tenés lugar el jueves?".`,
                       `Este mes la dejo andando gratis a 6 profesionales de acá. Probala como si fueras ${comoCliente} y decime qué te parece.`,
                   ].join("\n\n")
                 : [
                       apertura,
-                      `Hago una página de turnos donde tus ${cliente} ven el precio y sacan turno solos, con tu agenda real. Así no tenés que contestar uno por uno.`,
-                      `Este mes la dejo gratis a 6 profesionales de acá. Te paso ${r?.ejemplo || "una de ejemplo"} así la probás?`,
+                      `Hice una página de turnos para ${para}: tus ${cliente} ven el precio y sacan turno solos, con tu agenda real. Así no tenés que contestar uno por uno.`,
+                      `Este mes la dejo gratis a 6 profesionales de acá. Te paso una de ejemplo así la probás?`,
                   ].join("\n\n");
         }
 
         case "m1_recepcion":
             return [
-                `Hola, cómo estás? Vos sos la que contesta el WhatsApp de ${negocio}? Te cuento rápido: hago una página de turnos que responde sola el "cuánto sale" y el "tenés lugar", y deja el turno anotado en la agenda. También a la noche y los domingos.`,
+                `Hola, cómo estás? Vos sos la que contesta el WhatsApp de ${negocio}? ${soy} Hice una página de turnos para ${para} que responde sola el "cuánto sale" y el "tenés lugar", y deja el turno anotado en la agenda. También a la noche y los domingos.`,
                 `Quién decide estas cosas ahí? Le mando un video de 30 segundos y le cuento que lo viste vos primero.`,
             ].join("\n\n");
 
@@ -462,7 +489,7 @@ export function generarMensajeTurnos(paso: PasoTurnos, p: Prospecto, canal: Cana
         case "referido":
             return [
                 `Tenés un par de colegas a los que les escriban mucho para sacar turno? Si les reenviás esto, les armo la suya:`,
-                `"Te paso el contacto de Gastón, de Galu. Me armó una página donde mis ${cliente} ven el precio y sacan turno solos. La está dejando gratis un mes a algunos profesionales."`,
+                `"Te paso el contacto de Gastón. Me hizo una página donde mis ${cliente} ven el precio y sacan turno solos. La está dejando gratis un mes a algunos profesionales."`,
             ].join("\n\n");
 
         case "no_interesa":
