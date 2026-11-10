@@ -374,9 +374,52 @@ export const PASO_TURNOS_LABELS: Record<PasoTurnos, string> = {
 
 export type CanalTurnos = "whatsapp" | "instagram";
 
-/** El primer nombre, si hay uno cargado que parezca de persona. */
-export function primerNombre(p: Pick<Prospecto, "contacto_nombre">): string {
-    const limpio = (p.contacto_nombre || "")
+const TITULO = /^(lic\.?|licenciad[oa]|dra?\.?|od\.?|odont\.?|klgo\.?|klga\.?|kinesi[oó]log[oa]|nutricionista|nutr\.?|psic\.?|psic[oó]log[oa]|cosmet[oó]loga|pod[oó]log[oa]|fonoaudi[oó]log[oa]|prof\.?|en|nutrici[oó]n)\s+/i;
+const NO_ES_NOMBRE = /^(consultorio|centro|cl[ií]nica|instituto|estudio|espacio|nutrici[oó]n|salud|integral|deportiva|vida|equipo)$/i;
+
+/**
+ * "Nutricionista Lic. Santiago Escobar | Tucumán" → "Santiago Escobar". Solo si
+ * el negocio arranca con un título: "Alicia Sosa Nutrición" no se toca (puede
+ * ser una marca) y "Nutrición Integral" tampoco.
+ */
+export function nombreDesdeNegocio(negocio: string): string {
+    // "Lic. en Nutrición - Julieta Moreyra", "Nutriform - Licenciada Priscila
+    // Aiachini": el nombre puede estar en cualquier tramo del nombre de Google.
+    const tramos = (negocio || "").split(/\s[|·–—-]\s|\s?\|\s?|,\s|\s+by\s+/i).map((t) => t.trim()).filter(Boolean);
+    for (const t of tramos) {
+        const n = nombreDeTramo(t);
+        if (n) return n;
+    }
+    // "Lic. en Nutrición - Julieta Moreyra": el título en un tramo y el nombre en el siguiente.
+    for (let i = 0; i + 1 < tramos.length; i++) {
+        if (TITULO.test(`${tramos[i]} `) && !nombreDeTramo(tramos[i])) {
+            const n = nombreDeTramo(`Lic. ${tramos[i + 1]}`);
+            if (n) return n;
+        }
+    }
+    return "";
+}
+
+function nombreDeTramo(tramo: string): string {
+    let resto = tramo.trim();
+    let conTitulo = false;
+    for (let i = 0; i < 4 && TITULO.test(resto); i++) {
+        resto = resto.replace(TITULO, "").trim();
+        conTitulo = true;
+    }
+    if (!conTitulo) return "";
+    const palabras = resto.split(/\s+/).filter(Boolean).slice(0, 3);
+    const nombre: string[] = [];
+    for (const w of palabras) {
+        if (!/^[A-ZÁÉÍÓÚÑ][a-záéíóúñ]+$/.test(w) || NO_ES_NOMBRE.test(w)) break;
+        nombre.push(w);
+    }
+    return nombre.join(" ");
+}
+
+/** El primer nombre: el cargado y, si no hay, el que se ve en el nombre del negocio. */
+export function primerNombre(p: Pick<Prospecto, "contacto_nombre"> & { negocio?: string }): string {
+    const limpio = (p.contacto_nombre || nombreDesdeNegocio(p.negocio || ""))
         .replace(/^(lic|lic\.|dra|dra\.|dr|dr\.|od|od\.|klgo|klga|prof|nutr)\.?\s+/i, "")
         .trim();
     const nombre = limpio.split(/\s+/)[0] || "";
@@ -403,9 +446,18 @@ function comoSiFueras(cliente: string): string {
     return "un paciente";
 }
 
+/**
+ * "Vi las 53 reseñas que tenés en Google" la ponía el escaneo cuando no tenía
+ * nada mejor: suena a robot que te espía y no dice nada de él. Se ignora.
+ */
+export function lineaUtil(dato: string): string {
+    const t = (dato || "").trim();
+    return /^vi las \d+ rese[ñn]as que ten[ée]s en google\.?$/i.test(t) ? "" : t;
+}
+
 /** La primera línea: lo que solo es verdad de este negocio. Sin dato, no inventa. */
 function primeraLinea(p: Prospecto): string {
-    const dato = (p.dato_usado || "").trim().replace(/\.$/, "");
+    const dato = lineaUtil(p.dato_usado).replace(/\.$/, "");
     return dato ? `${dato}.` : "";
 }
 

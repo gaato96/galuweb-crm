@@ -3,7 +3,7 @@ import type { Prospecto, EscaneoSarvo, SegmentoTurnos } from "@/lib/types";
 import { ESCANEO_SARVO_VACIO } from "@/lib/types";
 import { extraerPlaceId } from "@/lib/places-url";
 import { telefonoAWhatsapp, normalizarEscaneo } from "@/lib/prospeccion";
-import { RUBROS_TURNOS, rubroTurnosDe } from "@/lib/turnos";
+import { RUBROS_TURNOS, rubroTurnosDe, nombreDesdeNegocio } from "@/lib/turnos";
 
 // ============================================================
 // Escaneo rápido de Sarvo — lo que hace falta para escribirle a un negocio
@@ -102,6 +102,13 @@ export interface ResultadoTurnos {
 
 // ─── Places ──────────────────────────────────────────────────
 
+/**
+ * El último error de Places en este pedido. Antes un 403 (clave sin permiso,
+ * API apagada, sin facturación) pasaba callado: el escaneo seguía solo con el
+ * nombre y parecía que había andado.
+ */
+let errorPlaces = "";
+
 async function fichaDe(p: Prospecto): Promise<Ficha | null> {
     if (!GOOGLE_API_KEY) return null;
     let id = p.maps_url ? extraerPlaceId(p.maps_url) : null;
@@ -116,6 +123,7 @@ async function fichaDe(p: Prospecto): Promise<Ficha | null> {
                 signal: AbortSignal.timeout(6000),
             });
             if (res.ok) id = (await res.json()).places?.[0]?.id || null;
+            else errorPlaces = `Google Places respondió ${res.status}`;
         } catch { /* sin ficha */ }
     }
     if (!id) return null;
@@ -125,7 +133,10 @@ async function fichaDe(p: Prospecto): Promise<Ficha | null> {
             headers: { "X-Goog-Api-Key": GOOGLE_API_KEY, "X-Goog-FieldMask": FIELD_MASK },
             signal: AbortSignal.timeout(8000),
         });
-        if (!res.ok) return null;
+        if (!res.ok) {
+            errorPlaces = `Google Places respondió ${res.status}`;
+            return null;
+        }
         const d = await res.json();
         return {
             nombre: d.displayName?.text || p.negocio,
@@ -208,7 +219,7 @@ function lecturaDeRespaldo(p: Prospecto, f: Ficha | null, w: Web | null): Lectur
     return {
         segmento,
         cant_profesionales: null,
-        profesional: "",
+        profesional: nombreDesdeNegocio(nombre),
         rubro: rubroTurnosDe({ ...p, especialidad: f?.categoria || p.especialidad, escaneo: undefined })?.id || "",
         precios_publicados: w?.precios ?? null,
         primera_linea: lineaDeRespaldo(rev, w),
@@ -218,13 +229,15 @@ function lecturaDeRespaldo(p: Prospecto, f: Ficha | null, w: Web | null): Lectur
 
 function lineaDeRespaldo(rev: number | null | undefined, w: Web | null): string {
     if (w?.precios) return "Vi que tenés los precios publicados en tu web";
-    if (rev != null && rev >= 15) return `Vi las ${rev} reseñas que tenés en Google`;
+    // "Vi las 53 reseñas que tenés en Google" no dice nada de él y suena a robot:
+    // sin un dato bueno, la primera línea va vacía.
+    void rev;
     return "";
 }
 
 async function leerConIA(p: Prospecto, f: Ficha | null, w: Web | null): Promise<Lectura> {
     const respaldo = lecturaDeRespaldo(p, f, w);
-    if (!GEMINI_API_KEY || (!f && !w)) return respaldo;
+    if (!GEMINI_API_KEY) return respaldo;
 
     const rubros = RUBROS_TURNOS.map((r) => `${r.id} (${r.label})`).join(", ");
     const datos = [
@@ -295,6 +308,7 @@ function validar(c: Record<string, unknown>, datos: string, respaldo: Lectura): 
     if (profesional && !profesional.split(/\s+/).every((parte) => parte.length < 3 || corpus.includes(plano(parte)))) {
         profesional = "";
     }
+    if (!profesional) profesional = respaldo.profesional;
 
     let linea = str(c.primera_linea).replace(/\.$/, "");
     const numeros = linea.match(/\d+/g) || [];
@@ -394,6 +408,7 @@ export async function POST(req: Request) {
             return NextResponse.json({ error: "Falta GOOGLE_PLACES_API_KEY en el servidor" }, { status: 500 });
         }
 
+        errorPlaces = "";
         // De a cuatro a la vez: más rápido que en serie y sin disparar un 429.
         const resultados: ResultadoTurnos[] = new Array(prospectos.length);
         let siguiente = 0;
@@ -416,7 +431,14 @@ export async function POST(req: Request) {
         };
         await Promise.all(Array.from({ length: Math.min(EN_PARALELO, prospectos.length) }, trabajador));
 
-        return NextResponse.json({ resultados, con_ia: !!GEMINI_API_KEY });
+        const sinFicha = resultados.filter((r) => r?.resumen.includes("sin ficha de Google")).length;
+        return NextResponse.json({
+            resultados,
+            con_ia: !!GEMINI_API_KEY,
+            aviso: errorPlaces && sinFicha > 0
+                ? `${errorPlaces}: ${sinFicha} se escanearon sin la ficha de Google (sin reseñas ni teléfono). Revisá la clave de Places en Google Cloud.`
+                : "",
+        });
     } catch (error) {
         return NextResponse.json(
             { error: error instanceof Error ? error.message : "Error al escanear" },

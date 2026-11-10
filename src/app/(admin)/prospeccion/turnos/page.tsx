@@ -35,7 +35,7 @@ import { ESCANEO_VACIO, ESCANEO_SARVO_VACIO } from "@/lib/types";
 import { proximaAccion, diasDesde, telefonoAWhatsapp, normalizarEscaneo } from "@/lib/prospeccion";
 import {
     RUBROS_ACTIVOS, rubroPorId, rubroTurnosDe, sarvoDe, segmentoDe, nivelDe, motivoFueraTurnos,
-    generarMensajeTurnos, canalTurnos, scoreTurnos, fichaParaSarvo, chatsNuevosDelMes, nombreCorto,
+    generarMensajeTurnos, canalTurnos, nombreDesdeNegocio, lineaUtil, scoreTurnos, fichaParaSarvo, chatsNuevosDelMes, nombreCorto,
     SEGMENTO_LABELS, PASO_TURNOS_LABELS, CUOTA_DIARIA, LIMITE_CHATS_NUEVOS_MES,
     type PasoTurnos, type CanalTurnos,
 } from "@/lib/turnos";
@@ -166,6 +166,7 @@ export default function TurnosPage() {
             if (lista.length === 0) return;
             setEscaneo({ hechos: 0, total: lista.length });
             let fallidos = 0;
+            let avisado = false;
             try {
                 for (let i = 0; i < lista.length; i += TANDA_ESCANEO) {
                     const tanda = lista.slice(i, i + TANDA_ESCANEO);
@@ -177,6 +178,10 @@ export default function TurnosPage() {
                         });
                         const json = await res.json();
                         if (!res.ok) throw new Error(json.error || "Error al escanear");
+                        if (json.aviso && !avisado) {
+                            avisado = true;
+                            toast.warning(json.aviso, { duration: 15000 });
+                        }
                         for (const r of json.resultados as { prospecto_id: string; campos: Partial<Prospecto>; error?: string }[]) {
                             const actual = tanda.find((p) => p.id === r.prospecto_id);
                             if (!actual || r.error || Object.keys(r.campos).length === 0) {
@@ -629,17 +634,17 @@ function TarjetaTurno({
     const sarvo = sarvoDe(p);
     const rubro = rubroTurnosDe(p);
     const segmento = segmentoDe(p);
-    const [linea, setLinea] = useState(p.dato_usado);
+    const [linea, setLinea] = useState(lineaUtil(p.dato_usado));
     const [pagina, setPagina] = useState(p.revision_url);
-    const [nombre, setNombre] = useState(p.contacto_nombre);
+    const [nombre, setNombre] = useState(p.contacto_nombre || nombreDesdeNegocio(p.negocio));
     const [canal, setCanal] = useState<CanalTurnos>(canalTurnos(p));
     const [paso, setPaso] = useState<PasoTurnos>("m1");
 
     useEffect(() => {
-        setLinea(p.dato_usado);
+        setLinea(lineaUtil(p.dato_usado));
         setPagina(p.revision_url);
-        setNombre(p.contacto_nombre);
-    }, [p.id, p.dato_usado, p.revision_url, p.contacto_nombre]);
+        setNombre(p.contacto_nombre || nombreDesdeNegocio(p.negocio));
+    }, [p.id, p.dato_usado, p.revision_url, p.contacto_nombre, p.negocio]);
 
     const borrador: Prospecto = { ...p, dato_usado: linea, revision_url: pagina, contacto_nombre: nombre };
     const texto = generarMensajeTurnos(paso, borrador, canal);
