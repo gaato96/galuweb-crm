@@ -1,257 +1,166 @@
 // ============================================================
-// Motor de mensajes — VivoMenu (menú digital para gastronomía)
+// Motor de mensajes — VivoMenu (menú digital y pedidos para gastronomía)
 // ============================================================
-// Comparte con Galu la infraestructura de prospeccion.ts (escaneo, niveles,
-// score, follow-ups, scraping) pero el guion de mensajes es distinto de raíz:
-// el que lee el WhatsApp es un empleado tomando pedidos, no un dueño mirando
-// su Instagram, y eso cambia la estructura entera del primer contacto.
+// Comparte con Galu la infraestructura de prospeccion.ts (estados, follow-ups,
+// listados) pero los mensajes son propios.
 //
-// Fuente: documento "VivoMenu — Sistema de prospección en frío" v1 (2026-08-06),
-// rehecho el 2026-11-20 con la fase 10 del plan de marketing (repo menu-digital,
-// marketing/notas/02b-adquisicion.md y marketing/ventas/mensajes.md). Lo que cambió:
-//   · la puerta de entrada es SU carta armada en VivoMenu (revision_url): Gastón la
-//     importa con IA antes de escribir, y el primer mensaje la manda andando;
-//   · la instalación es gratis y la prueba dura 15 días (ya no "40 minutos y lo
-//     usás un fin de semana");
-//   · tres mensajes en ocho días: el primero, el día 3 y el día 8 (el cierre).
-//     fu3 queda para el que dijo "después" (se le escribe cuando él dijo).
+// Rehecho el 2026-11-20 con lo que pidió Gastón después de leer la versión de
+// la fase 10 (repo menu-digital, marketing/ventas/mensajes.md):
+//   · se habla como se habla en Tucumán: "Hola, cómo están? Me llamo Gastón,
+//     soy de acá de Tucumán". Nada de "No es un pedido, disculpá", que hace
+//     que no lo lean, ni frases que suenan armadas;
+//   · no se da por hecho que tenemos su carta: casi ningún local la publica
+//     entera. Se manda la de muestra y se ofrece armar la suya con una foto.
+//     Solo si Gastón ya se la armó (revision_url) el primer mensaje la muestra;
+//   · tres mensajes en ocho días (el primero, el día 3 y el día 8) y se cierra.
+//     fu3 queda para el que pidió que le escriban más adelante.
+// Lo usa la pantalla del celular (/prospeccion/vivomenu) y el modal de siempre.
 // ============================================================
 
-import type { Prospecto, FallaVerificable } from "./types";
-import { normalizarEscaneo, diasDesde } from "./prospeccion";
-import { SENIALES_POR_ID, senialPrincipal, hizoPruebaDePedido } from "./dolores-rubro";
+import type { Prospecto, EscaneoVivo } from "./types";
+import { diasDesde } from "./prospeccion";
 
 /** Un solo lugar para cambiar quién firma los mensajes. */
 export const VIVOMENU_REMITENTE = "Gastón";
 export const VIVOMENU_CIUDAD = "Tucumán";
 
-/**
- * El menú de muestra que se manda en frío. Es el mismo para todos: sirve para
- * que lo toquen como cliente, no para mostrarles su carta.
- *
- * El personalizado (§5 "interés tibio") se guarda por prospecto en revision_url
- * y, cuando existe, reemplaza a este en todos los pasos: mostrarle su propia
- * carta con sus precios es otra conversación que mostrarle la de un tercero.
- */
-export const DEMO_VIVOMENU = "https://vivomenu.com.ar/m/burger-house-tuc/catalogo";
+/** El menú de muestra que se manda cuando todavía no se le armó el suyo. */
+export const DEMO_VIVOMENU = "https://vivomenu.com.ar/m/burger-house-tuc";
 
 export type PasoMensajeVivoMenu =
     | "primer_contacto"
     | "rama_empleado"
     | "rama_dueno"
-    | "fu1"           // día 3 — chequeo de 3 puntos
-    | "fu2"           // día 7
-    | "fu3"           // día 14 — cierre
+    | "fu1"           // día 3
+    | "fu2"           // día 8, el cierre
+    | "fu3"           // el que dijo "después"
     | "interes_tibio"
-    | "compromiso_visita";
+    | "compromiso_visita"
+    | "no_interesa";
 
 export const PASO_VIVOMENU_LABELS: Record<PasoMensajeVivoMenu, string> = {
-    primer_contacto: "Primer contacto (2 burbujas)",
-    rama_empleado: "Contestó el empleado",
+    primer_contacto: "Primer mensaje",
+    rama_empleado: "Contestó un empleado",
     rama_dueno: "Contestó el dueño",
-    fu1: "Follow-up día 3 — lo que vi de afuera",
-    fu2: "Follow-up día 8 — cierre",
-    fu3: "Recontacto (el que dijo «después»)",
-    interes_tibio: "Interés tibio → armarle el menú",
-    compromiso_visita: "Compromiso → agendar visita",
+    fu1: "Día 3",
+    fu2: "Día 8 (cierre)",
+    fu3: "Recontacto (dijo «después»)",
+    interes_tibio: "Pedirle la foto de la carta",
+    compromiso_visita: "Proponer la visita",
+    no_interesa: "No le interesa",
 };
 
-/** Pasos que no vienen con texto citado de un documento — avisar en la UI. Hoy, ninguno. */
+/** Pasos sin texto de una fuente escrita: avisar en la UI. Hoy, ninguno. */
 export const PASOS_SIN_FUENTE_TEXTUAL: PasoMensajeVivoMenu[] = [];
 
-function minuscula(txt: string): string {
-    const t = (txt || "").trim();
-    if (!t) return "";
-    return t.charAt(0).toLowerCase() + t.slice(1);
-}
-
-/**
- * §5 Peldaño 1 — la observación que abre el mensaje, ya como oración completa.
- *
- * Devuelve la frase entera y no un fragmento para pegar después de "Vi que",
- * porque así estaba y producía dos mensajes rotos:
- *
- *   · Con una queja de cliente (nivel 1, el dato más fuerte que hay) salía
- *     "Vi que pedí dos rolls y me llegó uno solo" — la queja quedaba en primera
- *     persona, como si el que escribe hubiera sido el que pidió. Una queja se
- *     CITA, no se cuenta.
- *   · Sin ningún dato salía "Vi que varias cosas de Don José en Google", que ni
- *     siquiera es una oración.
- *
- * Devuelve null cuando no hay nada verificado: en ese caso el mensaje no abre
- * con una observación en vez de abrir con una inventada.
- */
-function observacionParaMensaje(p: Prospecto): string | null {
-    const escaneo = normalizarEscaneo(p.escaneo);
-
-    // Nivel 1 gana siempre (§4). Va antes que dato_usado porque para un nivel 1
-    // dato_usado ES la queja (lo autocompleta sugerirDatoUsado), y por ese
-    // camino volvía a colarse sin comillas y en primera persona.
-    if (escaneo.tiene_queja_cliente && escaneo.queja_textual.trim()) {
-        return `Estuve leyendo las reseñas y vi que alguien puso: "${escaneo.queja_textual.trim()}".`;
-    }
-    if (p.dato_usado.trim()) return `Vi que ${minuscula(p.dato_usado)}.`;
-
-    const senial = senialPrincipal(escaneo.fallas);
-    if (senial?.hallazgo) return `Vi que ${senial.hallazgo}.`;
-
-    return null;
-}
-
-/** Los hallazgos salen del catálogo de gastronomía (dolores-rubro.ts), ordenados por peso. */
-function hallazgosDelEscaneo(fallas: FallaVerificable[]): string[] {
-    return fallas
-        .map((f) => SENIALES_POR_ID[f])
-        .filter((s) => !!s?.hallazgo)
-        .sort((a, b) => b.peso - a.peso)
-        .map((s) => s.hallazgo as string);
-}
-
-/** §3.4 + §5 rama dueño — clasifica un canal existente para saber cuál mensaje de ruteo mandar. */
+/** §3.4 — clasifica un canal existente. */
 export function tieneWhatsappBusiness(p: Prospecto): boolean {
     return p.es_whatsapp_business === true;
 }
 
+export type CanalVivo = "whatsapp" | "instagram";
+
+/** Por dónde se le escribe: WhatsApp si hay un número, si no Instagram. */
+export function canalVivo(p: Prospecto): CanalVivo {
+    if (p.telefono_wa) return "whatsapp";
+    return p.instagram_url ? "instagram" : "whatsapp";
+}
+
+/** Lo que dijo el escaneo de Google, o null si todavía no se escaneó. */
+export function vivoDe(p: Prospecto): EscaneoVivo | null {
+    const e = p.escaneo as { vivo?: EscaneoVivo } | null;
+    return e?.vivo ?? null;
+}
+
 /**
- * §5 — genera el texto del paso pedido. Los dos primeros bloques del primer
- * contacto se devuelven como un solo string con línea en blanco entre medio,
- * igual que hace generarMensaje() de Galu — la UI ya sabe copiar/enviar así.
+ * El orden de la cola. No es un juicio sobre el local: es a quién conviene
+ * escribirle primero según lo que dice Google.
+ *   · hace delivery o para llevar → tiene el pedido directo, es el cliente del plan;
+ *   · solo salón → va al final (el plan entra por delivery);
+ *   · las reseñas dicen cuánto movimiento hay.
  */
-export function generarMensajeVivoMenu(paso: PasoMensajeVivoMenu, p: Prospecto): string {
-    const escaneo = normalizarEscaneo(p.escaneo);
-    const demoUrl = p.revision_url.trim() || DEMO_VIVOMENU;
-    const enApps = escaneo.fallas.includes("en_apps_delivery");
+export function prioridadVivo(p: Prospecto): number {
+    const v = vivoDe(p);
+    let puntos = 0;
+    if (v?.delivery) puntos += 40;
+    if (v?.para_llevar) puntos += 25;
+    if (v && !v.delivery && !v.para_llevar && v.salon) puntos -= 30;
+    const r = p.reviews_count ?? 0;
+    puntos += r >= 300 ? 20 : r >= 100 ? 15 : r >= 30 ? 10 : r >= 10 ? 5 : 0;
+    if (p.telefono_wa) puntos += 10;
+    return puntos;
+}
+
+/**
+ * Genera el texto del paso pedido, listo para pegar en WhatsApp o Instagram.
+ * Se habla en plural ("les escribo") porque el número de un local lo lee
+ * cualquiera; cuando contesta alguien, se pasa al vos.
+ */
+export function generarMensajeVivoMenu(paso: PasoMensajeVivoMenu, p: Prospecto, canal: CanalVivo = canalVivo(p)): string {
+    const suCarta = p.revision_url.trim();
+    const link = suCarta || DEMO_VIVOMENU;
 
     if (paso === "primer_contacto") {
-        // Dos ángulos, y la diferencia no es de tono: es qué problema tienen.
-        //
-        // Al que ya está en PedidosYa no hay que explicarle que el pedido online
-        // sirve — lo está usando. Lo que le duele es la comisión, así que la
-        // línea 2 va directo ahí. Al que no está en ninguna app, la comisión no
-        // le dice nada todavía; lo que le duele es el WhatsApp del viernes.
-        // Sin observación verificada el mensaje NO abre inventando una: se
-        // presenta y muestra el link. Es más corto y más honesto, y el link
-        // sigue siendo lo que hace el trabajo.
-        const observacion = observacionParaMensaje(p);
-        const presentacion = `Soy ${VIVOMENU_REMITENTE}, de acá de ${VIVOMENU_CIUDAD}.${observacion ? ` ${observacion}` : ""}`;
-
-        // Con su carta ya armada (revision_url), el mensaje la muestra: es lo que
-        // más hace contestar, porque no hay que imaginarse nada. Se arman 2 o 3
-        // por día, a los de score más alto (02b-adquisicion §3).
-        if (p.revision_url.trim()) {
+        if (canal === "instagram") {
+            return suCarta
+                ? `Hola, cómo están? Me llamo ${VIVOMENU_REMITENTE}, soy de ${VIVOMENU_CIUDAD}. Les armé la carta en un link para que los clientes les pidan desde ahí y el pedido les llegue al WhatsApp ya escrito. ¿Se las paso para que la vean?`
+                : `Hola, cómo están? Me llamo ${VIVOMENU_REMITENTE}, soy de ${VIVOMENU_CIUDAD}. Hice un sistema para que los clientes les pidan desde un link y el pedido les llegue al WhatsApp ya escrito. Si quieren les paso uno de muestra, y si les sirve les armo el de ustedes gratis.`;
+        }
+        if (suCarta) {
             return [
-                "Hola. No es un pedido, disculpá. Te escribo por otra cosa.",
+                `Hola, cómo están? Me llamo ${VIVOMENU_REMITENTE}, soy de acá de ${VIVOMENU_CIUDAD}.`,
                 "",
-                `${presentacion} Agarré la carta que tienen publicada y te la armé en VivoMenu, para que tus clientes pidan desde un link y el pedido te llegue a este WhatsApp ya escrito, con los agregados y la dirección.`,
+                `Les armé la carta en un link para que los clientes les pidan desde ahí: ven los productos con fotos, arman el pedido y les llega a este WhatsApp ya escrito, con la dirección y cómo paga.`,
                 "",
-                `Mirala como si fueras un cliente: ${demoUrl}`,
+                `Mírenla como si fueran un cliente: ${link}`,
                 "",
-                "Si algún precio está viejo me decís y lo cambio. Este WhatsApp lo lleva el dueño, o se lo puedo pasar por acá?",
+                "Si les sirve, se los dejo andando gratis.",
             ].join("\n");
         }
-
-        const queHace = enApps
-            ? "Hago un link propio donde el cliente ve la carta con fotos, arma el pedido solo y te entra directo a este WhatsApp, sin comisión por pedido. Para el que ya te conoce y te pide directo."
-            : "Hago un link donde el cliente ve la carta con fotos, arma el pedido con los agregados y te llega acá ya escrito, en vez de tener que ir preguntándole de a uno.";
-        const linea2 = `${presentacion} ${queHace}`;
-
         return [
-            "Hola. No es un pedido, disculpá. Te escribo por otra cosa.",
+            `Hola, cómo están? Me llamo ${VIVOMENU_REMITENTE}, soy de acá de ${VIVOMENU_CIUDAD}.`,
             "",
-            linea2,
+            "Les escribo porque hice un sistema para locales de comida: el cliente entra a un link, ve la carta con fotos, arma su pedido y les llega a este WhatsApp ya escrito, con la dirección y cómo paga.",
             "",
-            `Este es uno real, tocalo como si fueras un cliente: ${demoUrl}`,
+            `Les dejo uno de muestra para que lo vean: ${link}`,
             "",
-            "Si querés, te armo el tuyo con tu carta para que lo veas andando. Este WhatsApp lo lleva el dueño, o se lo puedo pasar por acá?",
+            "Si les interesa, les armo el de ustedes gratis con su carta.",
         ].join("\n");
     }
 
     if (paso === "rama_empleado") {
-        return [
-            "Buenísimo, gracias. Y ya que sos vos el que atiende esto: lo que hace es que el pedido te llega armado, con los agregados y la dirección adentro, en vez de tener que ir preguntando de a uno.",
-            "",
-            "Si se lo pasás y quiere verlo, decile que en dos minutos se lo muestro andando. O pasame vos un horario y voy.",
-        ].join("\n");
+        return "Gracias! Si le podés pasar el mensaje al dueño, te agradezco. A vos también te sirve: los pedidos llegan armados y no hay que preguntar todo de a uno.";
     }
 
     if (paso === "rama_dueno") {
-        // La pregunta abre el tema de la comisión sin nombrarla, y la respuesta
-        // dice cuál de los dos productos entra después: si contesta "PedidosYa",
-        // el argumento es lo que deja ahí; si contesta "por acá", es el quilombo
-        // de tomar todo a mano y ahí entra la parte de gestión.
-        return enApps
-            ? "Bien. Contame una cosa, para no hacerte perder tiempo: de lo que vendés por PedidosYa, tenés idea de cuánto se te va en comisión por mes?"
-            : "Bien. Contame una cosa, para no hacerte perder tiempo: un viernes a la noche, los pedidos te entran más por acá o por PedidosYa?";
+        return "Buenísimo! Te hago una pregunta: los pedidos te entran más por WhatsApp o por PedidosYa?";
     }
 
     if (paso === "fu1") {
-        // §6 — el "chequeo de 3 puntos". Necesita hallazgos reales del escaneo:
-        // si no hay suficientes, se avisa en vez de inventar observaciones falsas.
-        const hallazgos = hallazgosDelEscaneo(escaneo.fallas).slice(0, 3);
-        if (escaneo.queja_textual.trim() && hallazgos.length < 3) {
-            hallazgos.unshift(`en las reseñas alguien menciona: "${escaneo.queja_textual.trim()}"`);
-        }
-
-        // El mensaje se adapta a cuántos hallazgos REALES hay, en vez de pedir
-        // siempre tres y rellenar con placeholders. Con dos hallazgos buenos el
-        // mensaje funciona igual; con uno bueno y dos "[completar]" no se puede
-        // mandar, y al arrancar a prospectar ese es el caso más común.
-        if (hallazgos.length === 0) {
-            return "[Sin hallazgos cargados: este follow-up no se puede armar sin al menos uno real. Completá el Escaneo — con uno solo alcanza.]";
-        }
-
-        const cuantos = hallazgos.length === 1 ? "Una cosa que vi" : hallazgos.length === 2 ? "Dos cosas que vi" : "Tres cosas que vi";
-
-        // "Te pedí como cliente" solo se puede decir si de verdad se hizo la prueba.
-        // Si el escaneo fue únicamente frío, la apertura cambia y no afirma nada falso.
-        const apertura = hizoPruebaDePedido(escaneo.fallas)
-            ? `Hice la prueba de pedirte como cliente, para ver dónde se traba. ${cuantos}:`
-            : `Estuve mirando cómo se pide desde afuera, como lo ve alguien que todavía no te conoce. ${cuantos}:`;
-
-        const cierre =
-            hallazgos.length === 1
-                ? "No es grave, pero es justo el momento en el que alguien que todavía no te conoce se va a otro lado."
-                : `Ninguna de las ${hallazgos.length === 2 ? "dos" : "tres"} es grave sola. Juntas son pedidos que se caen antes de empezar.`;
-
-        return [
-            apertura,
-            "",
-            ...hallazgos.map((h, i) => `${i + 1}. ${h.charAt(0).toUpperCase()}${h.slice(1)}.`),
-            "",
-            cierre,
-        ].join("\n");
+        return suCarta
+            ? `Hola de nuevo! No sé si pudieron ver la carta que les armé: ${link}. Si algún precio está viejo me dicen y lo cambio.`
+            : "Hola de nuevo! No sé si pudieron ver el link que les mandé. Si me pasan una foto de la carta les armo la de ustedes y se las mando para que la vean, sin compromiso.";
     }
 
     if (paso === "fu2") {
-        // Día 8: el cierre. No pregunta "¿lo viste?": deja la puerta abierta con
-        // lo único que no le cuesta nada (que le armen la carta) y se despide.
-        return p.revision_url.trim()
-            ? `Última por acá para no ser pesado. Tu carta queda armada en el link, por si un viernes querés probarla: ${demoUrl}. Si te sirve, te lo dejo andando en el local sin costo de instalación. Éxitos con el local!`
-            : "Última por acá para no ser pesado. Si en algún momento querés ver cómo quedaría tu carta para pedir desde un link, pasame una foto y te la armo, sin compromiso. Éxitos con el local!";
+        return "Última vez que les escribo por esto, no quiero molestar. Si algún día quieren probarlo, me escriben y se los armo. Éxitos!";
     }
 
     if (paso === "fu3") {
-        // Solo para el que contestó "después de las fiestas", "en marzo", etc.:
-        // se le escribe en la fecha que él dijo, una vez.
-        return `Hola! Te escribo como quedamos. ¿Cómo viene el local? Lo que te había comentado sigue en pie: te armo tu carta en VivoMenu y, si te sirve, te lo dejo andando sin costo de instalación. ¿Te la armo esta semana?`;
+        return "Hola, cómo andan? Les escribo como habíamos quedado, por lo del link para los pedidos. ¿Les armo la carta esta semana?";
     }
 
     if (paso === "interes_tibio") {
-        return "Mejor que explicártelo: pasame una foto de tu carta (o el link de tu Instagram) y te la armo entera, con tus precios y tus agregados, para que la veas andando. La cargo con IA, así que en un rato la tenés. Sin compromiso: si no te gusta, la bajo.";
+        return "Dale! Pasame una foto de la carta, con los precios, y te la armo. En un rato te mando el link para que la veas.";
     }
 
-    // compromiso_visita — el único paso donde entra la parte de gestión.
-    // Antes no se nombra: en frío, "sistema de gestión" es una palabra que
-    // cierra la conversación. Acá ya vio su propia carta andando y la pregunta
-    // que sigue naturalmente es qué pasa con el pedido una vez que entra.
+    if (paso === "no_interesa") {
+        return "Dale, gracias igual por responder. Éxitos con el local!";
+    }
+
+    // compromiso_visita
     const { texto1, texto2 } = proximosDiasEnvio();
-    return [
-        "Te parece si paso y te lo dejo funcionando de verdad, con toda la carta y las fotos? La instalación es gratis y lo probás 15 días con tus pedidos reales. Si no te sirvió, lo sacamos.",
-        "",
-        "Ahí te muestro también la otra parte, que es donde se ve de verdad: los pedidos entran a una pantalla en orden, con la hora y el estado de cada uno, y queda el registro de lo que más sale y de lo que se te termina. Eso es lo que hoy vive en papelitos y en la cabeza del que atiende.",
-        "",
-        `Te va ${texto1} a las 16, o ${texto2} a esa hora?`,
-    ].join("\n");
+    return `Si te parece, paso por el local y te lo dejo andando. La instalación es gratis y lo probás 15 días con tus pedidos. Si no te sirve, lo sacamos. ¿Te queda bien el ${texto1} a las 16, o el ${texto2}?`;
 }
 
 /** Los próximos martes y jueves desde hoy, en formato "martes 12" (§4 — el mapa completo). */

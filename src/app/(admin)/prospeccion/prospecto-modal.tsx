@@ -1530,8 +1530,8 @@ export default function ProspectoModal({
 
                             {esVivoMenu && pasoMensaje === "fu1" && (
                                 <p className="text-[11px] text-muted-foreground bg-secondary/40 border border-border rounded-lg p-3">
-                                    El chequeo de 3 puntos sale del Escaneo (fallas + queja de reseña). Si faltan hallazgos reales,
-                                    el mensaje te lo marca en vez de inventar observaciones — completá el Escaneo primero.
+                                    Día 3: le recuerda el link y le ofrece armar su carta con una foto. Lo más rápido es
+                                    mandarlo desde la pantalla VivoMenu · Locales (Prospección → VivoMenu).
                                 </p>
                             )}
 

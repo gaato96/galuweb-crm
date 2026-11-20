@@ -1012,6 +1012,21 @@ export interface EscaneoProspecto {
     detalle_trabajo: string;        // nivel 4
     /** Solo en el sistema de Sarvo (negocios con turnos). Ver turnos.ts. */
     sarvo?: EscaneoSarvo;
+    /** Solo en VivoMenu: lo que dice la ficha de Google. Ver vivomenu-mensajes.ts. */
+    vivo?: EscaneoVivo;
+}
+
+/**
+ * El escaneo rápido de VivoMenu (/api/prospeccion/escanear-vivomenu): lo que la
+ * ficha de Google dice del local y nada más. null = Google no lo informa.
+ */
+export interface EscaneoVivo {
+    escaneado_at: string;
+    delivery: boolean | null;
+    para_llevar: boolean | null;
+    salon: boolean | null;
+    categoria: string;
+    cerrado: boolean;
 }
 
 /**

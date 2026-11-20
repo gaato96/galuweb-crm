@@ -48,6 +48,8 @@ export function normalizarEscaneo(e: Partial<EscaneoProspecto> | null | undefine
         detalle_trabajo: e?.detalle_trabajo || "",
         // Lo de Sarvo se conserva tal cual: sin esto, cada guardado lo borraba.
         ...(e?.sarvo ? { sarvo: { ...ESCANEO_SARVO_VACIO, ...e.sarvo } } : {}),
+        // Lo de VivoMenu, igual: se conserva tal cual.
+        ...(e?.vivo ? { vivo: e.vivo } : {}),
     };
 }
 

@@ -737,6 +737,23 @@ export default function ProspeccionPage() {
                 </Link>
             )}
 
+            {/* VivoMenu: desde el 2026-11-20 se trabaja desde su pantalla del celular. */}
+            {sistemaActivo === "vivomenu" && (
+                <Link
+                    href="/prospeccion/vivomenu"
+                    className="rounded-2xl border border-orange-500/30 bg-orange-500/[0.07] p-4 flex items-center gap-3 hover:border-orange-400/50 transition-colors"
+                >
+                    <UtensilsCrossed className="w-4 h-4 text-orange-300 shrink-0" />
+                    <div className="flex-1">
+                        <p className="text-xs sm:text-sm text-orange-100 font-bold">VivoMenu · Locales: trabajá desde acá</p>
+                        <p className="text-[11px] text-orange-200/70">
+                            Los del día con el mensaje escrito y la ficha de Google leída sola, los seguimientos del día 3 y 8, y los que contestaron.
+                        </p>
+                    </div>
+                    <span className="text-orange-300 text-sm font-bold">→</span>
+                </Link>
+            )}
+
             {/* Sarvo: desde el 2026-11-09 todo el flujo (traer, escanear, mandar,
                 seguir) vive en su propia pantalla, pensada para el celular. */}
             {sistemaActivo === "odontologia" && (
