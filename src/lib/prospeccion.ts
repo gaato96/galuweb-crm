@@ -320,13 +320,16 @@ export function calcularScoreVivoMenu(p: Prospecto): DesgloseScore {
     //    catálogo (peso 100): no hay que convencerlos de que el pedido online
     //    sirve, ya lo saben — se les muestra lo que les cuesta la comisión.
     if (fallas.has("en_apps_delivery")) {
-        partes.push({ concepto: "En PedidosYa / Rappi: paga comisión por cada pedido", puntos: 25 });
+        // Bajó de 25 a 15 el 2026-11-20: el plan apunta al que toma los pedidos por
+        // WhatsApp; el que vende casi todo por la app no tiene ese problema.
+        partes.push({ concepto: "En PedidosYa / Rappi: paga comisión por cada pedido", puntos: 15 });
     }
 
     // 3. Todo el pedido pasa por una persona contestando. Es el dolor que el
     //    producto resuelve de frente, y el que hace que el demo se entienda solo.
     if (fallas.has("pedidos_solo_whatsapp")) {
-        partes.push({ concepto: "Para pedir hay que escribir y esperar", puntos: 12 });
+        // Subió de 12 a 20 el 2026-11-20: es el cliente principal del plan.
+        partes.push({ concepto: "Para pedir hay que escribir y esperar", puntos: 20 });
     }
     if (fallas.has("carta_sin_precios") || fallas.has("carta_como_imagen") || fallas.has("precio_por_privado")) {
         partes.push({ concepto: "La carta publicada no deja decidir sola", puntos: 10 });
@@ -1156,7 +1159,10 @@ export const DIAS_VIGENCIA = 21;
  */
 const CADENCIA_FOLLOWUP: Record<Sistema, { fu1: number; fu2: number; fu3?: number }> = {
     galu: { fu1: 3, fu2: 7 },
-    vivomenu: { fu1: 3, fu2: 7, fu3: 14 },
+    // VivoMenu (desde el 2026-11-20, fase 10 del plan): igual que Sarvo, tres
+    // mensajes en ocho días (el primero, el día 3 y el día 8, que cierra). fu3
+    // queda solo para el que pidió que le escriban más adelante.
+    vivomenu: { fu1: 3, fu2: 5 },
     // Agencias: dos toques y afuera. Un dueño de agencia que no contestó dos
     // veces no está evaluando nada, tiene la bandeja llena. Insistir más lo
     // único que hace es quemar el contacto para cuando sí necesite un proveedor.
