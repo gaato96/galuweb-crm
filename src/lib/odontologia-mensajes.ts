@@ -551,3 +551,19 @@ export function linkWhatsapp(numero: string, texto: string, app: AppWhatsapp, es
     const query = `phone=${wa}${texto ? `&text=${encodeURIComponent(texto)}` : ""}`;
     return `intent://send?${query}#Intent;scheme=whatsapp;package=${PAQUETE[app]};S.browser_fallback_url=${encodeURIComponent(waMe)};end`;
 }
+
+/**
+ * Dónde abrir el chat sin pasar por la página de "Continuar al chat" de wa.me.
+ * "app" en Android usa el intent del paquete (Business o el común); en la compu
+ * y en el iPhone, el esquema whatsapp:// abre la app instalada de una. "web"
+ * va directo a WhatsApp Web, también sin página intermedia.
+ */
+export type DestinoWhatsapp = AppWhatsapp | "web";
+
+export function linkWhatsappDirecto(numero: string, texto: string, destino: DestinoWhatsapp, esAndroid: boolean): string {
+    const wa = numero.replace(/\D/g, "");
+    const query = `phone=${wa}${texto ? `&text=${encodeURIComponent(texto)}` : ""}`;
+    if (destino === "web") return `https://web.whatsapp.com/send?${query}`;
+    if (esAndroid) return linkWhatsapp(numero, texto, destino, true);
+    return `whatsapp://send?${query}`;
+}

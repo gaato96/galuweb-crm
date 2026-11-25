@@ -39,7 +39,7 @@ import {
     SEGMENTO_LABELS, PASO_TURNOS_LABELS, CUOTA_DIARIA, LIMITE_CHATS_NUEVOS_MES,
     type PasoTurnos, type CanalTurnos,
 } from "@/lib/turnos";
-import { linkWhatsapp } from "@/lib/odontologia-mensajes";
+import { linkWhatsappDirecto, type DestinoWhatsapp } from "@/lib/odontologia-mensajes";
 import { Tarjeta, Boton, Vacio, Pestanias } from "@/components/prospeccion/celular";
 
 type Pestania = "hoy" | "seguir" | "contestaron" | "traer";
@@ -52,6 +52,8 @@ const TANDA_ESCANEO = 8;
 const DIAS_PARA_CERRAR = 3;
 
 const ZONAS = ["San Miguel de Tucumán", "Yerba Buena", "Tafí Viejo", "Banda del Río Salí", "Concepción"];
+
+const CLAVE_DESTINO = "turnos.destino-whatsapp";
 
 const abrirUrl = (u: string) => (u.startsWith("http") ? u : `https://${u}`);
 
@@ -76,7 +78,26 @@ export default function TurnosPage() {
     const [buscando, setBuscando] = useState<string | null>(null);
     const cerradosAuto = useRef(false);
 
-    useEffect(() => setEsAndroid(/android/i.test(navigator.userAgent)), []);
+    const [destino, setDestinoState] = useState<DestinoWhatsapp>("business");
+    const [buscarContesto, setBuscarContesto] = useState("");
+
+    useEffect(() => {
+        const android = /android/i.test(navigator.userAgent);
+        setEsAndroid(android);
+        let guardado: string | null = null;
+        try {
+            guardado = localStorage.getItem(CLAVE_DESTINO);
+        } catch {}
+        const validos: DestinoWhatsapp[] = android ? ["business", "personal", "web"] : ["business", "web"];
+        setDestinoState(validos.includes(guardado as DestinoWhatsapp) ? (guardado as DestinoWhatsapp) : "business");
+    }, []);
+
+    const setDestino = (d: DestinoWhatsapp) => {
+        setDestinoState(d);
+        try {
+            localStorage.setItem(CLAVE_DESTINO, d);
+        } catch {}
+    };
 
     const cargar = useCallback(async () => {
         try {
@@ -144,7 +165,32 @@ export default function TurnosPage() {
     );
 
     const enCurso = useMemo(() => turnos.filter((p) => EN_CURSO.includes(p.estado)), [turnos]);
-    const contestaron = useMemo(() => turnos.filter((p) => p.estado === "respondio" || p.estado === "reunion"), [turnos]);
+    const contestaron = useMemo(
+        () =>
+            turnos
+                .filter((p) => p.estado === "respondio" || p.estado === "reunion")
+                // El que acaba de contestar, arriba: es al que hay que responderle ya.
+                .sort((a, b) => (b.fecha_respuesta || "").localeCompare(a.fecha_respuesta || "") || (b.updated_at || "").localeCompare(a.updated_at || "")),
+        [turnos]
+    );
+    /** A los que se les escribió y todavía no contestaron (también los cerrados: a veces contestan tarde). */
+    const esperando = useMemo(
+        () => turnos.filter((p) => EN_CURSO.includes(p.estado) || p.estado === "sin_respuesta"),
+        [turnos]
+    );
+    const encontrados = useMemo(() => {
+        const q = buscarContesto.trim().toLowerCase();
+        if (!q) return [];
+        const digitos = q.replace(/\D/g, "");
+        return esperando
+            .filter((p) => {
+                const texto = `${p.negocio} ${p.contacto_nombre} ${nombreDesdeNegocio(p.negocio)} ${p.instagram_url}`.toLowerCase();
+                if (texto.includes(q)) return true;
+                // Un número pegado desde WhatsApp ("+54 9 381 555-1234"): alcanza con los últimos dígitos.
+                return digitos.length >= 4 && (p.telefono_wa || "").replace(/\D/g, "").includes(digitos.slice(-8));
+            })
+            .slice(0, 8);
+    }, [buscarContesto, esperando]);
     const fundadores = turnos.filter((p) => p.estado === "cliente").length;
 
     // El día 8 fue el último mensaje: a los tres días sin respuesta se cierra solo.
@@ -308,7 +354,10 @@ export default function TurnosPage() {
 
     const abrir = (p: Prospecto, texto: string, canal: CanalTurnos) => {
         if (canal === "whatsapp" && p.telefono_wa) {
-            window.location.href = linkWhatsapp(p.telefono_wa, texto, "business", esAndroid);
+            const url = linkWhatsappDirecto(p.telefono_wa, texto, destino, esAndroid);
+            // WhatsApp Web en una sola pestaña que se reusa; la app, en la misma.
+            if (destino === "web") window.open(url, "whatsapp-web");
+            else window.location.href = url;
         } else if (p.instagram_url) {
             navigator.clipboard.writeText(texto).catch(() => {});
             toast.success("Mensaje copiado: pegalo en el mensaje directo");
@@ -335,7 +384,9 @@ export default function TurnosPage() {
 
     const contesto = (p: Prospecto) => {
         guardar(p, { estado: "respondio", fecha_respuesta: hoyISO() });
-        toast.success(`${nombreCorto(p.negocio)} pasó a "Contestaron"`);
+        setBuscarContesto("");
+        setPestania("contestaron");
+        toast.success(`${nombreCorto(p.negocio)} contestó: elegí qué le respondés`);
     };
 
     const deshacerEnvio = (p: Prospecto) =>
@@ -419,6 +470,25 @@ export default function TurnosPage() {
                     Te acercás al límite de chats nuevos de WhatsApp del mes. Pasá los que tengan Instagram a ese canal.
                 </p>
             )}
+
+            <div className="flex items-center gap-1.5 flex-wrap text-[11px]">
+                <span className="text-muted-foreground">WhatsApp se abre en:</span>
+                {(esAndroid
+                    ? ([["business", "Business"], ["personal", "WhatsApp"], ["web", "WhatsApp Web"]] as const)
+                    : ([["business", "La app"], ["web", "WhatsApp Web"]] as const)
+                ).map(([id, label]) => (
+                    <button
+                        key={id}
+                        onClick={() => setDestino(id)}
+                        className={cn(
+                            "px-2 py-0.5 rounded-lg font-bold border",
+                            destino === id ? "bg-primary text-primary-foreground border-primary" : "bg-card text-muted-foreground border-border"
+                        )}
+                    >
+                        {label}
+                    </button>
+                ))}
+            </div>
 
             <Pestanias
                 valor={pestania}
@@ -514,8 +584,8 @@ export default function TurnosPage() {
             ) : pestania === "seguir" ? (
                 <section className="space-y-3">
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
-                        Día 3: un recurso que le sirve aunque no te compre. Día 8: el cierre. Si alguien contestó, tocá
-                        &ldquo;Contestó&rdquo; y pasa a la otra pestaña.
+                        Día 3: un recurso que le sirve aunque no te compre. Día 8: el cierre. Si alguien contestó, buscalo
+                        en &ldquo;Contestaron&rdquo; o tocá &ldquo;Contestó&rdquo; acá.
                     </p>
                     {seguimientos.length === 0 && <Vacio texto="No hay seguimientos que toquen hoy." />}
                     {seguimientos.map(({ p, accion }) => {
@@ -564,6 +634,34 @@ export default function TurnosPage() {
                     <p className="text-[11px] text-muted-foreground leading-relaxed">
                         Contestales en menos de una hora. Cada botón abre el chat con el mensaje de ese paso.
                     </p>
+                    <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/5 p-3 space-y-2">
+                        <label className="block space-y-1">
+                            <span className="text-[11px] font-bold text-emerald-200">Te contestó alguien? Buscalo acá</span>
+                            <input
+                                value={buscarContesto}
+                                onChange={(e) => setBuscarContesto(e.target.value)}
+                                placeholder="Nombre, negocio o número"
+                                className="w-full px-3 py-2.5 rounded-lg bg-background border border-border text-sm text-foreground"
+                            />
+                        </label>
+                        {buscarContesto.trim() && encontrados.length === 0 && (
+                            <p className="text-[11px] text-muted-foreground">No hay nadie esperando respuesta con ese nombre o número.</p>
+                        )}
+                        {encontrados.map((p) => (
+                            <div key={p.id} className="flex items-center justify-between gap-2">
+                                <span className="text-xs text-foreground [overflow-wrap:anywhere]">
+                                    {nombreCorto(p.negocio)}
+                                    <span className="text-muted-foreground">
+                                        {" · "}
+                                        {p.estado === "enviado" ? "mensaje 1" : p.estado === "fu1" ? "día 3" : p.estado === "fu2" ? "día 8" : "cerrado"}
+                                    </span>
+                                </span>
+                                <button onClick={() => contesto(p)} className="shrink-0 px-2.5 py-1 rounded-lg text-[11px] font-bold border border-emerald-500/40 bg-emerald-500/15 text-emerald-300">
+                                    Contestó
+                                </button>
+                            </div>
+                        ))}
+                    </div>
                     {contestaron.length === 0 && <Vacio texto="Todavía no contestó nadie." />}
                     {contestaron.map((p) => (
                         <TarjetaContesto key={p.id} p={p} onEnviar={(paso, texto) => enviar(p, paso, canalTurnos(p), texto)} onFundador={() => fundador(p)} />
@@ -720,7 +818,7 @@ function TarjetaTurno({
                     <input value={nombre} onChange={(e) => setNombre(e.target.value)} onBlur={() => nombre !== p.contacto_nombre && onGuardar({ contacto_nombre: nombre })} placeholder="Para el 'Hola [nombre]'" className={inputCls} />
                 </label>
                 <label className="block space-y-1">
-                    <span className="text-[10px] font-bold text-muted-foreground uppercase">Primera línea (algo que solo es verdad de él)</span>
+                    <span className="text-[10px] font-bold text-muted-foreground uppercase">Primera línea (solo va en el mensaje a centros)</span>
                     <textarea rows={2} value={linea} onChange={(e) => setLinea(e.target.value)} onBlur={() => linea !== p.dato_usado && onGuardar({ dato_usado: linea })} placeholder='Ej.: Vi que te preguntan el precio en los comentarios' className={inputCls} />
                 </label>
                 <label className="block space-y-1">
