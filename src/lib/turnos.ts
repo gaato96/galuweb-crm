@@ -77,6 +77,8 @@ export interface RubroTurnos {
     para: string;
     /** Si está afuera, por qué. Un rubro excluido nunca entra a la cola. */
     excluido?: string;
+    /** Para los excluidos: palabras sueltas (se buscan como palabra, no adentro de otra). */
+    patron?: RegExp;
 }
 
 export const RUBROS_TURNOS: RubroTurnos[] = [
@@ -97,7 +99,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         id: "nutricion",
         label: "Nutrición",
         busquedas: ["nutricionista", "licenciada en nutrición"],
-        claves: ["nutric", "dietist"],
+        claves: ["nutric", "nutri ", "nutri-", "dietist", "nutricionista"],
         prioridad: 14,
         demo: "nutricion-semilla",
         recurso: "mensajes-precio-consulta-nutricion",
@@ -188,7 +190,7 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         id: "medicina",
         label: "Consultorio médico",
         busquedas: ["consultorio médico"],
-        claves: ["medic", "clinica", "dermatolog", "pediatr", "ginecolog", "traumatolog", "consultorio"],
+        claves: ["medic", "dermatolog", "pediatr", "ginecolog", "traumatolog", "endocrin", "cardiolog", "clinico"],
         prioridad: 3,
         demo: "",
         recurso: "link-de-turnos-consultorio",
@@ -198,10 +200,39 @@ export const RUBROS_TURNOS: RubroTurnos[] = [
         quienes: "médicos",
     },
     {
+        id: "instituciones",
+        label: "Clínicas, sanatorios y centros médicos",
+        busquedas: [],
+        claves: [],
+        patron: /\b(sanatorio|hospital|policl[ií]nic\w*|cl[ií]nica (m[eé]dica|ambulatoria|privada|integral)|centro m[eé]dico|centro de salud|grupo m[eé]dico|consultorios|universidad|campus|facultad|instituto m[eé]dico|obra social|laboratorio)\b/i,
+        prioridad: 0,
+        demo: "",
+        recurso: "",
+        cliente: "pacientes",
+        ejemplo: "",
+        para: "",
+        excluido: "Clínica o centro con muchos profesionales: no decide nadie por WhatsApp",
+    },
+    {
+        id: "comercios",
+        label: "Comercios (suplementos, dietéticas, tiendas)",
+        busquedas: [],
+        claves: [],
+        patron: /\b(suplement\w*|dietetica|diet[eé]tica|herbalife|semiller[ií]a|almac[eé]n|tienda|store|shop|distribuidor\w*|farmacia|kiosco|market|outlet|comercio|supermercado|tienda de alimentacion)\b/i,
+        prioridad: 0,
+        demo: "",
+        recurso: "",
+        cliente: "clientes",
+        ejemplo: "",
+        para: "",
+        excluido: "Es un comercio: no da turnos",
+    },
+    {
         id: "clases",
         label: "Pilates, yoga y gimnasios",
         busquedas: [],
-        claves: ["pilates", "yoga", "gimnas", "gym", "crossfit", "funcional", "fitness", "entrenamiento"],
+        claves: ["pilates", "yoga", "gimnas", "crossfit", "fitness", "entrenamiento"],
+        patron: /\b(gym|fit|training|sports?|alto rendimiento|box)\b/i,
         prioridad: 0,
         demo: "",
         recurso: "",
@@ -237,23 +268,58 @@ export function rubroPorId(id: string): RubroTurnos | undefined {
  * tiene que salir como excluido, no como estética.
  */
 export function rubroTurnosDe(p: Pick<Prospecto, "rubro" | "especialidad" | "negocio"> & { escaneo?: Prospecto["escaneo"] }): RubroTurnos | undefined {
+    // Los excluidos van primero, incluso antes de lo que guardó el escaneo: un
+    // gimnasio que salió buscando "nutricionista" quedó guardado como nutrición.
+    const excluido = excluidoPorTexto(`${p.rubro} ${p.especialidad} ${p.negocio}`);
+    if (excluido) return excluido;
     const guardado = p.escaneo?.sarvo?.rubro;
     if (guardado) {
         const r = rubroPorId(guardado);
         if (r) return r;
     }
-    const texto = sinTildes(`${p.rubro} ${p.especialidad} ${p.negocio}`);
-    if (!texto) return undefined;
-    const excluido = RUBROS_TURNOS.find((r) => r.excluido && r.claves.some((k) => texto.includes(k)));
-    if (excluido) return excluido;
-    // "medicina" va al final: "consultorio" aparece en casi todos.
+    return rubroActivoDe(p.negocio, `${p.rubro} ${p.especialidad}`);
+}
+
+function excluidoPorTexto(texto: string): RubroTurnos | undefined {
+    const t = sinTildes(texto);
+    if (!t) return undefined;
+    return RUBROS_TURNOS.find((r) => r.excluido && (r.claves.some((k) => t.includes(k)) || (r.patron ? r.patron.test(t) : false)));
+}
+
+/**
+ * El rubro activo por el nombre del negocio y el rubro cargado. El cargado
+ * ("Nutricionistas") gana cuando el nombre también lo nombra o no nombra
+ * ninguno: "Alicia Sosa Nutrición y Estética" es nutricionista. Pero si el
+ * nombre es claramente de otro rubro, gana el nombre: un "Consultorio de
+ * Fisioterapia" que salió buscando nutricionistas es kinesiología.
+ */
+function rubroActivoDe(negocio: string, cargado: string): RubroTurnos | undefined {
+    // "medicina" va al final: "medic" aparece en muchos.
     const activos = [...RUBROS_ACTIVOS].sort((a, b) => (a.id === "medicina" ? 1 : 0) - (b.id === "medicina" ? 1 : 0));
-    // El rubro cargado al importar ("Nutricionistas") gana sobre el nombre del
-    // negocio: "Alicia Sosa Nutrición y Estética" es una nutricionista que salió
-    // en esa búsqueda, no un centro de estética.
-    const rubroCargado = sinTildes(`${p.rubro} ${p.especialidad}`);
-    const porRubro = rubroCargado ? activos.find((r) => r.claves.some((k) => rubroCargado.includes(k))) : undefined;
-    return porRubro || activos.find((r) => r.claves.some((k) => texto.includes(k)));
+    const nombre = ` ${sinTildes(negocio)} `;
+    const rubroCargado = sinTildes(cargado);
+    const porNombre = activos.filter((r) => r.claves.some((k) => nombre.includes(k)));
+    const porCargado = rubroCargado ? activos.find((r) => r.claves.some((k) => rubroCargado.includes(k))) : undefined;
+    if (porCargado && (porNombre.length === 0 || porNombre.includes(porCargado))) return porCargado;
+    return porNombre[0] || porCargado;
+}
+
+/**
+ * Para "Traer": si lo que devolvió Google Maps es de verdad del rubro buscado.
+ * Google mezcla gimnasios, suplementerías y sanatorios cuando buscás
+ * "nutricionista". Entra solo si el nombre o la categoría de Google lo nombran
+ * y no es un excluido.
+ */
+export function encajaEnRubro(rubroId: string, nombre: string, categoriaGoogle = ""): boolean {
+    const rubro = rubroPorId(rubroId);
+    if (!rubro || rubro.excluido) return false;
+    if (excluidoPorTexto(`${nombre} ${categoriaGoogle}`)) return false;
+    const r = rubroActivoDe(`${nombre} ${categoriaGoogle}`, "");
+    if (r) return r.id === rubroId;
+    // "Lic. Agustina Femenias": el nombre no dice el rubro y Google la pone como
+    // "Asesor". Un profesional con título que salió en la búsqueda del rubro y que
+    // Google no ubica en otro rubro, entra.
+    return !!nombreDesdeNegocio(nombre);
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -507,13 +573,13 @@ export function generarMensajeTurnos(paso: PasoTurnos, p: Prospecto, canal: Cana
                 ? `${hola(p)} ${soy} ${presentado} me pasó tu contacto.`
                 : `${hola(p)} ${soy}${linea ? ` ${linea}` : ""}`;
 
+            // Al dueño de un centro: el dolor es el paciente que escribe cuando la
+            // recepción está cerrada y saca turno en otro lado. Nada de preguntarle
+            // cosas obvias ni de "se decide arriba".
             if (seg === "centro") {
-                return [
-                    `${apertura} Te escribo a vos porque es algo que se decide arriba en ${negocio}. Cuando les escriben a la noche o un domingo y no hay nadie en recepción, esa consulta queda esperando hasta el otro día?`,
-                    nivel === "A"
-                        ? `Les hice una página de turnos con sus servicios. Contesta el precio y los horarios y da el turno con la agenda real, a la hora que sea. A la recepción le saca las preguntas de siempre. Mirala: ${demo}`
-                        : `Hice una página de turnos para ${para} que contesta el precio y los horarios y da el turno con la agenda real, a la hora que sea. A la recepción le saca las preguntas de siempre. Si te interesa, la armo con los servicios de ${negocio} y te mando un video de 30 segundos.`,
-                ].join("\n\n");
+                return nivel === "A"
+                    ? `${apertura} Te armé la página de turnos de ${negocio} con sus servicios: ${demo}\n\nEl paciente ve los horarios libres y saca el turno solo, a cualquier hora, directo en la agenda. Los que escriben a la noche o el domingo ya no quedan esperando hasta el otro día. Este mes la estoy dejando gratis a unos pocos centros${deAca} a cambio de que la prueben. La mirás y me decís qué te parece?`
+                    : `${apertura} Armé una página de turnos para ${para}: el paciente ve los horarios libres y saca el turno solo, a cualquier hora, directo en la agenda. Los que escriben a la noche o el domingo ya no quedan esperando hasta el otro día, y la recepción deja de contestar el "cuánto sale" y el "tenés lugar".\n\nEste mes la estoy dejando gratis a unos pocos centros${deAca} a cambio de que la prueben y me digan qué les parece. Te paso una de ejemplo así la ves?`;
             }
 
             // El de nivel B es el texto de Gastón, tal cual lo escribe él: una sola
@@ -526,17 +592,18 @@ export function generarMensajeTurnos(paso: PasoTurnos, p: Prospecto, canal: Cana
                 : `${inicio} Te escribo porque armé una página de turnos para ${para}: tus ${cliente} ven el precio y sacan turno solos, con tu agenda real. Así no tenés que contestar uno por uno. ${seisDeAca} Te puedo pasar una de ejemplo así la probás?`;
         }
 
+        // Lo lee la secretaria. Se le habla como a la que más trabajo se ahorra y
+        // se le pide una sola cosa concreta: con quién hablar.
         case "m1_recepcion":
-            return [
-                `Hola, cómo estás? Vos sos la que contesta el WhatsApp de ${negocio}? ${soy} Hice una página de turnos para ${para} que responde sola el "cuánto sale" y el "tenés lugar", y deja el turno anotado en la agenda. También a la noche y los domingos.`,
-                `Quién decide estas cosas ahí? Le mando un video de 30 segundos y le cuento que lo viste vos primero.`,
-            ].join("\n\n");
+            return `Hola, buen día! ${soy} Armé una página de turnos para ${para}: el paciente ve los horarios libres y saca el turno solo, a cualquier hora, y a ustedes les llega anotado en la agenda. Les saca de encima el "cuánto sale" y el "tenés lugar" de todo el día.\n\nEste mes la estoy dejando gratis a unos pocos${deAca} para que la prueben. Me pasás el contacto de quien maneja ${negocio}, así le mando un ejemplo?`;
 
         case "fu1":
-            return `${nombre ? `${nombre}, p` : "P"}udiste verlo? Te dejo algo que armé para ${r ? r.label.toLowerCase() : "negocios con turnos"}, te sirve uses lo mío o no: ${linkRecurso(p)}`;
+            return `${nombre ? `Hola ${nombre}! ` : "Hola! "}Te dejo algo que armé para ${r?.quienes || "profesionales con turnos"}, te sirve aunque no uses la página: ${linkRecurso(p)}\n\nY si querés ver cómo funciona la página de turnos, te paso el ejemplo y la probás en un minuto.`;
 
         case "fu2":
-            return `${nombre ? `${nombre}, e` : "E"}s la última vez que te escribo por esto 🙂 Te dejo la página armada o la borro? Cualquiera de las dos me sirve.`;
+            return nivel === "A"
+                ? `${nombre ? `${nombre}, e` : "E"}s la última vez que te escribo por esto 🙂 Te dejo la página armada o la borro? Cualquiera de las dos me sirve.`
+                : `${nombre ? `${nombre}, e` : "E"}s la última vez que te escribo por esto 🙂 Me quedan pocos lugares para dejar la página de turnos gratis este mes. Te interesa probarla o lo dejamos acá? Cualquiera de las dos me sirve.`;
 
         case "link":
             return demo

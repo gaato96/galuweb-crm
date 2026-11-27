@@ -35,7 +35,7 @@ import { ESCANEO_VACIO, ESCANEO_SARVO_VACIO } from "@/lib/types";
 import { proximaAccion, diasDesde, telefonoAWhatsapp, normalizarEscaneo } from "@/lib/prospeccion";
 import {
     RUBROS_ACTIVOS, rubroPorId, rubroTurnosDe, sarvoDe, segmentoDe, nivelDe, motivoFueraTurnos,
-    generarMensajeTurnos, canalTurnos, nombreDesdeNegocio, lineaUtil, scoreTurnos, fichaParaSarvo, chatsNuevosDelMes, nombreCorto,
+    generarMensajeTurnos, canalTurnos, nombreDesdeNegocio, encajaEnRubro, lineaUtil, scoreTurnos, fichaParaSarvo, chatsNuevosDelMes, nombreCorto,
     SEGMENTO_LABELS, PASO_TURNOS_LABELS, CUOTA_DIARIA, LIMITE_CHATS_NUEVOS_MES,
     type PasoTurnos, type CanalTurnos,
 } from "@/lib/turnos";
@@ -65,6 +65,17 @@ const abrirUrl = (u: string) => (u.startsWith("http") ? u : `https://${u}`);
 const yaContactado = (p: Prospecto) => !!(p.prueba_enviada_at || p.fecha_envio || (p.mensaje_enviado || "").trim());
 
 const rubroDeCola = (p: Prospecto) => rubroTurnosDe(p)?.id || "otros";
+
+/** Los últimos 10 dígitos: "+54 9 381 555-1234" y "381 555 1234" son el mismo. */
+const digitosTel = (p: Pick<Prospecto, "telefono_wa" | "telefono">) => {
+    const d = (p.telefono_wa || p.telefono || "").replace(/\D/g, "");
+    return d.length >= 8 ? d.slice(-10) : "";
+};
+
+const ESTADOS_TRABAJADOS = ["enviado", "fu1", "fu2", "fu3", "sin_respuesta", "respondio", "revision_enviada", "reunion", "acordado", "cliente"];
+
+/** Se le escribió alguna vez, desde cualquier campaña (Sarvo, Galu, VivoMenu). */
+const leEscribiste = (p: Prospecto) => yaContactado(p) || ESTADOS_TRABAJADOS.includes(p.estado);
 
 export default function TurnosPage() {
     const [universo, setUniverso] = useState<Prospecto[]>([]);
@@ -140,20 +151,41 @@ export default function TurnosPage() {
     const chatsMes = chatsNuevosDelMes(universo);
     const restantesHoy = Math.max(0, CUOTA_DIARIA - enviadosHoy);
 
+    // Los teléfonos a los que ya se les escribió desde cualquier campaña. Un mismo
+    // consultorio puede estar cargado dos veces (otra sucursal, otro nombre, otra
+    // ciudad, el análisis de Galu de septiembre): si a uno ya le escribiste, el
+    // otro no vuelve a aparecer en "Hoy".
+    const telContactados = useMemo(
+        () => new Set(universo.filter(leEscribiste).map(digitosTel).filter(Boolean)),
+        [universo]
+    );
+    const contactadoPorOtroLado = useCallback(
+        (p: Prospecto) => {
+            const t = digitosTel(p);
+            return !!t && telContactados.has(t);
+        },
+        [telContactados]
+    );
+
+    const pendiente = useCallback(
+        (p: Prospecto) => SIN_CONTACTAR.includes(p.estado) && !yaContactado(p) && !contactadoPorOtroLado(p),
+        [contactadoPorOtroLado]
+    );
+
     const sinEscanear = useMemo(
-        () => turnos.filter((p) => SIN_CONTACTAR.includes(p.estado) && !yaContactado(p) && !sarvoDe(p).escaneado_at),
-        [turnos]
+        () => turnos.filter((p) => pendiente(p) && motivoFueraTurnos(p) === null && !sarvoDe(p).escaneado_at),
+        [turnos, pendiente]
     );
 
     const cola = useMemo(
         () =>
             turnos
-                .filter((p) => SIN_CONTACTAR.includes(p.estado) && !yaContactado(p) && motivoFueraTurnos(p) === null)
+                .filter((p) => pendiente(p) && motivoFueraTurnos(p) === null)
                 // El score se calcula acá y no se lee de la base: los consultorios
                 // cargados antes del 2026-11-09 tienen guardado el de la prueba de la hora.
                 .map((p) => ({ ...p, score: scoreTurnos(p).total }))
                 .sort((a, b) => b.score - a.score),
-        [turnos]
+        [turnos, pendiente]
     );
 
     const seguimientos = useMemo(
@@ -284,15 +316,34 @@ export default function TurnosPage() {
             const json = await res.json();
             if (!res.ok) throw new Error(json.error || "Error al buscar en Maps");
             const busqueda = json.data as ScraperBusqueda;
-            setBuscando(`Encontré ${busqueda.prospectos.length}. Cargándolos…`);
-            const listaId = await listadoDe(zona, rubro.label);
-            const r = await prospectosStore.importarDesdeScraper(busqueda.prospectos, universo, SISTEMA, {
-                listaId, pais: "Argentina",
+            // Google mezcla gimnasios, suplementerías y sanatorios cuando buscás
+            // "nutricionista": entra solo lo que es del rubro.
+            const delRubro = busqueda.prospectos.filter((s) => encajaEnRubro(rubro.id, s.nombre, s.categoriaGoogle || ""));
+            const otroRubro = busqueda.prospectos.length - delRubro.length;
+            // Y nunca alguien a quien ya le escribiste, aunque esté cargado con otro
+            // nombre, en otra ciudad o en otra campaña.
+            const nuevos = delRubro.filter((s) => {
+                const t = (s.telefonoClean || s.telefono || "").replace(/\D/g, "").slice(-10);
+                return !(t.length >= 8 && telContactados.has(t));
             });
-            setUniverso((prev) => [...r.insertados, ...prev]);
-            toast.success(
-                `${r.insertados.length} nuevos en "${rubro.label}"` + (r.duplicados ? ` · ${r.duplicados} ya estaban` : "")
+            const contactados = delRubro.length - nuevos.length;
+            setBuscando(`Encontré ${busqueda.prospectos.length}, ${delRubro.length} son ${rubro.quienes || rubro.label.toLowerCase()}. Cargándolos…`);
+            const listaId = await listadoDe(zona, rubro.label);
+            const r = await prospectosStore.importarDesdeScraper(
+                nuevos.map((s) => ({ ...s, rubro: rubro.label })),
+                universo,
+                SISTEMA,
+                { listaId, pais: "Argentina" }
             );
+            setUniverso((prev) => [...r.insertados, ...prev]);
+            const partes = [
+                contactados ? `${contactados} ya los contactaste` : "",
+                r.duplicados ? `${r.duplicados} ya estaban cargados` : "",
+                otroRubro ? `${otroRubro} no eran del rubro (gimnasios, comercios, clínicas)` : "",
+            ].filter(Boolean);
+            toast.success(`${r.insertados.length} nuevos de ${rubro.label}` + (partes.length ? ` · ${partes.join(" · ")}` : ""), {
+                duration: 10000,
+            });
             setBuscando(null);
             await escanear(r.insertados);
             setPestania("hoy");
@@ -497,7 +548,7 @@ export default function TurnosPage() {
                     { id: "hoy", label: "Hoy", cant: cola.length, icon: CalendarCheck },
                     { id: "seguir", label: "Seguir", cant: seguimientos.length, icon: Clock },
                     { id: "contestaron", label: "Contestaron", cant: contestaron.length, icon: Reply },
-                    { id: "traer", label: "Traer", cant: sinEscanear.length, icon: Search },
+                    { id: "traer", label: "Traer", icon: Search },
                 ]}
             />
 
@@ -903,8 +954,9 @@ function SeccionTraer({
             <div className="rounded-2xl border border-border bg-card p-4 space-y-3">
                 <p className="text-sm font-bold text-foreground">Traer negocios de Google Maps</p>
                 <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    Busca, los carga al listado del rubro y los escanea solos: quién contesta, el nombre del profesional,
-                    si publica precios, si ya usa otro sistema y la primera línea del mensaje. Después aparecen en &ldquo;Hoy&rdquo;.
+                    Busca en Maps y carga solo los que son del rubro: deja afuera gimnasios, suplementerías, dietéticas,
+                    clínicas, sanatorios y centros médicos. Tampoco vuelve a traer a nadie que ya contactaste ni a los que ya
+                    están cargados. Los nuevos se escanean solos y aparecen en &ldquo;Hoy&rdquo;.
                 </p>
                 <select value={rubro} onChange={(e) => setRubro(e.target.value)} className={inputCls}>
                     {RUBROS_ACTIVOS.map((r) => (
@@ -932,8 +984,13 @@ function SeccionTraer({
 
             {sinEscanear > 0 && (
                 <Boton onClick={onEscanear} tono="ok" icon={Sparkles} disabled={ocupado}>
-                    Escanear los {sinEscanear} que faltan
+                    Escanear {sinEscanear} ya cargados que nunca se escanearon
                 </Boton>
+            )}
+            {sinEscanear > 0 && (
+                <p className="text-[10px] text-muted-foreground -mt-2">
+                    Son fichas que ya están en el CRM (la mayoría, odontólogos importados en septiembre). No trae nada nuevo de Maps.
+                </p>
             )}
 
             <div className="rounded-2xl border border-border bg-card p-4 space-y-3">

@@ -1040,7 +1040,16 @@ export const prospectosStore = {
         const claveDe = (p: Prospecto) =>
             `${normalizar(p.negocio)}|${normalizar(p.ciudad)}|${normalizar(p.pais || "")}|${p.sistema}`;
 
-        const yaCargados = new Set(universo.map(claveDe));
+        // Nombre + ciudad no alcanza: el mismo consultorio vuelve de Maps como
+        // "Lic. en nutrición María Aguirre" en "Yerba Buena" cuando estaba cargado
+        // como "Nutricionista María Aguirre" en "Tucuman". El teléfono y la ficha
+        // de Maps son el mismo negocio aunque cambie todo lo demás.
+        const telDe = (p: Partial<Prospecto>) => {
+            const d = (p.telefono_wa || p.telefono || "").replace(/\D/g, "");
+            return d.length >= 8 ? `${p.sistema}|tel|${d.slice(-10)}` : "";
+        };
+        const mapsDe = (p: Partial<Prospecto>) => (p.maps_url?.trim() ? `${p.sistema}|maps|${p.maps_url.trim()}` : "");
+        const yaCargados = new Set(universo.flatMap((p) => [claveDe(p), telDe(p), mapsDe(p)]).filter(Boolean));
         const vistosEnLote = new Set<string>();
         const limpios: Prospecto[] = [];
         let duplicados = 0;
@@ -1048,9 +1057,9 @@ export const prospectosStore = {
         for (const item of items) {
             const base = { ...prospectoVacio(item.sistema || "galu"), ...item } as Prospecto;
             if (!base.negocio.trim()) { duplicados++; continue; }
-            const clave = claveDe(base);
-            if (yaCargados.has(clave) || vistosEnLote.has(clave)) { duplicados++; continue; }
-            vistosEnLote.add(clave);
+            const claves = [claveDe(base), telDe(base), mapsDe(base)].filter(Boolean);
+            if (claves.some((c) => yaCargados.has(c) || vistosEnLote.has(c))) { duplicados++; continue; }
+            claves.forEach((c) => vistosEnLote.add(c));
 
             const payload = conDerivados(base, universo);
             delete (payload as Partial<Prospecto>).id;

@@ -75,7 +75,7 @@ export function Pestanias<T extends string>({
 }: {
     valor: T;
     onCambio: (v: T) => void;
-    opciones: { id: T; label: string; cant: number; icon: React.ComponentType<{ className?: string }> }[];
+    opciones: { id: T; label: string; cant?: number; icon: React.ComponentType<{ className?: string }> }[];
 }) {
     return (
         <div className={cn("grid gap-1.5", opciones.length === 4 ? "grid-cols-4" : "grid-cols-3")}>
@@ -93,7 +93,7 @@ export function Pestanias<T extends string>({
                     <span className="flex items-center gap-1">
                         <Icon className="w-3.5 h-3.5 shrink-0" /> {label}
                     </span>
-                    <span className="text-base tabular-nums">{cant}</span>
+                    <span className="text-base tabular-nums">{cant ?? "+"}</span>
                 </button>
             ))}
         </div>
